@@ -1,0 +1,65 @@
+-- PointsLeaderboardClient.lua  (LocalScript)
+-- 📍 StarterPlayer > StarterPlayerScripts
+-- Nécessite : ReplicatedStorage > LeaderboardCore (ModuleScript)
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Core = require(ReplicatedStorage:WaitForChild("LeaderboardCore"))
+
+local function fmt(n)
+	if n >= 1000000000 then  return string.format("%.1fB", n / 1000000000)
+	elseif n >= 1000000 then return string.format("%.1fM", n / 1000000)
+	elseif n >= 1000 then    return string.format("%.1fK", n / 1000)
+	end
+	return tostring(n)
+end
+
+Core.mount({
+	boardNames      = { "PointsLeaderboard", "PointsLeaderboard2", "TopPlayersBoard" },
+	title           = "TOP POINTS",
+	loadingIcon     = "★",
+	emptyText       = "No data yet...",
+
+	getFunctionName = "GetPointsLeaderboard",
+	updateEventName = "PointsLeaderboardUpdate",
+	valueKey        = "points",
+	formatValue     = fmt,
+
+	-- icône coin devant le nombre
+	valueIcon       = "rbxassetid://98915017889166",
+	valueTextSize   = 20,
+
+	topSize         = 100,
+	refreshDelay    = 120,
+	firstLoadDelay  = 3,     -- avant : task.wait(65)
+	entryHeight     = 68,
+	sparkleMaxRank  = 10,    -- B9 : 10 entries animées max sur 50
+
+	palette = {
+		bg          = Color3.fromRGB(18, 14, 8),
+		bgA         = Color3.fromRGB(22, 17, 6),
+		bgB         = Color3.fromRGB(12, 10, 3),
+		panel       = Color3.fromRGB(28, 22, 12),
+		footer      = Color3.fromRGB(22, 16, 4),
+		entry       = Color3.fromRGB(12, 10, 5),
+		top3A       = Color3.fromRGB(48, 36, 8),
+		top3B       = Color3.fromRGB(28, 20, 4),
+		entryStroke = Color3.fromRGB(80, 62, 26),
+		accent1     = Color3.fromRGB(255, 200, 50),
+		accent2     = Color3.fromRGB(255, 225, 120),
+		headerMid   = Color3.fromRGB(40, 30, 5),
+		headerEdge  = Color3.fromRGB(60, 44, 8),
+		stroke      = Color3.fromRGB(120, 90, 30),
+		muted       = Color3.fromRGB(160, 140, 100),
+		white       = Color3.fromRGB(255, 255, 255),
+		purple      = Color3.fromRGB(180, 100, 255),
+		blue        = Color3.fromRGB(80, 160, 255),
+		green       = Color3.fromRGB(80, 220, 120),
+		rank        = {
+			Color3.fromRGB(255, 200, 50),
+			Color3.fromRGB(200, 200, 210),
+			Color3.fromRGB(180, 110, 50),
+		},
+	},
+
+	valueColor = Color3.fromRGB(255, 200, 50),
+})
