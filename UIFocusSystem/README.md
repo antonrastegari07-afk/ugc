@@ -10,7 +10,7 @@ extraits de tes `.rbxm`, corrigés. Dans Studio, ouvre le script du même nom et
 | `FocusEngine.lua` | StarterGui ▸ UIFocusSystem ▸ FocusEngine |
 | `UIFocusClient.lua` | StarterGui ▸ UIFocusSystem ▸ UIFocusClient |
 | `UI_FOCUS_CONFIG.lua` | StarterGui ▸ UIFocusSystem ▸ UI_FOCUS_CONFIG |
-| `Client_try_ugc.lua` | StarterGui ▸ UGCshop ▸ ShopFrame ▸ TRYUGCFrame ▸ TryUGC ▸ Client_try_ugc |
+| `Client_try_ugc.lua` | StarterGui ▸ UGCshop ▸ ShopFrame ▸ TRYUGCFrame ▸ TryUGC ▸ **Client try ugc** |
 | `../RookieGuide/RookieGuide.lua` | StarterPlayer ▸ StarterPlayerScripts ▸ RookieGuide |
 
 ## Ce qui est corrigé
@@ -47,8 +47,9 @@ côtés, derrière le texte. Opacité réglable : ajoute
 
 ## À vérifier dans ton jeu
 
-- Le dossier `ancien_UGCshop…` contient une vieille copie de `Client_try_ugc`
-  avec le même zoom. Si ce ScreenGui est encore dans StarterGui, supprime-le
-  ou désactive son script.
+- Le ScreenGui `ancien UGCshop (PAs SUPPRIMER…` contient une vieille copie de
+  `Client try ugc` avec le même zoom. Désactive ce script-là
+  (Properties ▸ Enabled décoché) : ancien UGCshop ▸ ShopFrame ▸ TRYUGCFrame ▸
+  TryUGC ▸ Client try ugc.
 - `JackCinematics` et `NpcDialog_Client` ne sont pas dans les fichiers fournis.
   S'ils changent le FOV, ils doivent le remettre eux-mêmes à la fin.
