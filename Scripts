@@ -1,0 +1,2799 @@
+--════════════════════════════════════════════════════════════
+-- 🎽 UGC REDEEM LOG — SERVEUR (v2 optimisée + détection totale)
+--
+-- Détecte TOUTES les voies d'acquisition :
+--   shop / late / timeout / quit / bugfix  → hooks du script principal
+--   exploit                                 → hook anti-exploit
+--   free / admin                            → API manuelle
+--   external                                → AUDIT de possession (catalogue
+--                                             Roblox, giveaway hors-jeu, etc.)
+--
+-- 💾 Coût : 4 écritures par redeem (rare). Audit = 0 lecture DataStore
+--    tant que le joueur ne possède aucun UGC configuré.
+--════════════════════════════════════════════════════════════
+local Players            = game:GetService("Players")
+local ReplicatedStorage   = game:GetService("ReplicatedStorage")
+local DataStoreService    = game:GetService("DataStoreService")
+local MarketplaceService  = game:GetService("MarketplaceService")
+local HttpService         = game:GetService("HttpService")
+
+local ADMIN_IDS = { 3203521470, 11017023724, 8456613930, 8142402169, 10420404767 }
+
+-- 🔧 RÉGLAGES AUDIT
+local AUDIT_ENABLED     = false   -- false = coupe complètement l'audit
+local AUDIT_START_DELAY = 45     -- s après le join avant de mettre en file
+local AUDIT_SPACING     = 2.5    -- s entre 2 appels PlayerOwnsAsset (GLOBAL)
+local AUDIT_RECHECK     = 900    -- s avant une 2e passe (0 = désactivé)
+
+local UGC_CONFIG = require(ReplicatedStorage:WaitForChild("UGC_CONFIG"))
+
+local LOG_STORE  = DataStoreService:GetDataStore("UGCRedeems_v1")
+local P_STORE    = DataStoreService:GetDataStore("UGCRedeemsPlayer_v1")
+local RANK_COUNT = DataStoreService:GetOrderedDataStore("UGCRedeemCount_v1")
+local RANK_SPENT = DataStoreService:GetOrderedDataStore("UGCRedeemSpent_v1")
+
+local META_KEY, MAX_PER_BUCKET, MAX_PLAYER_ITEMS, META_TTL = "meta", 100, 60, 30
+local JOB = (game.JobId ~= "" and game.JobId) or "studio"
+
+local function mk(name, class)
+	local r = ReplicatedStorage:FindFirstChild(name)
+	if not r then r = Instance.new(class); r.Name = name; r.Parent = ReplicatedStorage end
+	return r
+end
+local getLog    = mk("AdminGetUGCRedeems", "RemoteFunction")
+local getTop    = mk("AdminGetUGCTop",     "RemoteFunction")
+local getUserFn = mk("AdminGetUGCPlayer",  "RemoteFunction")
+
+local function isAdmin(id)
+	for _, a in ipairs(ADMIN_IDS) do if a == id then return true end end
+	return false
+end
+
+-- ── état mémoire (tout est purgé, voir la boucle de nettoyage) ──
+local metaCache, metaAt = nil, 0
+local registered   = {}   -- [bucketKey] = true
+local bucketSuffix = {}   -- [base] = dernier suffixe connu non plein
+local recentDedup  = {}   -- ["uid_asset"] = os.time()
+local devProdAt    = {}   -- [userId] = os.time()
+local pCache       = {}   -- [userId] = { d = record, t = os.clock() }
+local rateLimit    = {}   -- ["uid:remote"] = os.clock()
+local ownCache     = {}   -- [userId] = { [assetId] = bool }
+local checkQueue   = {}   -- file d'appels PlayerOwnsAsset
+local auditPending = {}   -- [userId] = { remaining = n, owned = {} }
+local auditDone    = {}   -- ["uid:pass"] = true
+
+-- ════════════════════════════════════════════════════════════
+-- LOG GLOBAL (buckets journaliers)
+-- ════════════════════════════════════════════════════════════
+local function readMeta(force)
+	local now = os.time()
+	-- "force" ne relit que si le cache a plus de 10 s → pas de spam au refresh
+	if metaCache and (now - metaAt) < (force and 10 or META_TTL) then return metaCache end
+	local ok, data = pcall(function() return LOG_STORE:GetAsync(META_KEY) end)
+	if not ok then return metaCache end
+	if type(data) ~= "table" or type(data.buckets) ~= "table" then data = { buckets = {} } end
+	metaCache, metaAt = data, now
+	for _, b in ipairs(data.buckets) do registered[b] = true end
+	return data
+end
+
+local function registerBucket(key)
+	if registered[key] then return end
+	local ok = pcall(function()
+		LOG_STORE:UpdateAsync(META_KEY, function(old)
+			if type(old) ~= "table" or type(old.buckets) ~= "table" then old = { buckets = {} } end
+			for _, b in ipairs(old.buckets) do if b == key then return nil end end
+			table.insert(old.buckets, key)
+			return old
+		end)
+	end)
+	if ok then registered[key] = true; metaAt = 0 end
+end
+
+local function writeEntry(entry)
+	local t = os.date("!*t", os.time())
+	local base = string.format("b_%04d%02d%02d", t.year, t.month, t.day)
+	local start = bucketSuffix[base] or 1          -- ⚡ reprend où on s'était arrêté
+	for suffix = start, start + 29 do
+		local key, full = base .. "_" .. suffix, false
+		local ok = pcall(function()
+			LOG_STORE:UpdateAsync(key, function(old)
+				if type(old) ~= "table" or type(old.entries) ~= "table" then old = { entries = {} } end
+				if #old.entries >= MAX_PER_BUCKET then full = true; return nil end
+				table.insert(old.entries, entry)
+				return old
+			end)
+		end)
+		if not ok then return false end
+		if not full then
+			bucketSuffix[base] = suffix
+			registerBucket(key)
+			return true
+		end
+		bucketSuffix[base] = suffix + 1
+	end
+	return false
+end
+
+-- ════════════════════════════════════════════════════════════
+-- FICHE JOUEUR + CLASSEMENTS
+-- ════════════════════════════════════════════════════════════
+local function updatePlayerRecord(userId, item, countSpent)
+	local newCount, newSpent = 0, 0
+	local ok = pcall(function()
+		P_STORE:UpdateAsync("u_" .. userId, function(old)
+			if type(old) ~= "table" then old = { c = 0, sp = 0, fr = 0, it = {} } end
+			old.c  = (tonumber(old.c) or 0) + 1
+			if countSpent then old.sp = (tonumber(old.sp) or 0) + (item.p or 0) end
+			if item.f then old.fr = (tonumber(old.fr) or 0) + 1 end
+			old.lt = item.t
+			if type(old.it) ~= "table" then old.it = {} end
+			table.insert(old.it, item)
+			while #old.it > MAX_PLAYER_ITEMS do table.remove(old.it, 1) end
+			newCount, newSpent = old.c, old.sp or 0
+			return old
+		end)
+	end)
+	if not ok then return end
+	pCache[userId] = nil
+	return newCount, newSpent
+end
+
+-- ════════════════════════════════════════════════════════════
+-- 🔌 API DE LOG
+-- opts = { price, source, player, name, note, countSpent }
+-- ════════════════════════════════════════════════════════════
+local function ugcSnapshot(assetId, fallbackName)
+	local cfg = UGC_CONFIG.GetByAssetId(assetId)
+	return {
+		name  = (cfg and cfg.Name) or fallbackName or ("Asset " .. assetId),
+		img   = (cfg and (cfg.ImageId or cfg.AssetId)) or assetId,
+		price = cfg and cfg.Price or nil,
+	}
+end
+
+_G.UGCRedeem_Log = function(userId, assetId, opts)
+	userId, assetId = tonumber(userId), tonumber(assetId)
+	if not userId or not assetId then return end
+	opts = opts or {}
+
+	local dk, now = userId .. "_" .. assetId, os.time()
+	if recentDedup[dk] and (now - recentDedup[dk]) < 300 then return end
+	recentDedup[dk] = now
+
+	local pl   = opts.player or Players:GetPlayerByUserId(userId)
+	local snap = ugcSnapshot(assetId, opts.name)
+	local price = math.max(0, math.floor(tonumber(opts.price) or snap.price or 0))
+	local countSpent = (opts.countSpent ~= false)
+
+	-- 📊 Stats UGC précalculées (part Robux, stock, délai, voie…)
+	if _G.EconStats and _G.EconStats.RecordUGC then
+		pcall(_G.EconStats.RecordUGC, userId, assetId, {
+			pp = countSpent and price or 0, s = opts.source, name = opts.name or snap.name,
+			listPrice = snap.price, opened = opts.opened,
+		})
+	end
+
+	local ptsAfter
+	if _G.tempsJoueurs and type(_G.tempsJoueurs[userId]) == "table" then
+		local d = _G.tempsJoueurs[userId]
+		ptsAfter = math.floor((d.base or 0) + (d.future or 0))
+	end
+
+	local entry = {
+		id = HttpService:GenerateGUID(false),
+		u = userId, n = (pl and pl.Name) or opts.name, d = pl and pl.DisplayName or nil,
+		a = assetId, an = snap.name, ai = snap.img,
+		p = price, f = (price <= 0 and countSpent),
+		s = tostring(opts.source or "shop"), t = now, pa = ptsAfter,
+		rbx = (function()
+			local d = devProdAt[userId]
+			if type(d) == "table" and (now - d.t) < 900 then return d.n or true end
+			return nil
+		end)(),
+		srv = JOB, nt = opts.note,
+	}
+
+	-- ⚡ écritures SÉQUENTIELLES et espacées : jamais de rafale
+	task.spawn(function()
+		writeEntry(entry)
+		task.wait(0.2)
+		local c, sp = updatePlayerRecord(userId, {
+			a = entry.a, an = entry.an, ai = entry.ai, p = entry.p,
+			f = entry.f, s = entry.s, t = entry.t, rbx = entry.rbx,
+		}, countSpent)
+		if c then
+			task.wait(0.2)
+			pcall(function() RANK_COUNT:SetAsync(tostring(userId), c) end)
+			if countSpent and sp and sp > 0 then
+				task.wait(0.2)
+				pcall(function() RANK_SPENT:SetAsync(tostring(userId), math.floor(sp)) end)
+			end
+		end
+		print(string.format("🎽 UGC REDEEM | %s (%d) | %s | %s pts | src=%s%s",
+			entry.n or "?", userId, entry.an, tostring(entry.p), entry.s,
+			entry.rbx and " | robux<15min" or ""))
+	end)
+end
+
+_G.UGCRedeem_NoteDevProduct = function(userId, productName)
+	userId = tonumber(userId)
+	if userId then devProdAt[userId] = { t = os.time(), n = productName } end
+end
+
+_G.UGCRedeem_LogFree = function(userId, assetId, note)
+	_G.UGCRedeem_Log(userId, assetId, { price = 0, source = "free", note = note })
+end
+_G.UGCRedeem_LogExploit = function(userId, assetId, details)
+	_G.UGCRedeem_Log(userId, assetId, {
+		price = 0, source = "exploit", countSpent = false, note = details,
+	})
+end
+
+_G.UGCRedeem_GetPlayer = function(userId, force)
+	userId = tonumber(userId); if not userId then return nil end
+	local c = pCache[userId]
+	if not force and c and (os.clock() - c.t) < 60 then return c.d end
+	local ok, data = pcall(function() return P_STORE:GetAsync("u_" .. userId) end)
+	if not ok then return c and c.d or nil end
+	if type(data) ~= "table" then data = { c = 0, sp = 0, fr = 0, it = {} } end
+	pCache[userId] = { d = data, t = os.clock() }
+	return data
+end
+
+-- ════════════════════════════════════════════════════════════
+-- 🔍 AUDIT DE POSSESSION (détecte le catalogue / hors-shop)
+-- Ordre volontaire : d'abord PlayerOwnsAsset (pas de DataStore),
+-- et on ne lit la fiche QUE si le joueur possède au moins un UGC.
+-- ════════════════════════════════════════════════════════════
+local function finalizeAudit(userId)
+	local st = auditPending[userId]
+	auditPending[userId] = nil
+	if not st or #st.owned == 0 then return end          -- ✅ 0 lecture DataStore
+
+	local rec = _G.UGCRedeem_GetPlayer(userId, true)     -- 1 seule lecture
+	local known = {}
+	if rec and type(rec.it) == "table" then
+		for _, it in ipairs(rec.it) do known[tostring(it.a)] = true end
+	end
+
+	for _, assetId in ipairs(st.owned) do
+		if not known[tostring(assetId)] then
+			_G.UGCRedeem_Log(userId, assetId, {
+				price = 0, source = "external", countSpent = false,
+				note = "détecté par audit de possession (catalogue / hors-shop / antérieur au log)",
+			})
+			task.wait(0.5)
+		end
+	end
+end
+
+local function enqueueAudit(userId, pass)
+	if not AUDIT_ENABLED then return end
+	if #checkQueue > 400 then return end   -- 🛡️ serveur plein : on saute cette passe
+	local key = userId .. ":" .. pass
+	if auditDone[key] then return end
+	auditDone[key] = true
+
+	local list = {}
+	ownCache[userId] = ownCache[userId] or {}
+	for _, u in ipairs(UGC_CONFIG.Items) do
+		if ownCache[userId][u.AssetId] ~= true then    -- déjà vu possédé → on saute
+			table.insert(list, u.AssetId)
+		end
+	end
+	if #list == 0 then return end
+
+	auditPending[userId] = { remaining = #list, owned = {} }
+	for _, a in ipairs(list) do
+		table.insert(checkQueue, { u = userId, a = a })
+	end
+end
+
+task.spawn(function()
+	while true do
+		-- ⚡ on jette les jobs morts SANS consommer de slot de 2.5 s
+		local job = table.remove(checkQueue, 1)
+		while job and (auditPending[job.u] == nil or not Players:GetPlayerByUserId(job.u)) do
+			auditPending[job.u] = nil
+			job = table.remove(checkQueue, 1)
+		end
+		if not job then
+			task.wait(1)
+			continue
+		end
+		task.wait(AUDIT_SPACING)
+		local pl, st = Players:GetPlayerByUserId(job.u), auditPending[job.u]
+		if pl and st then
+			local owns = false
+			local ok, res = pcall(function()
+				return MarketplaceService:PlayerOwnsAsset(pl, job.a)
+			end)
+			if ok then owns = res end
+			ownCache[job.u] = ownCache[job.u] or {}
+			ownCache[job.u][job.a] = owns
+			if owns then table.insert(st.owned, job.a) end
+			st.remaining -= 1
+			if st.remaining <= 0 then
+				task.spawn(function() finalizeAudit(job.u) end)
+			end
+		end
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	if not AUDIT_ENABLED then return end
+	task.spawn(function()
+		task.wait(AUDIT_START_DELAY + math.random() * 15)
+		if player.Parent then enqueueAudit(player.UserId, 1) end
+		if AUDIT_RECHECK > 0 then
+			task.wait(AUDIT_RECHECK)
+			if player.Parent then enqueueAudit(player.UserId, 2) end
+		end
+	end)
+end)
+
+_G.UGCRedeem_ForceAudit = function(userId)
+	userId = tonumber(userId); if not userId then return end
+	auditDone[userId .. ":manual"] = nil
+	enqueueAudit(userId, "manual")
+	print("🔍 Audit UGC mis en file pour " .. userId)
+end
+
+-- ════════════════════════════════════════════════════════════
+-- REMOTES ADMIN (rate limit séparé par remote)
+-- ════════════════════════════════════════════════════════════
+local function rl(userId, tag, sec)
+	local k, now = userId .. ":" .. tag, os.clock()
+	if rateLimit[k] and (now - rateLimit[k]) < (sec or 0.6) then return false end
+	rateLimit[k] = now
+	return true
+end
+
+getLog.OnServerInvoke = function(player, cursor, wanted)
+	if not isAdmin(player.UserId) then return { entries = {} } end
+	-- ⚡ On ATTEND son tour au lieu de répondre « occupé » : le client
+	--    s'arrêtait au premier refus → seulement 1-2 jours chargés.
+	local t0 = os.clock()
+	while not rl(player.UserId, "log", 0.15) do
+		if os.clock() - t0 > 4 then return { entries = {}, cursor = cursor, hasMore = true, throttled = true } end
+		task.wait(0.05)
+	end
+	wanted = math.clamp(tonumber(wanted) or 30, 5, 80)
+	local meta = readMeta(cursor == nil)
+	if not meta then return { entries = {}, error = "DataStore unavailable" } end
+	local buckets = meta.buckets or {}
+	local i, out, reads = tonumber(cursor) or #buckets, {}, 0
+	while i >= 1 and #out < wanted and reads < 6 do
+		local key = buckets[i]; reads += 1
+		local ok, data = pcall(function() return LOG_STORE:GetAsync(key) end)
+		if ok and type(data) == "table" and type(data.entries) == "table" then
+			for j = #data.entries, 1, -1 do
+				local e = data.entries[j]
+				if type(e) == "table" then table.insert(out, e) end
+			end
+		end
+		i -= 1
+	end
+	return { entries = out, cursor = i, hasMore = i >= 1 }
+end
+
+getTop.OnServerInvoke = function(player, metric, n)
+	if not isAdmin(player.UserId) then return { entries = {} } end
+	if not rl(player.UserId, "top") then return { entries = {} } end
+	n = math.clamp(tonumber(n) or 50, 1, 100)
+	local store = (metric == "spent") and RANK_SPENT or RANK_COUNT
+	local ok, pages = pcall(function() return store:GetSortedAsync(false, n) end)
+	if not ok or not pages then return { entries = {} } end
+	local out = {}
+	local okPage, page = pcall(function() return pages:GetCurrentPage() end)
+	if okPage and type(page) == "table" then
+		for _, e in ipairs(page) do
+			local uid = tonumber(e.key)
+			if uid then table.insert(out, { userId = uid, value = e.value }) end
+		end
+	end
+	return { entries = out, metric = (metric == "spent") and "spent" or "count" }
+end
+
+getUserFn.OnServerInvoke = function(player, targetUserId)
+	if not isAdmin(player.UserId) then return nil end
+	if not rl(player.UserId, "user") then return nil end
+	return _G.UGCRedeem_GetPlayer(tonumber(targetUserId))
+end
+
+-- ════════════════════════════════════════════════════════════
+-- 🧹 NETTOYAGE MÉMOIRE (toutes les 5 min)
+-- ════════════════════════════════════════════════════════════
+task.spawn(function()
+	while true do
+		task.wait(300)
+		local now, clk = os.time(), os.clock()
+		for k, t in pairs(recentDedup) do
+			if now - t > 600 then recentDedup[k] = nil end
+		end
+		for uid, c in pairs(pCache) do
+			if (clk - c.t) > 300 and not Players:GetPlayerByUserId(uid) then pCache[uid] = nil end
+		end
+		for uid in pairs(ownCache) do
+			if not Players:GetPlayerByUserId(uid) then ownCache[uid] = nil end
+		end
+		for k in pairs(auditDone) do
+			local uid = tonumber(tostring(k):match("^(%d+)"))
+			if uid and not Players:GetPlayerByUserId(uid) then auditDone[k] = nil end
+		end
+		for uid, d in pairs(devProdAt) do
+			if type(d) ~= "table" or (now - d.t) > 1800 then devProdAt[uid] = nil end
+		end
+		for k in pairs(rateLimit) do
+			if (clk - rateLimit[k]) > 300 then rateLimit[k] = nil end
+		end
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+	local id = p.UserId
+	devProdAt[id], ownCache[id], auditPending[id] = nil, nil, nil
+end)
+
+_G.DebugUGCRedeem = function(userId)
+	local d = _G.UGCRedeem_GetPlayer(userId, true)
+	if not d then print("🎽 Aucune donnée pour " .. tostring(userId)); return end
+	print(string.format("🎽 UGC de %d : %d items | %d pts | %d gratuits",
+		userId, d.c or 0, d.sp or 0, d.fr or 0))
+	for _, it in ipairs(d.it or {}) do
+		print(string.format("   • %s | %d pts | %s | %s",
+			it.an, it.p or 0, it.s or "?", os.date("!%Y-%m-%d %H:%M", it.t or 0)))
+	end
+end
+
+print("✅ UGC REDEEM LOG v2 chargé (audit de possession : " .. tostring(AUDIT_ENABLED) .. ")")--!nonstrict
+--[[
+================================================================================
+	LeaderboardCore  —  ModuleScript
+	📍 Emplacement : ReplicatedStorage > LeaderboardCore
+
+	Coeur partagé par TOUS les leaderboards (Kills, Rebirths, Streaks, Points,
+	Donations). Les LocalScripts ne contiennent plus qu'une table de config.
+
+	CE QUE LE MODULE APPORTE
+	------------------------
+	A1  Fond dégradé doré sur les entries VIP (au lieu du noir plat)
+	A3  Anneau doré sur l'avatar VIP
+	A4  Gestion VIP nettoyée : UN seul label de nom, plus de container inutile
+	A5  Badge + icône VIP ancrés à droite (AnchorPoint), plus d'offsets figés
+	B1  Shimmer lent et large : un reflet traverse toute l'entry VIP et son
+	    badge en même temps (plaque dorée conservée sous le reflet)
+	B4  Apparition en cascade des entries (slide + fade décalés)
+	B7  Chiffre de la place progressivement plus gros dans le top 3
+	B8  Halo bleu clair pulsant sur l'entry du joueur local
+	B9  Sparkles discrets sur le badge VIP (top 10 uniquement, plafonné)
+	C   - un seul ModuleScript au lieu de 4 scripts dupliqués
+	    - rbxthumb:// partout (zéro yield, zéro pcall par avatar)
+	    - refresh NON destructif : les frames sont réutilisées, plus de flash
+	    - UNE seule boucle Heartbeat anime tout le jeu (pas N task.spawn)
+	    - UN seul InvokeServer par cycle, partagé par tous les boards
+	    - les boards détruits (swap de map) sont retirés proprement
+================================================================================
+]]
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
+local Workspace         = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+
+local Core = {}
+
+--==============================================================================
+-- CONSTANTES DE STYLE VIP / HALOS
+--==============================================================================
+local GOLD        = Color3.fromRGB(255, 210, 60)
+local GOLD_SOFT   = Color3.fromRGB(255, 236, 160)
+local GOLD_DEEP   = Color3.fromRGB(190, 130, 15)
+local GOLD_NAME   = Color3.fromRGB(255, 236, 175)
+local SELF_BLUE   = Color3.fromRGB(120, 205, 255)
+
+local VIP_ICON    = "rbxassetid://93460778559039"
+-- L'image n'est PAS carrée : largeur / hauteur réelles. Sans ça elle est écrasée.
+local VIP_ICON_RATIO = 1.20
+
+-- B8 — halo qui entoure TOUTE l'entry : réservé au joueur local
+local SELF_GLOW = { base = {0.84, 0.91, 0.955}, amp = {0.10, 0.07, 0.04}, speed = 1.8 }
+
+-- Taille du chiffre de la place : le #1 est le plus gros, puis ça décroît
+-- (multiplicateur appliqué au MaxTextSize de base)
+local RANK_SIZE = { 1.62, 1.36, 1.16 }
+
+local SHIMMER_PERIOD = 9.0   -- s entre deux reflets
+local SHIMMER_SWEEP  = 2.6   -- s de balayage (lent et large)
+-- Le badge VIP utilise la MÊME période, décalée d'une demi-période :
+-- les deux reflets ne peuvent donc jamais passer en même temps.
+local BADGE_SWEEP    = 1.1   -- balayage court et net sur le badge
+local BADGE_OFFSET   = SHIMMER_PERIOD * 0.5
+local SPARKLE_MAX_RANK = 10  -- B9 seulement dans le top 10 (perf)
+
+--==============================================================================
+-- 🖱️ ENTRIES INTERACTIVES
+--   Survol  → l'entry grossit (les autres se poussent) + « View Profile »
+--   Clic    → ouvre la fiche profil du joueur (PlayerProfileHover)
+--   ↩️ false = exactement comme avant.
+--==============================================================================
+local INTERACTIVE  = true
+local PROFILE_ICON = "rbxassetid://78515108577271"
+local HOVER_GROW   = 1.22     -- hauteur de l'entry survolée (× la normale)
+local HOVER_GROW_ENABLED = false   -- false = l'entry ne grossit plus au survol
+-- (« View Profile » et le clic restent actifs)
+local HOVER_INFO   = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Stats vues sur TOUS les boards, fusionnées par joueur : la fiche d'un joueur
+-- ouverte depuis le board Kills montre aussi ses points, rebirths, streak…
+local knownStats = {}
+local hoveredEntry = nil
+
+local DEFAULT_RANK_COLORS = {
+	Color3.fromRGB(255, 215, 0),
+	Color3.fromRGB(200, 200, 210),
+	Color3.fromRGB(180, 110, 50),
+}
+
+--==============================================================================
+-- ANIMATEUR CENTRAL
+--   Une seule connexion Heartbeat pour tout le jeu. Chaque animation est une
+--   fonction pure du temps → pas de tween à annuler, pas de thread qui fuit.
+--   Une entrée dont l'objet n'a plus de Parent est retirée automatiquement.
+--==============================================================================
+local anims   = {}
+local animConn = nil
+
+local function registerAnim(obj, state, fn)
+	table.insert(anims, { obj = obj, state = state, fn = fn })
+	if not animConn then
+		animConn = RunService.Heartbeat:Connect(function()
+			local t = os.clock()
+			for i = #anims, 1, -1 do
+				local a = anims[i]
+				if not a.obj or not a.obj.Parent then
+					table.remove(anims, i)
+				else
+					a.fn(t, a.state, a.obj)
+				end
+			end
+		end)
+	end
+end
+
+--==============================================================================
+-- LISTE VIP (partagée par tous les leaderboards)
+--==============================================================================
+local vipList = {}
+
+--==============================================================================
+--  ⏱️ ÉPOQUE — qui gagne entre une lecture complète et un delta
+--
+--     `fetchVip` demande la liste au serveur et attend la réponse. Pendant
+--     cette attente, un delta peut arriver et modifier `vipList`. La réponse,
+--     elle, décrit l'état d'AVANT : l'écraser avec, c'est ressusciter un VIP
+--     qui vient d'être retiré.
+--
+--     Tant que le serveur renvoyait la liste entière à chaque changement, ça
+--     se réparait tout seul quelques secondes plus tard. Avec les deltas, le
+--     serveur n'annonce QUE les changements : un joueur écrasé par une
+--     réponse périmée ne serait plus jamais mentionné, et l'erreur resterait
+--     jusqu'à la fin de la session.
+--
+--     Ce compteur tranche : si l'époque a bougé pendant la requête, un delta
+--     plus récent est passé, et c'est lui qui a raison.
+--     (DonationClient rappelle Core.refreshVip toutes les 5 s tant que le
+--      panneau des dons est ouvert — la fenêtre de course est permanente.)
+--==============================================================================
+local vipEpoch = 0
+
+local function fetchVip()
+	local f = ReplicatedStorage:FindFirstChild("GetVIPList")
+	if not f then return false end
+	local mark = vipEpoch
+	local ok, res = pcall(function() return f:InvokeServer() end)
+	if ok and typeof(res) == "table" then
+		--  Un delta est passé pendant la requête → sa version est plus jeune.
+		if vipEpoch ~= mark then return true end
+		vipList = res
+		return true
+	end
+	return false
+end
+
+--  🔁 La première lecture n'est plus « une chance et tant pis ». Elle est la
+--     SEULE source de l'état initial : si elle échoue (remote pas encore
+--     répliqué, hoquet réseau), plus aucun badge ne s'affiche de toute la
+--     session, puisque les deltas ne décrivent que les changements.
+task.spawn(function()
+	ReplicatedStorage:WaitForChild("GetVIPList", 20)
+	for attempt = 1, 5 do
+		if fetchVip() then return end
+		task.wait(3 * attempt)
+	end
+	warn("⚠️ [Leaderboard] Liste VIP introuvable après 5 tentatives — "
+		.. "les couronnes n'apparaîtront qu'aux prochains changements.")
+end)
+
+function Core.refreshVip() return fetchVip() end
+function Core.isVip(userId) return vipList[tostring(userId)] ~= nil end
+
+-- 🖱️ Ouvre la fiche profil (PlayerProfileHover expose _G.OpenPlayerProfile)
+function Core.openProfile(userId, data)
+	local info = {}
+	for k, v in pairs(knownStats[userId] or {}) do info[k] = v end
+	if type(data) == "table" then
+		for k, v in pairs(data) do
+			if info[k] == nil then info[k] = v end
+		end
+	end
+	info.vip = Core.isVip(userId)
+	if type(_G.OpenPlayerProfile) == "function" then
+		_G.OpenPlayerProfile(userId, info)
+	else
+		warn("[Leaderboard] _G.OpenPlayerProfile introuvable → mets à jour PlayerProfileHover")
+	end
+end
+
+-- Toutes les ListView vivantes, pour les repeindre quand la liste VIP change.
+-- (le registre se nettoie tout seul : une vue dont le scroll est détruit sort)
+local liveViews = {}
+
+-- 👑 Le serveur diffuse la liste dès qu'un admin ajoute ou retire un VIP.
+-- Le badge apparaît/disparaît à la seconde, sans attendre le cycle de refresh.
+--==============================================================================
+--  📉 PROTOCOLE DELTA  (doit rester en phase avec VIPManager.server.lua)
+--
+--     Le serveur envoyait la liste VIP COMPLÈTE du jeu à chaque changement.
+--     Avec un millier de VIP enregistrés, ça faisait ~17 Ko par envoi et par
+--     joueur — et les filets de synchronisation multi-serveurs ont multiplié
+--     la fréquence de ces envois. C'était la cause du passage de 5 à 20 KB/s.
+--
+--     Deux formes possibles maintenant :
+--        { d = { ["123"] = true, ["456"] = false } }  → à FUSIONNER
+--        { full = { ["123"] = true, … } }             → remplace tout
+--
+--     `false` dans un delta veut dire « retiré » : on met la clé à nil.
+--
+--     ⚠️ L'ancienne forme (une table nue de userId → true) est encore acceptée
+--        et traitée comme un `full`. Ça évite un écran sans badges si le
+--        serveur et le client sont mis à jour à quelques minutes d'écart.
+--==============================================================================
+task.spawn(function()
+	local ev = ReplicatedStorage:WaitForChild("VIPListUpdate", 25)
+	if not ev then return end
+
+	--  🔁 Un repaint ne coûte pas rien : il refait chaque ligne de chaque vue
+	--     ouverte. Un lot de changements arrivant coup sur coup ne doit
+	--     provoquer qu'UN repaint, à la fin.
+	local repaintQueued = false
+	local function repaint()
+		if repaintQueued then return end
+		repaintQueued = true
+		task.defer(function()
+			repaintQueued = false
+			for i = #liveViews, 1, -1 do
+				local v = liveViews[i]
+				if not (v.scroll and v.scroll.Parent) then
+					table.remove(liveViews, i)
+				elseif v.lastList then
+					v:render(v.lastList)
+				end
+			end
+		end)
+	end
+
+	ev.OnClientEvent:Connect(function(msg)
+		if typeof(msg) ~= "table" then return end
+
+		if typeof(msg.d) == "table" then
+			local touched = false
+			for key, isVip in pairs(msg.d) do
+				local want = (isVip == true) and true or nil
+				if vipList[key] ~= want then
+					vipList[key] = want
+					touched = true
+				end
+			end
+			--  L'époque avance même si rien n'a changé pour NOUS : ce qui
+			--  compte, c'est qu'un message plus récent que toute requête en
+			--  vol soit arrivé.
+			vipEpoch = vipEpoch + 1
+			--  Aucun changement réel → aucun repaint. Un delta redondant
+			--  (deux serveurs annoncent la même chose) ne coûte rien.
+			if touched then repaint() end
+			return
+		end
+
+		local full = (typeof(msg.full) == "table") and msg.full or msg
+		vipList  = full
+		vipEpoch = vipEpoch + 1
+		repaint()
+	end)
+end)
+
+--==============================================================================
+-- HELPERS
+--==============================================================================
+local function rankColor(cfg, rank)
+	local p = cfg.palette
+	if rank <= 3 then
+		return (p.rank and p.rank[rank]) or DEFAULT_RANK_COLORS[rank]
+	elseif rank <= 10 then return p.purple or Color3.fromRGB(180, 100, 255)
+	elseif rank <= 25 then return p.blue   or Color3.fromRGB(80, 160, 255)
+	elseif rank <= 50 then return p.green  or Color3.fromRGB(80, 220, 120)
+	end
+	return p.muted or Color3.fromRGB(140, 140, 150)
+end
+
+-- ⚠️ Un UIGradient MULTIPLIE la BackgroundColor3. Avec un fond noir il n'a
+-- aucun effet (c'est pourquoi les dégradés top-3 de l'ancien code étaient
+-- invisibles). On met donc le fond en blanc et c'est le dégradé qui donne
+-- la vraie couleur.
+local function bgSequence(cfg, rank, isVip)
+	local p = cfg.palette
+	if isVip then
+		-- A1 : noir à gauche → doré sombre à droite
+		return ColorSequence.new({
+			ColorSequenceKeypoint.new(0.00, Color3.fromRGB(12, 9, 3)),
+			ColorSequenceKeypoint.new(0.45, Color3.fromRGB(24, 18, 5)),
+			ColorSequenceKeypoint.new(1.00, Color3.fromRGB(78, 57, 12)),
+		})
+	end
+	if rank <= 3 and p.top3A and p.top3B then
+		return ColorSequence.new({
+			ColorSequenceKeypoint.new(0, p.top3A),
+			ColorSequenceKeypoint.new(1, p.top3B),
+		})
+	end
+	local e = p.entry or Color3.fromRGB(8, 8, 10)
+	return ColorSequence.new(e)
+end
+
+local function thumbUrl(userId)
+	return string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", userId)
+end
+
+local function fmtDefault(n) return tostring(n) end
+
+--==============================================================================
+-- ANIMATIONS (fonctions du temps)
+--==============================================================================
+
+-- B1 — reflet qui balaye le badge VIP
+local function shimmerStep(t, s, grad)
+	if not s.on then return end
+	local sweep = s.sweep or SHIMMER_SWEEP
+	local c = (t + s.phase) % SHIMMER_PERIOD
+	if c < sweep then
+		grad.Offset = Vector2.new(-1 + (c / sweep) * 2, 0)
+	else
+		grad.Offset = Vector2.new(1, 0)   -- garé hors champ entre deux passages
+	end
+end
+
+-- B7 / B8 — halo pulsant
+local function glowStep(t, s, holder)
+	local preset = s.preset
+	if not preset then
+		if s.lit then
+			for _, g in ipairs(s.layers) do g.BackgroundTransparency = 1 end
+			s.lit = false
+		end
+		return
+	end
+	s.lit = true
+	local k = 0.5 + 0.5 * math.sin((t + s.phase) * preset.speed)
+	for i, g in ipairs(s.layers) do
+		g.BackgroundColor3      = s.color
+		g.BackgroundTransparency = preset.base[i] - preset.amp[i] * k
+	end
+end
+
+-- B9 — sparkles qui montent le long du badge VIP
+local function sparkleStep(t, s, holder)
+	if not s.on then
+		if s.lit then
+			for _, p in ipairs(s.parts) do p.BackgroundTransparency = 1 end
+			s.lit = false
+		end
+		return
+	end
+	s.lit = true
+	local n = #s.parts
+	for i, p in ipairs(s.parts) do
+		local f = ((t * 0.5) + s.phase + (i - 1) / n) % 1
+		p.Position               = UDim2.new(s.bx[i], 0, 0.95 - f * 0.8, 0)
+		p.BackgroundTransparency = 0.1 + 0.9 * (f ^ 1.5)
+	end
+end
+
+--==============================================================================
+-- CONSTRUCTION D'UNE ENTRY
+--   Structure :
+--     Entry (holder, transparent, géré par l'UIListLayout)
+--       ├─ Glow1..3   (halos, ZIndex 0 → derrière)
+--       └─ Body       (tout le visuel, ZIndex 2 → animable en slide)
+--   Le holder reste immobile pour le layout, seul le Body bouge (B4).
+--==============================================================================
+local function buildEntry(cfg, parent, index)
+	local H     = cfg.entryHeight
+	local avS   = math.floor(H * 0.62)
+	local badgeH = math.floor(H * 0.44)
+	local badgeW = math.floor(badgeH * 2.1)
+	local iconH = math.floor(H * 0.72)
+	local iconW = math.floor(iconH * VIP_ICON_RATIO)
+	local E     = { cfg = cfg }
+
+	local holder = Instance.new("Frame")
+	holder.Name                   = "Entry"
+	holder.Size                   = UDim2.new(1, 0, 0, H)
+	holder.BackgroundTransparency = 1
+	holder.BorderSizePixel        = 0
+	holder.ClipsDescendants       = false
+	holder.LayoutOrder            = index
+	holder.ZIndex                 = 1
+	holder.Parent                 = parent
+	E.holder = holder
+
+	------------------------------------------------------------------
+	-- B8 — halo autour de TOUTE l'entry, réservé au joueur local
+	--      3 couches concentriques, aucun asset externe
+	------------------------------------------------------------------
+	local layers = {}
+	for i = 1, 3 do
+		local pad = i * 5
+		local g = Instance.new("Frame")
+		g.Name                   = "Glow" .. i
+		g.AnchorPoint            = Vector2.new(0.5, 0.5)
+		g.Position               = UDim2.fromScale(0.5, 0.5)
+		g.Size                   = UDim2.new(1, pad * 2, 1, pad * 2)
+		g.BackgroundColor3       = Color3.new(1, 1, 1)
+		g.BackgroundTransparency = 1
+		g.BorderSizePixel        = 0
+		g.ZIndex                 = 0
+		g.Parent                 = holder
+		Instance.new("UICorner", g).CornerRadius = UDim.new(0, 8 + pad)
+		layers[i] = g
+	end
+	E.glowState = { layers = layers, preset = nil, color = SELF_BLUE, phase = math.random() * 6, lit = false }
+	registerAnim(holder, E.glowState, glowStep)
+
+	------------------------------------------------------------------
+	-- BODY
+	------------------------------------------------------------------
+	local body = Instance.new("Frame")
+	body.Name             = "Body"
+	body.Size             = UDim2.new(1, 0, 1, 0)
+	body.BackgroundColor3 = Color3.new(1, 1, 1)   -- cf. bgSequence()
+	body.BorderSizePixel  = 0
+	body.ZIndex           = 2
+	body.Parent           = holder
+	E.body = body
+	Instance.new("UICorner", body).CornerRadius = UDim.new(0, 8)
+
+	local bg = Instance.new("UIGradient")
+	bg.Name   = "BgGradient"
+	bg.Parent = body
+	E.bg = bg
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 1
+	stroke.Parent    = body
+	E.stroke = stroke
+
+	-- barre de rang
+	local bar = Instance.new("Frame")
+	bar.Name            = "RankBar"
+	bar.Size            = UDim2.new(0, 4, 1, 0)
+	bar.BorderSizePixel = 0
+	bar.ZIndex          = 3
+	bar.Parent          = body
+	Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 8)
+	E.bar = bar
+
+	-- #rang
+	local rankLbl = Instance.new("TextLabel")
+	rankLbl.Name                   = "Rank"
+	rankLbl.Size                   = UDim2.new(0.10, 0, 1, 0)
+	rankLbl.Position               = UDim2.new(0.005, 0, 0, 0)
+	rankLbl.BackgroundTransparency = 1
+	rankLbl.TextScaled             = true
+	rankLbl.Font                   = Enum.Font.FredokaOne
+	rankLbl.TextXAlignment         = Enum.TextXAlignment.Center
+	rankLbl.ZIndex                 = 3
+	rankLbl.Parent                 = body
+	local rankConstraint = Instance.new("UITextSizeConstraint", rankLbl)
+	rankConstraint.MinTextSize = 8
+	rankConstraint.MaxTextSize = math.floor(H * 0.26)
+	E.rankLbl        = rankLbl
+	E.rankConstraint = rankConstraint
+	E.rankBaseSize   = H * 0.26
+
+	-- avatar
+	local avatar = Instance.new("ImageLabel")
+	avatar.Name                   = "Avatar"
+	avatar.Size                   = UDim2.new(0, avS, 0, avS)
+	avatar.Position               = UDim2.new(0.11, 0, 0.5, -avS / 2)
+	avatar.BackgroundColor3       = cfg.palette.panel or Color3.fromRGB(30, 30, 35)
+	avatar.BorderSizePixel        = 0
+	avatar.ZIndex                 = 5
+	avatar.Parent                 = body
+	Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+	E.avatar = avatar
+
+	local avStroke = Instance.new("UIStroke")
+	avStroke.Thickness    = 2
+	avStroke.Transparency = 1
+	avStroke.Parent       = avatar
+	E.avStroke = avStroke
+
+	-- A3 : dégradé doré sur l'anneau, activé seulement pour les VIP
+	local avGrad = Instance.new("UIGradient")
+	avGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.0, GOLD_SOFT),
+		ColorSequenceKeypoint.new(0.5, GOLD_DEEP),
+		ColorSequenceKeypoint.new(1.0, GOLD_SOFT),
+	})
+	avGrad.Rotation = 45
+	avGrad.Enabled  = false
+	avGrad.Parent   = avStroke
+	E.avGrad = avGrad
+
+	-- A4 : UN SEUL label de nom (fini le doublon + le container inutile)
+	local nameLbl = Instance.new("TextLabel")
+	nameLbl.Name                   = "PlayerName"
+	nameLbl.Position               = UDim2.new(0.24, 0, 0.06, 0)
+	nameLbl.Size                   = UDim2.new(0.76, -10, 0.40, 0)
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.TextScaled             = true
+	nameLbl.Font                   = Enum.Font.FredokaOne
+	nameLbl.TextXAlignment         = Enum.TextXAlignment.Left
+	nameLbl.TextTruncate           = Enum.TextTruncate.AtEnd
+	nameLbl.ZIndex                 = 3
+	nameLbl.Parent                 = body
+	local nc = Instance.new("UITextSizeConstraint", nameLbl)
+	nc.MaxTextSize = math.floor(H * 0.24); nc.MinTextSize = 7
+	E.nameLbl = nameLbl
+	E.nameFullW = UDim2.new(0.76, -10, 0.40, 0)
+	E.nameVipW  = UDim2.new(0.76, -(badgeW + iconW + 30), 0.40, 0)
+
+	-- valeur (icône optionnelle + nombre)
+	local valBox = Instance.new("Frame")
+	valBox.Name                   = "Value"
+	valBox.Position               = UDim2.new(0.24, 0, 0.52, 0)
+	valBox.Size                   = UDim2.new(0.60, 0, 0.42, 0)
+	valBox.BackgroundTransparency = 1
+	valBox.ZIndex                 = 5
+	valBox.Parent                 = body
+	local vLayout = Instance.new("UIListLayout")
+	vLayout.FillDirection     = Enum.FillDirection.Horizontal
+	vLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	vLayout.SortOrder         = Enum.SortOrder.LayoutOrder
+	vLayout.Padding           = UDim.new(0, 5)
+	vLayout.Parent            = valBox
+
+	local valIcon = Instance.new("ImageLabel")
+	valIcon.Name                   = "Icon"
+	valIcon.LayoutOrder            = 1
+	valIcon.Size                   = UDim2.new(0, math.floor(H * 0.32), 0, math.floor(H * 0.32))
+	valIcon.BackgroundTransparency = 1
+	valIcon.ScaleType              = Enum.ScaleType.Fit
+	valIcon.Visible                = false
+	valIcon.ZIndex                 = 5
+	valIcon.Parent                 = valBox
+	if cfg.valueIcon then
+		valIcon.Image   = cfg.valueIcon
+		valIcon.Visible = true
+		if cfg.valueIconColor then valIcon.ImageColor3 = cfg.valueIconColor end
+	end
+	E.valIcon = valIcon
+
+	local valLbl = Instance.new("TextLabel")
+	valLbl.Name                   = "Amount"
+	valLbl.LayoutOrder            = 2
+	valLbl.AutomaticSize          = Enum.AutomaticSize.X
+	valLbl.Size                   = UDim2.new(0, 0, 1, 0)
+	valLbl.BackgroundTransparency = 1
+	valLbl.TextSize               = cfg.valueTextSize or math.floor(H * 0.30)
+	valLbl.Font                   = Enum.Font.FredokaOne
+	valLbl.TextXAlignment         = Enum.TextXAlignment.Left
+	valLbl.TextColor3             = cfg.valueColor or cfg.palette.accent1 or Color3.new(1, 1, 1)
+	valLbl.ZIndex                 = 5
+	valLbl.Parent                 = valBox
+	E.valLbl = valLbl
+
+	------------------------------------------------------------------
+	-- BLOC VIP  (créé une fois, simplement masqué quand non-VIP)
+	-- A5 : ancré à DROITE par AnchorPoint → aligné quel que soit le board
+	------------------------------------------------------------------
+	local vipIcon = Instance.new("ImageLabel")
+	vipIcon.Name                   = "VipIcon"
+	vipIcon.AnchorPoint            = Vector2.new(1, 0.5)
+	vipIcon.Size                   = UDim2.new(0, iconW, 0, iconH)
+	vipIcon.Position               = UDim2.new(1, -(badgeW + 18), 0.5, 0)
+	vipIcon.BackgroundTransparency = 1
+	vipIcon.Image                  = VIP_ICON
+	vipIcon.ImageColor3            = Color3.new(1, 1, 1)  -- neutre : couleurs d'origine
+	vipIcon.ScaleType              = Enum.ScaleType.Fit
+	vipIcon.Visible                = false
+	vipIcon.ZIndex                 = 12          -- AU-DESSUS du reflet d'entry (4)
+	vipIcon.Parent                 = body
+	-- 🔒 verrouille le ratio réel de l'image : plus aucun écrasement.
+	local vipRatio = Instance.new("UIAspectRatioConstraint")
+	vipRatio.AspectRatio  = VIP_ICON_RATIO
+	vipRatio.DominantAxis = Enum.DominantAxis.Height
+	vipRatio.Parent       = vipIcon
+	E.vipIcon = vipIcon
+
+	-- ❌ AUCUN dégradé sur l'icône : l'image garde ses propres couleurs.
+
+	local badge = Instance.new("TextLabel")
+	badge.Name             = "VipBadge"
+	badge.AnchorPoint      = Vector2.new(1, 0.5)
+	badge.Size             = UDim2.new(0, badgeW, 0, badgeH)
+	badge.Position         = UDim2.new(1, -12, 0.5, 0)
+	badge.BackgroundColor3 = Color3.new(1, 1, 1)   -- le dégradé fait la couleur
+	badge.BorderSizePixel  = 0
+	badge.Text             = "VIP"
+	badge.TextColor3       = Color3.fromRGB(28, 18, 0)
+	badge.TextSize         = math.floor(badgeH * 0.58)
+	badge.Font             = Enum.Font.FredokaOne
+	badge.TextXAlignment   = Enum.TextXAlignment.Center
+	badge.Visible          = false
+	badge.ZIndex           = 12         -- AU-DESSUS du reflet d'entry (4)
+	badge.Parent           = body
+	Instance.new("UICorner", badge).CornerRadius = UDim.new(1, 0)
+	E.badge = badge
+
+	-- 🟡 LA PLAQUE DORÉE : dégradé diagonal fixe, comme dans ton code d'origine
+	local plate = Instance.new("UIGradient")
+	plate.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.0, Color3.fromRGB(255, 240, 100)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 160, 20)),
+		ColorSequenceKeypoint.new(1.0, Color3.fromRGB(255, 220, 80)),
+	})
+	plate.Rotation = 45
+	plate.Parent   = badge
+
+	-- B1 : le shimmer est un calque SÉPARÉ posé sur la plaque.
+	-- (une instance ne peut porter qu'UN seul UIGradient : plaque + reflet
+	--  ne pouvaient donc pas cohabiter sur le badge lui-même)
+	local badgeShine = Instance.new("Frame")
+	badgeShine.Name                   = "Shine"
+	badgeShine.Size                   = UDim2.new(1, 0, 1, 0)
+	badgeShine.BackgroundColor3       = Color3.fromRGB(255, 252, 235)
+	badgeShine.BackgroundTransparency = 0
+	badgeShine.BorderSizePixel        = 0
+	badgeShine.ZIndex                 = 13
+	badgeShine.Parent                 = badge
+	Instance.new("UICorner", badgeShine).CornerRadius = UDim.new(1, 0)
+
+	local shim = Instance.new("UIGradient")
+	shim.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0.00, 1),
+		NumberSequenceKeypoint.new(0.22, 1),
+		NumberSequenceKeypoint.new(0.38, 0.88),
+		NumberSequenceKeypoint.new(0.50, 0.62),
+		NumberSequenceKeypoint.new(0.62, 0.88),
+		NumberSequenceKeypoint.new(0.78, 1),
+		NumberSequenceKeypoint.new(1.00, 1),
+	})
+	shim.Rotation = 14
+	shim.Offset   = Vector2.new(1, 0)
+	shim.Parent   = badgeShine
+
+	-- ⏱️ DEUX états distincts, décalés d'une demi-période : le reflet du badge
+	--    et celui de l'entry ne passent JAMAIS en même temps.
+	E.shimState  = { on = false, phase = math.random() * SHIMMER_PERIOD,
+		sweep = SHIMMER_SWEEP }
+	E.badgeShim  = { on = false, sweep = BADGE_SWEEP,
+		phase = (E.shimState.phase + BADGE_OFFSET) % SHIMMER_PERIOD }
+	registerAnim(shim, E.badgeShim, shimmerStep)
+
+	------------------------------------------------------------------
+	-- B1 (étendu) — le même reflet balaye TOUTE l'entry
+	--   Un calque quasi invisible posé sur le body : son dégradé est
+	--   opaque partout SAUF une bande claire, et c'est cette bande qui
+	--   se déplace. ZIndex 4 → passe au-dessus du nom et du score, en
+	--   dessous du badge VIP (qui a déjà son propre reflet).
+	--   Même table d'état que le badge → les deux reflets sont synchro.
+	------------------------------------------------------------------
+	local sheen = Instance.new("Frame")
+	sheen.Name                   = "Sheen"
+	sheen.Size                   = UDim2.new(1, 0, 1, 0)
+	sheen.BackgroundColor3       = Color3.fromRGB(255, 246, 214)
+	sheen.BackgroundTransparency = 0     -- c'est le dégradé qui gère l'opacité
+	sheen.BorderSizePixel        = 0
+	sheen.Visible                = false
+	sheen.ZIndex                 = 4
+	sheen.Parent                 = body
+	Instance.new("UICorner", sheen).CornerRadius = UDim.new(0, 8)
+	E.sheen = sheen
+
+	local sheenGrad = Instance.new("UIGradient")
+	sheenGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0.00, 1),
+		NumberSequenceKeypoint.new(0.12, 1),
+		NumberSequenceKeypoint.new(0.28, 0.94),
+		NumberSequenceKeypoint.new(0.42, 0.86),
+		NumberSequenceKeypoint.new(0.50, 0.82),   -- coeur de la bande, large
+		NumberSequenceKeypoint.new(0.58, 0.86),
+		NumberSequenceKeypoint.new(0.72, 0.94),
+		NumberSequenceKeypoint.new(0.88, 1),
+		NumberSequenceKeypoint.new(1.00, 1),
+	})
+	sheenGrad.Rotation = 14              -- légère inclinaison, plus naturel
+	sheenGrad.Offset   = Vector2.new(1, 0)
+	sheenGrad.Parent   = sheen
+	registerAnim(sheenGrad, E.shimState, shimmerStep)
+
+	local badgeStroke = Instance.new("UIStroke")
+	badgeStroke.Color        = GOLD_SOFT
+	badgeStroke.Thickness    = 1.5
+	badgeStroke.Transparency = 0.1
+	badgeStroke.Parent       = badge
+
+	-- B9 : sparkles
+	local spBox = Instance.new("Frame")
+	spBox.Name                   = "Sparkles"
+	spBox.AnchorPoint            = Vector2.new(1, 0.5)
+	spBox.Size                   = UDim2.new(0, badgeW + iconW + 16, 1, 0)
+	spBox.Position               = UDim2.new(1, -8, 0.5, 0)
+	spBox.BackgroundTransparency = 1
+	spBox.ClipsDescendants       = false
+	spBox.Visible                = false
+	spBox.ZIndex                 = 15
+	spBox.Parent                 = body
+	E.spBox = spBox
+
+	local parts, bx = {}, { 0.22, 0.55, 0.82 }
+	for i = 1, 3 do
+		local p = Instance.new("Frame")
+		p.Name                   = "Spark" .. i
+		p.AnchorPoint            = Vector2.new(0.5, 1)
+		p.Size                   = UDim2.new(0, 3, 0, 3)
+		p.BackgroundColor3       = GOLD_SOFT
+		p.BackgroundTransparency = 1
+		p.BorderSizePixel        = 0
+		p.ZIndex                 = 15
+		p.Parent                 = spBox
+		Instance.new("UICorner", p).CornerRadius = UDim.new(1, 0)
+		parts[i] = p
+	end
+	E.sparkState = { on = false, parts = parts, bx = bx, phase = math.random(), lit = false }
+	registerAnim(spBox, E.sparkState, sparkleStep)
+
+	------------------------------------------------------------------
+	-- 🖱️ SURVOL + CLIC → fiche profil
+	------------------------------------------------------------------
+	if INTERACTIVE then
+		local hintH = math.floor(H * 0.26)
+		local hint = Instance.new("Frame")
+		hint.Name                   = "ProfileHint"
+		hint.AnchorPoint            = Vector2.new(0, 0.5)
+		hint.AutomaticSize          = Enum.AutomaticSize.X
+		hint.Size                   = UDim2.new(0, 0, 0, hintH)
+		hint.BackgroundColor3       = Color3.fromRGB(22, 30, 44)
+		hint.BackgroundTransparency = 1
+		hint.BorderSizePixel        = 0
+		hint.Visible                = false
+		hint.ZIndex                 = 16
+		hint.Parent                 = body
+		Instance.new("UICorner", hint).CornerRadius = UDim.new(1, 0)
+		local hStroke = Instance.new("UIStroke")
+		hStroke.Color        = SELF_BLUE
+		hStroke.Transparency = 1
+		hStroke.Parent       = hint
+		local hPad = Instance.new("UIPadding")
+		hPad.PaddingLeft  = UDim.new(0, math.floor(hintH * 0.35))
+		hPad.PaddingRight = UDim.new(0, math.floor(hintH * 0.45))
+		hPad.Parent       = hint
+		local hList = Instance.new("UIListLayout")
+		hList.FillDirection     = Enum.FillDirection.Horizontal
+		hList.VerticalAlignment = Enum.VerticalAlignment.Center
+		hList.SortOrder         = Enum.SortOrder.LayoutOrder
+		hList.Padding           = UDim.new(0, math.floor(hintH * 0.2))
+		hList.Parent            = hint
+
+		local hIcon = Instance.new("ImageLabel")
+		hIcon.LayoutOrder            = 1
+		hIcon.Size                   = UDim2.new(0, math.floor(hintH * 0.8), 0, math.floor(hintH * 0.8))
+		hIcon.BackgroundTransparency = 1
+		hIcon.Image                  = PROFILE_ICON
+		hIcon.ScaleType              = Enum.ScaleType.Fit
+		hIcon.ImageTransparency      = 1
+		hIcon.ZIndex                 = 17
+		hIcon.Parent                 = hint
+
+		local hText = Instance.new("TextLabel")
+		hText.LayoutOrder            = 2
+		hText.AutomaticSize          = Enum.AutomaticSize.X
+		hText.Size                   = UDim2.new(0, 0, 1, 0)
+		hText.BackgroundTransparency = 1
+		hText.Text                   = "View Profile"
+		hText.Font                   = Enum.Font.FredokaOne
+		hText.TextSize               = math.floor(hintH * 0.62)
+		hText.TextColor3             = Color3.new(1, 1, 1)
+		hText.TextTransparency       = 1
+		hText.ZIndex                 = 17
+		hText.Parent                 = hint
+
+		-- Zone de clic invisible, par-dessus tout le reste de l'entry
+		local hit = Instance.new("TextButton")
+		hit.Name                   = "Hit"
+		hit.Size                   = UDim2.new(1, 0, 1, 0)
+		hit.BackgroundTransparency = 1
+		hit.Text                   = ""
+		hit.AutoButtonColor        = false
+		hit.Selectable             = false
+		hit.ZIndex                 = 30
+		hit.Parent                 = body
+
+		-- Collé juste après le nom (largeur RÉELLE du texte), sans mordre
+		-- sur le badge VIP à droite.
+		local function placeHint()
+			local nb   = nameLbl.TextBounds.X
+			local x    = nameLbl.AbsolutePosition.X - body.AbsolutePosition.X + nb + math.floor(H * 0.1)
+			local y    = nameLbl.AbsolutePosition.Y - body.AbsolutePosition.Y + nameLbl.AbsoluteSize.Y / 2
+			local right = E.badge.Visible and (badgeW + iconW + 30) or 12
+			local maxX = body.AbsoluteSize.X - right - hint.AbsoluteSize.X
+			hint.Position = UDim2.fromOffset(math.max(0, math.min(x, maxX)), y)
+		end
+
+		local avBig = math.floor(avS * 1.12)
+		function E.setHover(on)
+			if E.hovered == on then return end
+			E.hovered = on
+			if on then
+				if hoveredEntry and hoveredEntry ~= E and hoveredEntry.setHover then
+					hoveredEntry.setHover(false)
+				end
+				hoveredEntry = E
+			elseif hoveredEntry == E then
+				hoveredEntry = nil
+			end
+
+			if HOVER_GROW_ENABLED then
+				local h = on and math.floor(H * HOVER_GROW) or H
+				TweenService:Create(holder, HOVER_INFO, { Size = UDim2.new(1, 0, 0, h) }):Play()
+				local a = on and avBig or avS
+				TweenService:Create(avatar, HOVER_INFO, {
+					Size = UDim2.new(0, a, 0, a), Position = UDim2.new(0.11, 0, 0.5, -a / 2),
+				}):Play()
+			end
+
+			if on then
+				hint.Visible = true
+				placeHint()
+				task.defer(placeHint)   -- une fois la nouvelle hauteur appliquée
+			end
+			local tr = on and 0 or 1
+			TweenService:Create(hint,    HOVER_INFO, { BackgroundTransparency = on and 0.15 or 1 }):Play()
+			TweenService:Create(hStroke, HOVER_INFO, { Transparency = on and 0.35 or 1 }):Play()
+			TweenService:Create(hIcon,   HOVER_INFO, { ImageTransparency = tr }):Play()
+			local tw = TweenService:Create(hText, HOVER_INFO, { TextTransparency = tr })
+			tw:Play()
+			if not on then
+				tw.Completed:Connect(function()
+					if not E.hovered then hint.Visible = false end
+				end)
+			end
+		end
+
+		hit.MouseEnter:Connect(function() E.setHover(true) end)
+		hit.MouseLeave:Connect(function() E.setHover(false) end)
+		holder.Destroying:Connect(function()
+			if hoveredEntry == E then hoveredEntry = nil end
+		end)
+		nameLbl:GetPropertyChangedSignal("TextBounds"):Connect(function()
+			if E.hovered then placeHint() end
+		end)
+
+		hit.Activated:Connect(function()
+			local uid = E.avatarId
+			if uid then Core.openProfile(uid, E.data) end
+		end)
+	end
+
+	return E
+end
+
+--==============================================================================
+-- APPLIQUER LES DONNÉES À UNE ENTRY (réutilisation → zéro flash au refresh)
+--==============================================================================
+local function applyEntry(E, rank, data)
+	E.data = data
+	local cfg    = E.cfg
+	local userId = data.userId
+	local isVip  = Core.isVip(userId)
+	local isSelf = (LocalPlayer and userId == LocalPlayer.UserId)
+	local rc     = rankColor(cfg, rank)
+
+	E.holder.LayoutOrder = rank
+	E.holder.Name        = "Entry_" .. rank
+
+	E.bg.Color     = bgSequence(cfg, rank, isVip)
+	E.bg.Rotation  = isVip and 0 or ((rank <= 3) and 90 or 0)
+
+	E.bar.BackgroundColor3 = isVip and GOLD or rc
+
+	E.rankLbl.Text       = "#" .. rank
+	E.rankLbl.TextColor3 = isVip and GOLD or rc
+	-- le #1 est le plus gros, puis ça redescend jusqu'à la taille normale
+	E.rankConstraint.MaxTextSize =
+		math.floor(E.rankBaseSize * (RANK_SIZE[rank] or 1))
+
+	if E.avatarId ~= userId then
+		E.avatarId    = userId
+		E.avatar.Image = thumbUrl(userId)   -- C : rbxthumb, aucun yield
+	end
+
+	-- anneau de l'avatar : doré pour VIP (A3), couleur de rang pour le top 3
+	if isVip then
+		-- ⚠️ le UIGradient multiplie Color : il faut du blanc dessous
+		E.avStroke.Color        = Color3.new(1, 1, 1)
+		E.avStroke.Transparency = 0
+		E.avStroke.Thickness    = 3
+		E.avGrad.Enabled        = true
+	elseif rank <= 3 then
+		E.avGrad.Enabled        = false
+		E.avStroke.Color        = rc
+		E.avStroke.Thickness    = 2
+		E.avStroke.Transparency = 0
+	else
+		E.avGrad.Enabled        = false
+		E.avStroke.Transparency = 1
+	end
+
+	E.nameLbl.Text      = data.name or ("User " .. tostring(userId))
+	E.nameLbl.TextColor3 = isVip and GOLD_NAME or (cfg.palette.white or Color3.new(1, 1, 1))
+	E.nameLbl.Size      = isVip and E.nameVipW or E.nameFullW
+
+	local raw = data[cfg.valueKey] or 0
+	E.valLbl.Text = (cfg.formatValue or fmtDefault)(raw)
+
+	-- contour du body : doré pour les VIP, neutre pour tout le monde d'autre
+	if isVip then
+		E.stroke.Color        = GOLD
+		E.stroke.Thickness    = 2.5
+		E.stroke.Transparency = 0
+	else
+		E.stroke.Color        = cfg.palette.entryStroke or Color3.fromRGB(40, 40, 50)
+		E.stroke.Thickness    = 1
+		E.stroke.Transparency = 0.5
+	end
+
+	-- bloc VIP
+	E.vipIcon.Visible   = isVip
+	E.badge.Visible     = isVip
+	E.sheen.Visible     = isVip
+	E.shimState.on      = isVip
+	E.badgeShim.on      = isVip
+	-- B9 plafonné au top 10 pour ne pas animer 50 entries
+	local sparkOn       = isVip and rank <= (cfg.sparkleMaxRank or SPARKLE_MAX_RANK)
+	E.spBox.Visible     = sparkOn
+	E.sparkState.on     = sparkOn
+
+	-- B8 : halo bleu clair autour de l'entry, uniquement pour toi
+	E.glowState.preset = isSelf and SELF_GLOW or nil
+	E.glowState.color  = SELF_BLUE
+end
+
+--==============================================================================
+-- B4 — APPARITION EN CASCADE
+--==============================================================================
+local INTRO_INFO = TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+
+local function playIntro(E, index)
+	local body = E.body
+
+	-- ⚠️ applyEntry() a déjà posé les valeurs finales : on les mémorise AVANT
+	-- de tout remettre à zéro, sinon la cible du tween serait « invisible ».
+	local strokeTarget = E.stroke.Transparency
+	local sheenWasOn   = E.sheen.Visible
+	E.sheen.Visible    = false            -- pas de reflet pendant le fade-in
+
+	body.Position                = UDim2.new(-0.07, 0, 0, 0)
+	body.BackgroundTransparency  = 1
+	E.stroke.Transparency        = 1
+	E.rankLbl.TextTransparency   = 1
+	E.nameLbl.TextTransparency   = 1
+	E.valLbl.TextTransparency    = 1
+	E.avatar.ImageTransparency   = 1
+	E.bar.BackgroundTransparency = 1
+
+	local d = math.min((index - 1) * 0.035, 1.2)
+
+	task.delay(d, function()
+		if not body.Parent then return end
+		TweenService:Create(body, INTRO_INFO, {
+			Position = UDim2.new(0, 0, 0, 0),
+			BackgroundTransparency = 0,
+		}):Play()
+		TweenService:Create(E.stroke,  INTRO_INFO, { Transparency = strokeTarget }):Play()
+		TweenService:Create(E.rankLbl, INTRO_INFO, { TextTransparency = 0 }):Play()
+		TweenService:Create(E.nameLbl, INTRO_INFO, { TextTransparency = 0 }):Play()
+		TweenService:Create(E.valLbl,  INTRO_INFO, { TextTransparency = 0 }):Play()
+		TweenService:Create(E.avatar,  INTRO_INFO, { ImageTransparency = 0 }):Play()
+		TweenService:Create(E.bar,     INTRO_INFO, { BackgroundTransparency = 0 }):Play()
+		task.delay(0.4, function()
+			if body.Parent then E.sheen.Visible = sheenWasOn end
+		end)
+	end)
+end
+
+--==============================================================================
+-- LIST VIEW  —  réutilise les frames existantes (C : plus de flash au refresh)
+--==============================================================================
+local ListView = {}
+ListView.__index = ListView
+
+function Core.newListView(scroll, cfg)
+	cfg = cfg or {}
+	cfg.palette     = cfg.palette or {}
+	cfg.entryHeight = cfg.entryHeight or 68
+	cfg.topSize     = cfg.topSize or 25
+	cfg.valueKey    = cfg.valueKey or "value"
+
+	local self = setmetatable({}, ListView)
+	self.scroll   = scroll
+	self.cfg      = cfg
+	self.entries  = {}
+	self.msg      = nil
+	self.lastList = nil
+	table.insert(liveViews, self)   -- pour le rafraîchissement VIP instantané
+	return self
+end
+
+function ListView:_message(text)
+	if not self.msg then
+		local l = Instance.new("TextLabel")
+		l.Name                   = "Message"
+		l.Size                   = UDim2.new(1, 0, 0, 50)
+		l.BackgroundTransparency = 1
+		l.TextColor3             = self.cfg.palette.muted or Color3.fromRGB(140, 140, 150)
+		l.TextScaled             = true
+		l.Font                   = Enum.Font.Gotham
+		l.LayoutOrder            = 9999
+		l.Parent                 = self.scroll
+		local c = Instance.new("UITextSizeConstraint", l)
+		c.MaxTextSize = 20; c.MinTextSize = 10
+		self.msg = l
+	end
+	self.msg.Text    = text or ""
+	self.msg.Visible = (text ~= nil)
+end
+
+function ListView:showEmpty(text)
+	for i = #self.entries, 1, -1 do
+		self.entries[i].holder:Destroy()
+		self.entries[i] = nil
+	end
+	self:_message(text or "No data yet...")
+end
+
+function ListView:render(list)
+	if not self.scroll or not self.scroll.Parent then return end
+	self.lastList = list
+	local cfg = self.cfg
+	local n   = math.min(#list, cfg.topSize)
+
+	if n == 0 then
+		self:showEmpty(cfg.emptyText)
+		return
+	end
+	self:_message(nil)
+
+	for i = 1, n do
+		local E = self.entries[i]
+		if not E then
+			E = buildEntry(cfg, self.scroll, i)
+			self.entries[i] = E
+			applyEntry(E, i, list[i])
+			playIntro(E, i)              -- B4 : seulement les nouvelles entries
+		else
+			applyEntry(E, i, list[i])    -- refresh silencieux, aucun flash
+		end
+	end
+
+	for i = #self.entries, n + 1, -1 do
+		self.entries[i].holder:Destroy()
+		self.entries[i] = nil
+	end
+end
+
+function ListView:destroy()
+	for i = #self.entries, 1, -1 do
+		self.entries[i].holder:Destroy()
+		self.entries[i] = nil
+	end
+	if self.msg then self.msg:Destroy(); self.msg = nil end
+end
+
+--==============================================================================
+-- INDICATEUR DE CHARGEMENT
+--==============================================================================
+local function createLoader(parent, cfg)
+	local frame = Instance.new("Frame")
+	frame.Name                   = "LoadingIndicator"
+	frame.Size                   = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundTransparency = 1
+	frame.ZIndex                 = 50
+	frame.Parent                 = parent
+
+	local icon = Instance.new("TextLabel")
+	icon.AnchorPoint            = Vector2.new(0.5, 0.5)
+	icon.Size                   = UDim2.new(0, 60, 0, 60)
+	icon.Position               = UDim2.new(0.5, 0, 0.35, 0)
+	icon.BackgroundTransparency = 1
+	icon.Text                   = cfg.loadingIcon or "★"
+	icon.TextColor3             = cfg.palette.accent1 or Color3.new(1, 1, 1)
+	icon.TextScaled             = true
+	icon.Font                   = Enum.Font.FredokaOne
+	icon.ZIndex                 = 51
+	icon.Parent                 = frame
+
+	local lbl = Instance.new("TextLabel")
+	lbl.AnchorPoint            = Vector2.new(0.5, 0)
+	lbl.Size                   = UDim2.new(0.8, 0, 0, 32)
+	lbl.Position               = UDim2.new(0.5, 0, 0.55, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text                   = "LOADING..."
+	lbl.TextColor3             = cfg.palette.accent2 or cfg.palette.accent1 or Color3.new(1, 1, 1)
+	lbl.TextScaled             = true
+	lbl.Font                   = Enum.Font.FredokaOne
+	lbl.ZIndex                 = 51
+	lbl.Parent                 = frame
+	local lc = Instance.new("UITextSizeConstraint", lbl)
+	lc.MaxTextSize = 24; lc.MinTextSize = 12
+
+	-- animé par la boucle centrale : rien à annuler, rien qui fuit
+	registerAnim(frame, { phase = 0 }, function(t, s, f)
+		local k = math.sin(t * 3)
+		icon.Position       = UDim2.new(0.5, 0, 0.35 - 0.045 * k, 0)
+		lbl.TextTransparency = 0.25 + 0.25 * (0.5 + 0.5 * math.sin(t * 2))
+	end)
+
+	return frame
+end
+
+Core.createLoader = createLoader
+
+--==============================================================================
+-- UI D'UN BOARD (SurfaceGui)
+--==============================================================================
+local function buildBoardUI(cfg, sg)
+	for _, c in ipairs(sg:GetChildren()) do c:Destroy() end
+	local p = cfg.palette
+	local reserve = cfg.bottomReserve or 0
+
+	local main = Instance.new("Frame")
+	main.Name             = "MainFrame"
+	main.Size             = UDim2.new(1, 0, 1, 0)
+	main.BackgroundColor3 = p.bg      -- rendu sombre d'origine (le dégradé multiplie)
+	main.BorderSizePixel  = 0
+	main.Parent           = sg
+
+	local bgGrad = Instance.new("UIGradient")
+	bgGrad.Color    = ColorSequence.new(p.bgA or p.bg, p.bgB or p.bg)
+	bgGrad.Rotation = 135
+	bgGrad.Parent   = main
+
+	local header = Instance.new("Frame")
+	header.Name             = "Header"
+	header.Size             = UDim2.new(1, 0, 0.09, 0)
+	header.BackgroundColor3 = p.headerMid or p.panel   -- sombre, comme avant
+	header.BorderSizePixel  = 0
+	header.Parent           = main
+
+	local hGrad = Instance.new("UIGradient")
+	hGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.0, p.headerEdge or p.panel),
+		ColorSequenceKeypoint.new(0.5, p.headerMid  or p.panel),
+		ColorSequenceKeypoint.new(1.0, p.headerEdge or p.panel),
+	})
+	hGrad.Parent = header
+
+	local hStroke = Instance.new("UIStroke")
+	hStroke.Color        = p.accent1
+	hStroke.Thickness    = 3
+	hStroke.Transparency = 0.2
+	hStroke.Parent       = header
+
+	local title = Instance.new("TextLabel")
+	title.Size                   = UDim2.new(1, 0, 1, 0)
+	title.BackgroundTransparency = 1
+	title.Text                   = cfg.title
+	title.TextColor3             = p.accent2 or p.accent1
+	title.TextScaled             = true
+	title.Font                   = Enum.Font.FredokaOne
+	title.Parent                 = header
+	local tc = Instance.new("UITextSizeConstraint", title)
+	tc.MaxTextSize = 46; tc.MinTextSize = 20
+
+	local divider = Instance.new("Frame")
+	divider.Size             = UDim2.new(0.95, 0, 0, 2)
+	divider.Position         = UDim2.new(0.025, 0, 0.09, 1)
+	divider.BackgroundColor3 = Color3.new(1, 1, 1)
+	divider.BorderSizePixel  = 0
+	divider.Parent           = main
+	local dGrad = Instance.new("UIGradient")
+	dGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.0, Color3.new(0, 0, 0)),
+		ColorSequenceKeypoint.new(0.2, p.accent1),
+		ColorSequenceKeypoint.new(0.5, p.accent2 or p.accent1),
+		ColorSequenceKeypoint.new(0.8, p.accent1),
+		ColorSequenceKeypoint.new(1.0, Color3.new(0, 0, 0)),
+	})
+	dGrad.Parent = divider
+
+	local content = Instance.new("Frame")
+	content.Name             = "ContentFrame"
+	content.Size             = UDim2.new(0.96, 0, 0.835 - reserve, 0)
+	content.Position         = UDim2.new(0.02, 0, 0.103, 0)
+	content.BackgroundColor3 = p.panel
+	content.BorderSizePixel  = 0
+	content.ClipsDescendants = true
+	content.Parent           = main
+	Instance.new("UICorner", content).CornerRadius = UDim.new(0, 12)
+
+	local cStroke = Instance.new("UIStroke")
+	cStroke.Color        = p.stroke
+	cStroke.Thickness    = 1
+	cStroke.Transparency = 0.5
+	cStroke.Parent       = content
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name                   = "ScrollingFrame"
+	scroll.Size                   = UDim2.new(0.97, 0, 0.97, 0)
+	scroll.Position               = UDim2.new(0.015, 0, 0.015, 0)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel        = 0
+	scroll.ScrollBarThickness     = 5
+	scroll.ScrollBarImageColor3   = p.accent2 or p.accent1
+	scroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
+	scroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+	scroll.ClipsDescendants       = true
+	scroll.Parent                 = content
+
+	local list = Instance.new("UIListLayout")
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+	list.Padding   = UDim.new(0, 8)   -- 8 px : laisse respirer les halos
+	list.Parent    = scroll
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop    = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.PaddingLeft   = UDim.new(0, 16)   -- marge pour le débord des halos
+	pad.PaddingRight  = UDim.new(0, 16)
+	pad.Parent        = scroll
+
+	local footer = Instance.new("Frame")
+	footer.Name             = "Footer"
+	footer.Size             = UDim2.new(0.96, 0, 0.057, 0)
+	footer.Position         = UDim2.new(0.02, 0, 0.938 - reserve, 0)
+	footer.BackgroundColor3 = p.footer or p.panel
+	footer.BorderSizePixel  = 0
+	footer.Parent           = main
+	Instance.new("UICorner", footer).CornerRadius = UDim.new(0, 8)
+
+	local fStroke = Instance.new("UIStroke")
+	fStroke.Color        = p.stroke
+	fStroke.Thickness    = 1
+	fStroke.Transparency = 0.5
+	fStroke.Parent       = footer
+
+	local refreshLbl = Instance.new("TextLabel")
+	refreshLbl.Name                   = "RefreshLabel"
+	refreshLbl.Size                   = UDim2.new(1, 0, 1, 0)
+	refreshLbl.BackgroundTransparency = 1
+	refreshLbl.Text                   = "Refresh in --:--"
+	refreshLbl.TextColor3             = p.muted
+	refreshLbl.TextScaled             = true
+	refreshLbl.Font                   = Enum.Font.Gotham
+	refreshLbl.Parent                 = footer
+	local flc = Instance.new("UITextSizeConstraint", refreshLbl)
+	flc.MaxTextSize = 16; flc.MinTextSize = 8
+
+	return {
+		main       = main,
+		header     = header,
+		content    = content,
+		scroll     = scroll,
+		footer     = footer,
+		refreshLbl = refreshLbl,
+	}
+end
+
+--==============================================================================
+-- MOUNT  —  point d'entrée appelé par chaque LocalScript
+--==============================================================================
+function Core.mount(cfg)
+	cfg.palette        = cfg.palette or {}
+	cfg.entryHeight    = cfg.entryHeight or 68
+	cfg.topSize        = cfg.topSize or 25
+	cfg.refreshDelay   = cfg.refreshDelay or 120
+	cfg.firstLoadDelay = cfg.firstLoadDelay or 3   -- C : plus de task.wait(80) !
+	cfg.emptyText      = cfg.emptyText or "No data yet..."
+
+	local ctx = {
+		cfg          = cfg,
+		boards       = {},
+		data         = nil,
+		stamp        = 0,      -- incrémenté à chaque nouveau jeu de données
+		lastRefresh  = 0,
+		isRefreshing = false,
+	}
+
+	local getFunc = ReplicatedStorage:WaitForChild(cfg.getFunctionName, 20)
+	local updEvt  = cfg.updateEventName and ReplicatedStorage:WaitForChild(cfg.updateEventName, 20) or nil
+
+	----------------------------------------------------------------
+	-- déduplication + tri
+	----------------------------------------------------------------
+	local function dedupe(raw)
+		local seen, out = {}, {}
+		for _, e in ipairs(raw) do
+			local k = tostring(e.userId)
+			if e.userId and not seen[k] then
+				seen[k] = true
+				table.insert(out, e)
+				local ks = knownStats[e.userId] or {}
+				for f, v in pairs(e) do
+					if f ~= "rank" then ks[f] = v end
+				end
+				knownStats[e.userId] = ks
+			end
+		end
+		table.sort(out, function(a, b)
+			return (a[cfg.valueKey] or 0) > (b[cfg.valueKey] or 0)
+		end)
+		for i, e in ipairs(out) do e.rank = i end
+		return out
+	end
+
+	----------------------------------------------------------------
+	-- rendu sur tous les boards
+	----------------------------------------------------------------
+	local function pushToBoards()
+		for _, b in ipairs(ctx.boards) do
+			if b.scroll and b.scroll.Parent then
+				if b.loader then b.loader:Destroy(); b.loader = nil end
+				b.view:render(ctx.data)
+			end
+		end
+	end
+
+	local function applyServerData(raw)
+		if not raw or #raw == 0 then return end
+		fetchVip()
+		ctx.data        = dedupe(raw)
+		ctx.stamp       = ctx.stamp + 1
+		ctx.lastRefresh = os.clock()
+		pushToBoards()
+	end
+	ctx.applyServerData = applyServerData
+
+	----------------------------------------------------------------
+	-- UN SEUL fetch pour tous les boards (C : moins de trafic remote)
+	----------------------------------------------------------------
+	local function refreshAll()
+		if ctx.isRefreshing then return end
+		ctx.isRefreshing = true
+		ctx.lastRefresh  = os.clock()
+
+		task.spawn(function()
+			fetchVip()
+
+			local data
+			for _ = 1, 5 do
+				if getFunc then
+					local ok, res = pcall(function() return getFunc:InvokeServer() end)
+					if ok and res and #res > 0 then data = res break end
+				end
+				task.wait(2)
+			end
+
+			ctx.isRefreshing = false
+
+			if data then
+				ctx.data        = dedupe(data)
+				ctx.stamp       = ctx.stamp + 1
+				ctx.lastRefresh = os.clock()
+				pushToBoards()
+			else
+				-- pas encore de données côté serveur : nouvel essai dans 5s
+				ctx.lastRefresh = os.clock() - cfg.refreshDelay + 5
+				for _, b in ipairs(ctx.boards) do
+					if b.loader then b.loader:Destroy(); b.loader = nil end
+					if not ctx.data then b.view:showEmpty(cfg.emptyText) end
+				end
+			end
+		end)
+	end
+	ctx.refreshAll = refreshAll
+
+	----------------------------------------------------------------
+	-- countdown (un seul thread pour tous les boards)
+	----------------------------------------------------------------
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			local txt, col
+			if ctx.isRefreshing then
+				txt = "Refreshing..."
+				col = cfg.palette.accent2 or cfg.palette.accent1
+			else
+				local rem = math.max(0, math.floor(ctx.lastRefresh + cfg.refreshDelay - os.clock()))
+				if rem == 0 then
+					txt = "Refreshing soon..."
+					col = cfg.palette.accent1
+				else
+					txt = string.format("Refresh in %d:%02d", math.floor(rem / 60), rem % 60)
+					col = (rem <= 15) and cfg.palette.accent1 or cfg.palette.muted
+				end
+			end
+			for _, b in ipairs(ctx.boards) do
+				if b.refreshLbl and b.refreshLbl.Parent then
+					b.refreshLbl.Text       = txt
+					b.refreshLbl.TextColor3 = col
+				end
+			end
+		end
+	end)
+
+	----------------------------------------------------------------
+	-- boucle d'auto-refresh + nettoyage des boards détruits
+	-- (C : le bug de fuite mémoire au swap de map)
+	----------------------------------------------------------------
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for i = #ctx.boards, 1, -1 do
+				local b = ctx.boards[i]
+				if not (b.surfaceGui and b.surfaceGui.Parent and b.scroll and b.scroll.Parent
+					and b.part and b.part:IsDescendantOf(Workspace)) then
+					b.view:destroy()
+					-- la copie cliquable vit dans le PlayerGui : on la retire aussi
+					if b.surfaceGui and b.surfaceGui ~= b.src then b.surfaceGui:Destroy() end
+					table.remove(ctx.boards, i)
+				end
+			end
+			if #ctx.boards > 0 and not ctx.isRefreshing then
+				if (os.clock() - ctx.lastRefresh) >= cfg.refreshDelay then
+					refreshAll()
+				end
+			end
+		end
+	end)
+
+	----------------------------------------------------------------
+	-- événement serveur
+	----------------------------------------------------------------
+	if updEvt then
+		updEvt.OnClientEvent:Connect(function(newData)
+			applyServerData(newData)
+		end)
+	end
+
+	----------------------------------------------------------------
+	-- détection / init des boards
+	----------------------------------------------------------------
+	local nameSet = {}
+	for _, n in ipairs(cfg.boardNames or {}) do nameSet[n] = true end
+
+	local function isBoard(part)
+		return part:IsA("BasePart") and nameSet[part.Name] == true
+	end
+
+	local function initBoard(part)
+		local src = part:FindFirstChildOfClass("SurfaceGui")
+		if not src then return end
+		for _, b in ipairs(ctx.boards) do
+			if b.part == part then return end
+		end
+
+		local sg = src
+		if INTERACTIVE then
+			-- 🖱️ Une SurfaceGui posée dans le Workspace ne reçoit NI survol NI
+			--    clic. On l'affiche donc depuis le PlayerGui, collée au même part
+			--    (Adornee), et on éteint l'originale. Même rendu, mais cliquable.
+			sg = Instance.new("SurfaceGui")
+			sg.Name             = "LB_" .. part.Name
+			sg.Face             = src.Face
+			sg.SizingMode       = src.SizingMode
+			sg.PixelsPerStud    = src.PixelsPerStud
+			sg.AlwaysOnTop      = src.AlwaysOnTop
+			sg.ZOffset          = src.ZOffset
+			sg.MaxDistance      = src.MaxDistance
+			sg.ClipsDescendants = src.ClipsDescendants
+			sg.ResetOnSpawn     = false
+			sg.Adornee          = part
+			sg.Parent           = LocalPlayer:WaitForChild("PlayerGui")
+			src.Enabled         = false
+		end
+
+		sg.CanvasSize      = Vector2.new(1920, 1080)
+		sg.LightInfluence  = 0
+		sg.Brightness      = 1
+		sg.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
+
+		local ui = buildBoardUI(cfg, sg)
+		local b = {
+			part       = part,
+			src        = src,
+			surfaceGui = sg,
+			main       = ui.main,
+			content    = ui.content,
+			scroll     = ui.scroll,
+			footer     = ui.footer,
+			refreshLbl = ui.refreshLbl,
+			loader     = nil,
+		}
+		b.view = Core.newListView(ui.scroll, cfg)
+		table.insert(ctx.boards, b)
+
+		if cfg.onBoardBuilt then
+			pcall(cfg.onBoardBuilt, b, ctx)
+		end
+
+		if ctx.data then
+			b.view:render(ctx.data)          -- board ajouté en cours de partie
+		else
+			b.loader = createLoader(ui.content, cfg)
+			task.delay(cfg.firstLoadDelay, function()
+				if not b.scroll.Parent then return end
+				if not ctx.data then refreshAll() end
+			end)
+		end
+	end
+	ctx.initBoard = initBoard
+
+	task.spawn(function()
+		task.wait(2)
+		for _, d in ipairs(Workspace:GetDescendants()) do
+			if isBoard(d) then initBoard(d) end
+		end
+	end)
+
+	Workspace.DescendantAdded:Connect(function(d)
+		if isBoard(d) then
+			task.wait(0.3)
+			initBoard(d)
+		end
+	end)
+
+	return ctx
+end
+
+return Core--[[
+	LeaderboardManagerServer.lua        ⟦ v2 — blob borné ⟧
+	------------------------------------------------------------------
+	Gestionnaire UNIFIÉ pour 4 leaderboards all-time globaux :
+	  • Points   (extra: rebirths)
+	  • Rebirths
+	  • Streak   (extra: highScore)
+	  • Kills
+
+	→ À placer dans ServerScriptService. Remplace la version précédente.
+	→ Les LocalScripts ne changent PAS : mêmes Remotes, mêmes noms de champs.
+
+	════════════════════════════════════════════════════════════════════
+	🩹 CE QUI EST CORRIGÉ  —  « ValueTooLarge » sur LeaderboardProfiles_v1
+	════════════════════════════════════════════════════════════════════
+	L'ancienne version appelait markDirty() dans snapshotPlayer(), c'est-à-dire
+	pour CHAQUE joueur en ligne, à CHAQUE passage de build et de save. Résultat :
+	tout joueur ayant un jour rejoint le jeu finissait dans le blob, et n'en
+	sortait jamais. La clé a fini par dépasser 4 MB, et depuis, PLUS AUCUNE
+	écriture de profil ne passait — l'erreur revenait à chaque flush.
+
+	Or ce blob ne sert qu'à UNE chose : afficher le nom d'un joueur HORS LIGNE
+	qui figure dans un top. Il lui faut donc 125 entrées (50+25+25+25), pas des
+	dizaines de milliers.
+
+	Trois changements :
+
+	  1. On ne marque « à persister » QUE les joueurs réellement présents dans
+	     un board construit (+ ceux dont on vient de résoudre le nom). Un joueur
+	     lambda qui joue trois heures n'écrit plus rien.
+
+	  2. On ne persiste QUE les champs dont l'affichage a besoin : le nom, et
+	     les `extras` déclarés par les boards (rebirths, highScore). Les valeurs
+	     triées (points, streak, kills) viennent de l'OrderedDataStore — les
+	     stocker ici était du poids mort.
+
+	  3. Le blob est BORNÉ à MAX_PROFILES entrées, les plus récemment vues
+	     gardées. La coupe se fait DANS la transaction, donc elle rétrécit la
+	     clé même si elle est déjà trop grosse aujourd'hui : le premier flush
+	     après déploiement répare tout seul.
+
+	Il n'y a rien à supprimer à la main. Les entrées en trop partiront d'elles-
+	mêmes au premier flush réussi.
+--]]
+
+local Players          = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage= game:GetService("ReplicatedStorage")
+local HttpService      = game:GetService("HttpService")
+local RT               = Enum.DataStoreRequestType
+
+-- ========================================================================
+-- CONFIG GÉNÉRALE
+-- ========================================================================
+local SAVE_INTERVAL       = 120   -- sauvegarde des valeurs (s)
+local BUILD_INTERVAL      = 120   -- reconstruction + broadcast (s)
+local BUILD_STAGGER       = 2     -- délai entre chaque board dans un cycle de build
+local SAVE_THROTTLE       = 0.3   -- délai entre chaque SetAsync
+local INITIAL_BUILD_DELAY = 10    -- 1er build rapide (puis events au fil de l'eau)
+
+local PROFILE_STORE_NAME  = "LeaderboardProfiles_v1"
+local PROFILE_BLOB_KEY    = "profiles"
+
+--  Combien de profils on garde. Les boards en demandent 125 ; la marge sert
+--  aux joueurs qui entrent et sortent du top entre deux cycles.
+--  ⚠️ Ne monte pas ça à la légère : c'est ce plafond qui empêche la clé de
+--     redevenir illisible. 1500 entrées ≈ 150 KB, très loin de la limite.
+local MAX_PROFILES   = 1500
+local MAX_BLOB_BYTES = 1024 * 1024   -- 1 MB : on coupe bien avant les 4 MB de Roblox
+
+-- ========================================================================
+-- ACCÈS AUX STATS JOUEUR
+-- ========================================================================
+local function getLeaderstat(player, statName)
+	local ls = player:FindFirstChild("leaderstats")
+	if not ls then return 0 end
+	local v = ls:FindFirstChild(statName)
+	return v and math.floor(v.Value) or 0
+end
+
+local function getKills(player)
+	local ls = player:FindFirstChild("leaderstats")
+	if ls then
+		local k = ls:FindFirstChild("Kills")
+		if k then return math.floor(k.Value) end
+	end
+	local attr = player:GetAttribute("TotalKills") or player:GetAttribute("Kills")
+	return attr and math.floor(attr) or 0
+end
+
+local profileCache = {}   -- [userId] = { name, points, rebirths, streak, highScore, kills }
+local profileDirty = {}   -- [userId] = true   (à persister au prochain flush)
+local lastPersisted = {}  -- [userId] = signature déjà écrite (évite de réécrire l'identique)
+
+local function markDirty(userId)
+	profileDirty[userId] = true
+end
+
+--  ⚠️ NE MARQUE PLUS DIRTY. C'était la fuite : cette fonction tourne pour
+--     chaque joueur en ligne à chaque cycle. Le cache mémoire est gratuit,
+--     l'écriture ne l'est pas. Ce sont buildBoard() et resolveName() qui
+--     décident maintenant qui mérite d'être persisté.
+local function snapshotPlayer(player)
+	local id   = player.UserId
+	local prof = profileCache[id] or {}
+	prof.name      = player.DisplayName or player.Name
+	prof.points    = getLeaderstat(player, "Points")
+	prof.rebirths  = getLeaderstat(player, "Rebirths")
+	prof.streak    = math.floor(player:GetAttribute("FlameStreak")    or 0)
+	prof.highScore = math.floor(player:GetAttribute("FlameHighScore") or 0)
+	prof.kills     = getKills(player)
+	profileCache[id] = prof
+	return prof
+end
+
+-- ========================================================================
+-- DÉFINITION DES BOARDS
+--   field  = clé du profil utilisée comme valeur triée (et nom du champ
+--            renvoyé au client)
+--   extras = champs secondaires supplémentaires renvoyés au client
+-- ========================================================================
+local BOARD_LIST = {
+	{
+		id           = "Points",
+		store        = "GlobalLeaderboard_Points_v3",
+		topSize      = 100,
+		field        = "points",
+		extras       = { "rebirths" },
+		updateRemote = "PointsLeaderboardUpdate",
+		getRemote    = "GetPointsLeaderboard",
+	},
+	{
+		id           = "Rebirths",
+		store        = "GlobalLeaderboard_Rebirths_v1",
+		topSize      = 100,
+		field        = "rebirths",
+		extras       = {},
+		updateRemote = "RebirthLeaderboardUpdate",
+		getRemote    = "GetRebirthLeaderboard",
+	},
+	{
+		id           = "Streak",
+		store        = "GlobalLeaderboard_Streak_v1",
+		topSize      = 100,
+		field        = "streak",
+		extras       = { "highScore" },
+		updateRemote = "StreakLeaderboardUpdate",
+		getRemote    = "GetStreakLeaderboard",
+	},
+	{
+		id           = "Kills",
+		store        = "GlobalLeaderboard_Kills_v1",
+		topSize      = 100,
+		field        = "kills",
+		extras       = {},
+		updateRemote = "KillLeaderboardUpdate",
+		getRemote    = "GetKillLeaderboard",
+	},
+}
+
+local BOARD_BY_ID = {}
+for _, b in ipairs(BOARD_LIST) do BOARD_BY_ID[b.id] = b end
+
+--  Champs réellement persistés : le nom, plus les `extras` de chaque board.
+--  Déduit de BOARD_LIST : si tu ajoutes un extra à un board, il est persisté
+--  automatiquement, sans rien toucher ici.
+local PERSISTED_FIELDS = { name = true }
+for _, b in ipairs(BOARD_LIST) do
+	for _, ek in ipairs(b.extras) do PERSISTED_FIELDS[ek] = true end
+end
+
+local function persistShape(prof)
+	if type(prof) ~= "table" then return nil end
+	local out = { t = os.time() }
+	for k in pairs(PERSISTED_FIELDS) do
+		if prof[k] ~= nil then out[k] = prof[k] end
+	end
+	return out
+end
+
+--  Signature de ce qui sera écrit : si elle n'a pas bougé, inutile de
+--  réécrire la même chose toutes les deux minutes.
+local function persistSignature(prof)
+	if type(prof) ~= "table" then return "" end
+	local parts = {}
+	for k in pairs(PERSISTED_FIELDS) do
+		parts[#parts + 1] = k .. "=" .. tostring(prof[k])
+	end
+	table.sort(parts)
+	return table.concat(parts, "|")
+end
+
+--  Marque un joueur à persister UNIQUEMENT si son profil affiché a changé.
+local function markIfChanged(userId)
+	local prof = profileCache[userId]
+	if not prof then return end
+	local sig = persistSignature(prof)
+	if lastPersisted[userId] ~= sig then
+		profileDirty[userId] = true
+	end
+end
+
+-- ========================================================================
+-- STORES & REMOTES
+-- ========================================================================
+local orderedStores = {}
+for _, b in ipairs(BOARD_LIST) do
+	orderedStores[b.id] = DataStoreService:GetOrderedDataStore(b.store)
+end
+local profileStore = DataStoreService:GetDataStore(PROFILE_STORE_NAME)
+
+local function getOrCreate(name, class)
+	local r = ReplicatedStorage:FindFirstChild(name)
+	if not r then
+		r = Instance.new(class or "RemoteEvent")
+		r.Name   = name
+		r.Parent = ReplicatedStorage
+	end
+	return r
+end
+
+local updateEvents = {}
+local getFuncs     = {}
+for _, b in ipairs(BOARD_LIST) do
+	updateEvents[b.id] = getOrCreate(b.updateRemote, "RemoteEvent")
+	getFuncs[b.id]     = getOrCreate(b.getRemote, "RemoteFunction")
+end
+
+local openAdminPanelEvent = getOrCreate("OpenAdminPointsPanel", "RemoteEvent")
+
+-- ========================================================================
+-- CACHES DE SORTIE
+-- ========================================================================
+local cachedBoards = {}   -- [boardId] = liste d'entrées prêtes pour le client
+local lastSaved    = {}   -- [boardId][userId] = dernière valeur écrite (dirty-tracking)
+for _, b in ipairs(BOARD_LIST) do
+	cachedBoards[b.id] = {}
+	lastSaved[b.id]    = {}
+end
+
+-- ========================================================================
+-- BUDGET
+-- ========================================================================
+local function budgetOK(reqType)
+	local ok, budget = pcall(function()
+		return DataStoreService:GetRequestBudgetForRequestType(reqType)
+	end)
+	-- en cas d'échec de lecture du budget, on autorise (comportement prudent côté pcall)
+	return (not ok) or (budget == nil) or (budget > 0)
+end
+
+-- ========================================================================
+-- PROFIL BLOB (noms + champs secondaires, partagé entre tous les boards)
+-- ========================================================================
+local function loadProfileBlob()
+	local ok, stored = pcall(function()
+		return profileStore:GetAsync(PROFILE_BLOB_KEY)
+	end)
+	if ok and type(stored) == "table" then
+		local n = 0
+		for k, v in pairs(stored) do
+			local id = tonumber(k)
+			if id and type(v) == "table" and not profileCache[id] then
+				profileCache[id] = v
+				lastPersisted[id] = persistSignature(v)
+				n = n + 1
+			end
+		end
+		print(string.format("📇 %d profil(s) chargé(s) depuis %s", n, PROFILE_STORE_NAME))
+	elseif not ok then
+		warn("⚠️ Lecture du blob de profils impossible — les noms hors ligne "
+			.. "seront résolus un par un (plus lent, mais rien n'est cassé).")
+	end
+end
+
+--  ✂️ Borne le blob. Appelée DANS la transaction, donc elle rétrécit la clé
+--     même quand elle est déjà au-dessus de la limite — c'est ce qui répare
+--     une clé devenue trop grosse sans intervention manuelle.
+--
+--     On garde les entrées vues le plus récemment. Les joueurs actuellement
+--     dans un top sont rafraîchis à chaque build : ils sont donc toujours en
+--     tête et ne peuvent pas être coupés.
+local function pruneBlob(tbl)
+	local list = {}
+	for k, v in pairs(tbl) do
+		if type(v) == "table" then
+			list[#list + 1] = { k = k, t = tonumber(v.t) or 0 }
+		else
+			tbl[k] = nil       -- entrée corrompue : elle ne sert à rien
+		end
+	end
+
+	if #list == 0 then return tbl end
+
+	-- Plus récent d'abord. Les vieilles fiches (sans `t`, donc t = 0) partent
+	-- les premières : ce sont justement celles de l'ancien système qui
+	-- stockaient tout le monde.
+	table.sort(list, function(a, b) return a.t > b.t end)
+
+	local keep = math.min(#list, MAX_PROFILES)
+
+	-- Garde-fou dur : si malgré le plafond le JSON reste trop lourd (vieilles
+	-- fiches obèses), on resserre jusqu'à passer sous la barre.
+	for _ = 1, 10 do
+		for i = keep + 1, #list do tbl[list[i].k] = nil end
+
+		local okEnc, json = pcall(function() return HttpService:JSONEncode(tbl) end)
+		if not okEnc then break end
+		if #json <= MAX_BLOB_BYTES then break end
+
+		keep = math.floor(keep * 0.6)
+		if keep < 200 then keep = 200 end
+		if keep >= #list then break end
+	end
+
+	return tbl
+end
+
+-- 1 SEUL write pour tous les profils marqués "dirty".
+local function flushProfiles()
+	if next(profileDirty) == nil then return end
+	if not budgetOK(RT.UpdateAsync) then return end -- on retentera au prochain cycle
+
+	local batch, sigs = {}, {}
+	for id in pairs(profileDirty) do
+		local shaped = persistShape(profileCache[id])
+		if shaped then
+			batch[tostring(id)] = shaped
+			sigs[id] = persistSignature(profileCache[id])
+		end
+	end
+	profileDirty = {}
+
+	local ok = pcall(function()
+		profileStore:UpdateAsync(PROFILE_BLOB_KEY, function(old)
+			old = (type(old) == "table") and old or {}
+			for k, v in pairs(batch) do
+				old[k] = v
+			end
+			return pruneBlob(old)
+		end)
+	end)
+
+	if ok then
+		-- On ne retient la signature qu'après une écriture réussie : sinon un
+		-- échec ferait croire que la valeur est persistée et on ne réessaierait
+		-- jamais.
+		for id, sig in pairs(sigs) do lastPersisted[id] = sig end
+	else
+		warn("⚠️ Écriture du blob de profils échouée — les profils seront "
+			.. "réessayés au prochain cycle.")
+		for id in pairs(sigs) do profileDirty[id] = true end
+	end
+end
+
+local function removeProfileFromBlob(userId)
+	pcall(function()
+		profileStore:UpdateAsync(PROFILE_BLOB_KEY, function(old)
+			if type(old) == "table" then old[tostring(userId)] = nil end
+			return old
+		end)
+	end)
+	lastPersisted[userId] = nil
+end
+
+-- ========================================================================
+-- RÉSOLUTION DE NOM (rare : entrée offline jamais vue)
+-- ========================================================================
+local function resolveName(userId)
+	local prof = profileCache[userId]
+	if prof and prof.name then return prof.name end
+
+	local online = Players:GetPlayerByUserId(userId)
+	if online then
+		local nm = online.DisplayName or online.Name
+		profileCache[userId] = profileCache[userId] or {}
+		profileCache[userId].name = nm
+		markDirty(userId)   -- ce joueur figure dans un top : il mérite sa fiche
+		return nm
+	end
+
+	local ok, uname = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	local resolved = (ok and uname) or ("Player_" .. userId)
+	profileCache[userId] = profileCache[userId] or {}
+	profileCache[userId].name = resolved
+	markDirty(userId)
+	return resolved
+end
+
+-- ========================================================================
+-- LIRE LE TOP TRIÉ (1 page, 1 GetSortedAsync)
+-- ========================================================================
+local function fetchSortedTop(board)
+	local results = {}
+	if not budgetOK(RT.GetSortedAsync) then return results end
+
+	local store = orderedStores[board.id]
+	local ok, pages = pcall(function()
+		return store:GetSortedAsync(false, board.topSize, 1, 1000000000)
+	end)
+	if not ok or not pages then
+		warn(string.format("❌ [%s] Erreur GetSortedAsync", board.id))
+		return results
+	end
+
+	local ok2, page = pcall(function() return pages:GetCurrentPage() end)
+	if not ok2 or not page then return results end
+
+	for _, e in ipairs(page) do
+		local uid = tonumber(e.key)
+		if uid then
+			results[#results + 1] = { userId = uid, value = e.value }
+		end
+	end
+	return results
+end
+
+-- ========================================================================
+-- CONSTRUIRE UN BOARD (online frais + offline depuis le store)
+-- ========================================================================
+local function buildBoard(board)
+	local field  = board.field
+	local sorted = fetchSortedTop(board)
+
+	local merged = {}
+	local seen   = {}
+
+	-- 1) Joueurs en ligne = valeurs fraîches (prioritaires)
+	for _, p in ipairs(Players:GetPlayers()) do
+		local prof = snapshotPlayer(p)
+		local v    = prof[field] or 0
+		if v > 0 then
+			local id = p.UserId
+			if not seen[id] then
+				seen[id] = true
+				merged[#merged + 1] = { userId = id, name = prof.name, value = v, prof = prof }
+			end
+		end
+	end
+
+	-- 2) Joueurs hors ligne depuis l'OrderedDataStore
+	for _, e in ipairs(sorted) do
+		if not seen[e.userId] then
+			seen[e.userId] = true
+			local prof = profileCache[e.userId]
+			merged[#merged + 1] = {
+				userId = e.userId,
+				name   = prof and prof.name or nil, -- résolu plus bas si manquant
+				value  = e.value,
+				prof   = prof,
+			}
+		end
+	end
+
+	-- 3) Résoudre les noms manquants (rare, throttlé)
+	for _, m in ipairs(merged) do
+		if not m.name then
+			m.name = resolveName(m.userId)
+			m.prof = profileCache[m.userId]
+			task.wait(0.1)
+		end
+	end
+
+	-- 4) Trier + couper au topSize
+	table.sort(merged, function(a, b) return a.value > b.value end)
+
+	local result = {}
+	local limit  = math.min(board.topSize, #merged)
+	for i = 1, limit do
+		local m = merged[i]
+		local entry = {
+			rank   = i,
+			name   = m.name,
+			userId = m.userId,
+			[field]= m.value,
+		}
+		for _, ek in ipairs(board.extras) do
+			entry[ek] = (m.prof and m.prof[ek]) or 0
+		end
+		result[#result + 1] = entry
+
+		--  📇 C'EST ICI, et nulle part ailleurs, qu'on décide de persister un
+		--     profil : ce joueur est affiché dans un top, donc son nom devra
+		--     être lisible même quand il sera hors ligne. Les autres joueurs
+		--     ne coûtent rien.
+		markIfChanged(m.userId)
+	end
+
+	return result
+end
+
+local function broadcast(board, data)
+	pcall(function()
+		updateEvents[board.id]:FireAllClients(data)
+	end)
+end
+
+-- ========================================================================
+-- SAUVEGARDE (dirty-tracking : on n'écrit que ce qui a changé)
+-- ========================================================================
+local function savePass()
+	for _, p in ipairs(Players:GetPlayers()) do
+		local prof = snapshotPlayer(p)
+		local id   = p.UserId
+		for _, board in ipairs(BOARD_LIST) do
+			local v = prof[board.field] or 0
+			if v > 0 and lastSaved[board.id][id] ~= v then
+				if budgetOK(RT.SetIncrementSortedAsync) then
+					local ok = pcall(function()
+						orderedStores[board.id]:SetAsync(tostring(id), v)
+					end)
+					if ok then lastSaved[board.id][id] = v end
+					task.wait(SAVE_THROTTLE)
+				end
+			end
+		end
+	end
+	flushProfiles() -- 1 seul write pour tous les profils
+end
+
+-- ========================================================================
+-- BOUCLES PRINCIPALES
+-- ========================================================================
+
+-- Build : 1er build rapide, puis reconstruction périodique étalée
+task.spawn(function()
+	loadProfileBlob()
+	print("🏆 LeaderboardManager démarré — pré-chargement des profils")
+	task.wait(INITIAL_BUILD_DELAY)
+
+	while true do
+		for _, board in ipairs(BOARD_LIST) do
+			local data = buildBoard(board)
+			cachedBoards[board.id] = data
+			broadcast(board, data)
+			task.wait(BUILD_STAGGER)
+		end
+		-- Le premier flush après démarrage rétrécit la clé si elle avait
+		-- débordé : on ne l'attend donc pas jusqu'au cycle de save.
+		flushProfiles()
+		task.wait(BUILD_INTERVAL)
+	end
+end)
+
+-- Save : indépendante du build
+task.spawn(function()
+	task.wait(SAVE_INTERVAL)
+	while true do
+		savePass()
+		task.wait(SAVE_INTERVAL)
+	end
+end)
+
+-- ========================================================================
+-- RÉPONSES CLIENT (depuis le cache, instantané)
+-- ========================================================================
+for _, board in ipairs(BOARD_LIST) do
+	getFuncs[board.id].OnServerInvoke = function()
+		return cachedBoards[board.id]
+	end
+end
+
+-- ========================================================================
+-- SAUVEGARDE À LA DÉCONNEXION / FERMETURE
+-- ========================================================================
+local isClosing = false
+
+local function saveOnePlayer(player)
+	local prof = snapshotPlayer(player)
+	local id   = player.UserId
+	for _, board in ipairs(BOARD_LIST) do
+		local v = prof[board.field] or 0
+		if v > 0 and lastSaved[board.id][id] ~= v then
+			pcall(function()
+				orderedStores[board.id]:SetAsync(tostring(id), v)
+			end)
+			lastSaved[board.id][id] = v
+			task.wait(SAVE_THROTTLE)
+		end
+	end
+	--  Son profil n'est persisté que s'il figure déjà dans un top (donc s'il
+	--  est déjà connu du blob). Un joueur qui part sans être classé n'écrit
+	--  rien — c'est exactement ce qui faisait exploser la clé.
+	if lastPersisted[id] ~= nil then markIfChanged(id) end
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	if isClosing then return end
+	saveOnePlayer(player)
+	flushProfiles()
+end)
+
+game:BindToClose(function()
+	isClosing = true
+	for _, player in ipairs(Players:GetPlayers()) do
+		saveOnePlayer(player)
+	end
+	flushProfiles()
+	task.wait(3)
+end)
+
+-- ========================================================================
+-- ADMIN — SUPPRESSION (sur TOUS les boards)
+-- ========================================================================
+local ADMIN_IDS = {
+	3203521470, 11017023724, 8456613930, 8142402169,
+}
+
+local function isAdmin(player)
+	for _, id in ipairs(ADMIN_IDS) do
+		if player.UserId == id then return true end
+	end
+	return false
+end
+
+local function rebuildAll()
+	task.spawn(function()
+		task.wait(0.5)
+		for _, board in ipairs(BOARD_LIST) do
+			cachedBoards[board.id] = buildBoard(board)
+			broadcast(board, cachedBoards[board.id])
+			task.wait(BUILD_STAGGER)
+		end
+		print("🔄 Tous les leaderboards reconstruits après modification admin")
+	end)
+end
+
+local function deletePlayerEntry(targetUserId)
+	targetUserId = tonumber(targetUserId)
+	if not targetUserId then
+		warn("❌ DeletePlayerEntry: userId invalide")
+		return false
+	end
+
+	for _, board in ipairs(BOARD_LIST) do
+		pcall(function()
+			orderedStores[board.id]:RemoveAsync(tostring(targetUserId))
+		end)
+		lastSaved[board.id][targetUserId] = nil
+
+		local c = cachedBoards[board.id]
+		for i = #c, 1, -1 do
+			if c[i].userId == targetUserId then table.remove(c, i) end
+		end
+		for i, e in ipairs(c) do e.rank = i end
+	end
+
+	profileCache[targetUserId] = nil
+	profileDirty[targetUserId] = nil
+	removeProfileFromBlob(targetUserId)
+	rebuildAll()
+
+	print(string.format("🗑️ Joueur %d supprimé de tous les boards", targetUserId))
+	return true
+end
+
+local function deleteByRank(boardId, rank)
+	local board = BOARD_BY_ID[boardId]
+	if not board then
+		warn(string.format("❌ deleteByRank: board '%s' inconnu", tostring(boardId)))
+		return false
+	end
+	rank = tonumber(rank)
+	local entry = rank and cachedBoards[boardId][rank]
+	if not entry then
+		warn(string.format("❌ deleteByRank: aucune entrée au rang #%s sur %s", tostring(rank), boardId))
+		return false
+	end
+	print(string.format("🎯 Suppression %s #%d → %s (userId: %d)", boardId, rank, entry.name, entry.userId))
+	return deletePlayerEntry(entry.userId)
+end
+
+_G.DeletePlayerEntry = deletePlayerEntry
+_G.DeleteByRank      = deleteByRank
+
+-- ========================================================================
+-- COMMANDES CHAT ADMIN
+--   !delete <userId>          → supprime de tous les boards
+--   !deleterank <board> <#>   → ex: !deleterank Points 5
+--   !pointspanel              → ouvre le panneau admin Points
+-- ========================================================================
+Players.PlayerAdded:Connect(function(player)
+	player.Chatted:Connect(function(msg)
+		if not isAdmin(player) then return end
+		local lower = msg:lower()
+
+		if lower == "!pointspanel" then
+			openAdminPanelEvent:FireClient(player, cachedBoards["Points"])
+			print(string.format("📊 [Admin %s] panneau Points (%d entrées)", player.Name, #cachedBoards["Points"]))
+			return
+		end
+
+		local userId = msg:match("^!delete%s+(%d+)$")
+		if userId then
+			deletePlayerEntry(userId)
+			return
+		end
+
+		local bId, rank = msg:match("^!deleterank%s+(%a+)%s+(%d+)$")
+		if bId and rank then
+			-- normalise la casse vers un id de board connu
+			for id in pairs(BOARD_BY_ID) do
+				if id:lower() == bId:lower() then bId = id break end
+			end
+			deleteByRank(bId, rank)
+		end
+	end)
+end)
+
+-- ========================================================================
+-- DEBUG
+-- ========================================================================
+_G.ShowLeaderboard = function(boardId)
+	local c = cachedBoards[boardId]
+	if not c then warn("Board inconnu: "..tostring(boardId)); return end
+	local board = BOARD_BY_ID[boardId]
+	print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	print(string.format("🏆 %s (%d entrées)", boardId, #c))
+	for i = 1, math.min(10, #c) do
+		local e = c[i]
+		print(string.format("#%-3d %-22s  %s", e.rank, e.name, tostring(e[board.field])))
+	end
+end
+
+_G.ShowBudgets = function()
+	print("📊 Budgets DataStore :",
+		"Get="    .. DataStoreService:GetRequestBudgetForRequestType(RT.GetAsync),
+		"SetSort=".. DataStoreService:GetRequestBudgetForRequestType(RT.SetIncrementSortedAsync),
+		"GetSort=".. DataStoreService:GetRequestBudgetForRequestType(RT.GetSortedAsync),
+		"Update=" .. DataStoreService:GetRequestBudgetForRequestType(RT.UpdateAsync))
+end
+
+--  📏 Combien pèse réellement le blob, et combien de fiches il contient.
+--     À lancer après le déploiement pour vérifier que la coupe a bien eu lieu.
+_G.ShowProfileBlob = function()
+	local ok, stored = pcall(function() return profileStore:GetAsync(PROFILE_BLOB_KEY) end)
+	if not ok or type(stored) ~= "table" then
+		warn("❌ Lecture du blob impossible")
+		return
+	end
+	local n = 0
+	for _ in pairs(stored) do n = n + 1 end
+	local okEnc, json = pcall(function() return HttpService:JSONEncode(stored) end)
+	print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	print(string.format("📇 %s : %d fiche(s)", PROFILE_STORE_NAME, n))
+	if okEnc then
+		print(string.format("   Taille : %.1f KB  (plafond interne %.0f KB, limite Roblox 4096 KB)",
+			#json / 1024, MAX_BLOB_BYTES / 1024))
+	end
+	print(string.format("   Plafond de fiches : %d", MAX_PROFILES))
+	print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+end
+
+_G.ForceRefresh = function()
+	rebuildAll()
+end
+
+print("✅ LeaderboardManager v2 chargé (Points / Rebirths / Streak / Kills)")
+print("📋 Debug: _G.ShowLeaderboard('Points') | _G.ShowBudgets() | _G.ShowProfileBlob() | _G.ForceRefresh()")
+print("📋 Admin: !delete <id> | !deleterank Points 5 | !pointspanel")-- PointsLeaderboardClient.lua  (LocalScript)
+-- 📍 StarterPlayer > StarterPlayerScripts
+-- Nécessite : ReplicatedStorage > LeaderboardCore (ModuleScript)
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Core = require(ReplicatedStorage:WaitForChild("LeaderboardCore"))
+
+local function fmt(n)
+	if n >= 1000000000 then  return string.format("%.1fB", n / 1000000000)
+	elseif n >= 1000000 then return string.format("%.1fM", n / 1000000)
+	elseif n >= 1000 then    return string.format("%.1fK", n / 1000)
+	end
+	return tostring(n)
+end
+
+Core.mount({
+	boardNames      = { "PointsLeaderboard", "PointsLeaderboard2", "TopPlayersBoard" },
+	title           = "TOP POINTS",
+	loadingIcon     = "★",
+	emptyText       = "No data yet...",
+
+	getFunctionName = "GetPointsLeaderboard",
+	updateEventName = "PointsLeaderboardUpdate",
+	valueKey        = "points",
+	formatValue     = fmt,
+
+	-- icône coin devant le nombre
+	valueIcon       = "rbxassetid://98915017889166",
+	valueTextSize   = 20,
+
+	topSize         = 100,
+	refreshDelay    = 120,
+	firstLoadDelay  = 3,     -- avant : task.wait(65)
+	entryHeight     = 68,
+	sparkleMaxRank  = 10,    -- B9 : 10 entries animées max sur 50
+
+	palette = {
+		bg          = Color3.fromRGB(18, 14, 8),
+		bgA         = Color3.fromRGB(22, 17, 6),
+		bgB         = Color3.fromRGB(12, 10, 3),
+		panel       = Color3.fromRGB(28, 22, 12),
+		footer      = Color3.fromRGB(22, 16, 4),
+		entry       = Color3.fromRGB(12, 10, 5),
+		top3A       = Color3.fromRGB(48, 36, 8),
+		top3B       = Color3.fromRGB(28, 20, 4),
+		entryStroke = Color3.fromRGB(80, 62, 26),
+		accent1     = Color3.fromRGB(255, 200, 50),
+		accent2     = Color3.fromRGB(255, 225, 120),
+		headerMid   = Color3.fromRGB(40, 30, 5),
+		headerEdge  = Color3.fromRGB(60, 44, 8),
+		stroke      = Color3.fromRGB(120, 90, 30),
+		muted       = Color3.fromRGB(160, 140, 100),
+		white       = Color3.fromRGB(255, 255, 255),
+		purple      = Color3.fromRGB(180, 100, 255),
+		blue        = Color3.fromRGB(80, 160, 255),
+		green       = Color3.fromRGB(80, 220, 120),
+		rank        = {
+			Color3.fromRGB(255, 200, 50),
+			Color3.fromRGB(200, 200, 210),
+			Color3.fromRGB(180, 110, 50),
+		},
+	},
+
+	valueColor = Color3.fromRGB(255, 200, 50),
+})
