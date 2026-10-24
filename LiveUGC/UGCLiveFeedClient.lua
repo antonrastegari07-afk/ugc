@@ -25,7 +25,6 @@ local CFG = {
 	title        = "LIVE UGC REDEEMS",
 	verb         = "redeemed",
 	emptyText    = "No redeems yet... be the first!",
-	footerText   = "Updates live  •  latest redeems",
 	loadingIcon  = "✦",
 
 	maxShown     = 20,
@@ -34,9 +33,9 @@ local CFG = {
 
 	-- 🪧 Titre flottant au-dessus du panneau (style « LIVE NOW! » du shop)
 	billboard = {
-		widthScale  = 1.15,   -- largeur max du titre = 115 % de la largeur du panneau
-		heightRatio = 0.22,   -- hauteur max = 22 % de cette largeur
-		gap         = 2.5,    -- studs entre le haut du panneau et le titre
+		widthScale  = 1.6,    -- largeur max du titre = 160 % de la largeur du panneau
+		heightRatio = 0.2,    -- hauteur max = 20 % de cette largeur
+		gap         = 3,      -- studs entre le haut du panneau et le titre
 		maxDistance = 250,
 		blinkSpeed  = 3.5,    -- vitesse de clignotement du point rouge
 		-- Police : même rendu que « LIVE NOW! » (très gras, penché).
@@ -44,27 +43,27 @@ local CFG = {
 		-- et recopie ici sa propriété FontFace (Family / Weight / Style).
 		font        = Font.new("rbxasset://fonts/families/GothamSSm.json",
 			Enum.FontWeight.Heavy, Enum.FontStyle.Italic),
-		gradient    = {       -- haut → bas
-			Color3.fromRGB(255, 190, 50),
-			Color3.fromRGB(255, 85, 150),
+		gradient    = {       -- haut → bas : lavande claire → mauve
+			Color3.fromRGB(240, 215, 255),
+			Color3.fromRGB(160, 95, 250),
 		},
-		outline     = Color3.fromRGB(22, 15, 22),
+		outline     = Color3.fromRGB(34, 14, 56),
 	},
 
+	-- 🎨 UN seul thème : mauve. Tout part de ces couleurs.
 	palette = {
-		bg          = Color3.fromRGB(16, 10, 22),
-		bgA         = Color3.fromRGB(22, 12, 32),
-		bgB         = Color3.fromRGB(10, 6, 16),
-		panel       = Color3.fromRGB(26, 16, 38),
-		footer      = Color3.fromRGB(20, 12, 30),
-		entry       = Color3.fromRGB(13, 8, 20),
-		entryEdge   = Color3.fromRGB(30, 16, 44),
-		entryStroke = Color3.fromRGB(78, 50, 108),
-		ugcName     = Color3.fromRGB(172, 116, 251),   -- même violet que [UGC REDEEM] dans le chat
-		accent1     = Color3.fromRGB(255, 95, 190),    -- rose
-		accent2     = Color3.fromRGB(185, 125, 255),   -- violet
-		stroke      = Color3.fromRGB(110, 70, 150),
-		muted       = Color3.fromRGB(165, 145, 190),
+		bgA         = Color3.fromRGB(30, 18, 48),     -- fond du panneau (dégradé)
+		bgB         = Color3.fromRGB(16, 9, 28),
+		card        = Color3.fromRGB(44, 28, 70),     -- carte d'un redeem (dégradé gauche → droite)
+		cardEdge    = Color3.fromRGB(34, 21, 56),
+		cardStroke  = Color3.fromRGB(110, 78, 165),
+		tileTop     = Color3.fromRGB(176, 150, 222),  -- case de l'UGC : mauve moyen,
+		tileBottom  = Color3.fromRGB(132, 104, 190),  -- lisible pour les UGC noirs ET clairs
+		tileStroke  = Color3.fromRGB(205, 182, 250),
+		ugcName     = Color3.fromRGB(172, 116, 251),  -- même mauve que [UGC REDEEM] dans le chat
+		accent      = Color3.fromRGB(185, 140, 255),  -- anneaux, flash, barre de défilement
+		self        = Color3.fromRGB(225, 205, 255),  -- ta propre ligne
+		muted       = Color3.fromRGB(170, 152, 205),
 		white       = Color3.fromRGB(255, 255, 255),
 		live        = Color3.fromRGB(255, 70, 90),
 	},
@@ -74,12 +73,12 @@ local GOLD       = Color3.fromRGB(255, 210, 60)
 local GOLD_SOFT  = Color3.fromRGB(255, 236, 160)
 local GOLD_DEEP  = Color3.fromRGB(190, 130, 15)
 local GOLD_NAME  = Color3.fromRGB(255, 236, 175)
-local SELF_BLUE  = Color3.fromRGB(120, 205, 255)
 local VIP_ICON   = "rbxassetid://93460778559039"
 local VIP_ICON_RATIO = 1.20
 local PROFILE_ICON = "rbxassetid://78515108577271"
 
 local P = CFG.palette
+P.accent1, P.accent2 = P.accent, P.self   -- noms lus par Core.createLoader
 
 --==============================================================================
 -- ANIMATEUR — réutilise la boucle unique du Core si elle est exposée
@@ -170,13 +169,6 @@ end
 --     └─ Body : [barre] [avatar] Nom (+VIP)          [tuile UGC]
 --                                redeemed  <UGC>
 --==============================================================================
-local TILE_GRADIENT = ColorSequence.new({
-	ColorSequenceKeypoint.new(0,    Color3.fromRGB(78,  200, 247)),
-	ColorSequenceKeypoint.new(0.25, Color3.fromRGB(199, 210, 255)),
-	ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(72,  194, 247)),
-	ColorSequenceKeypoint.new(0.75, Color3.fromRGB(188, 202, 255)),
-	ColorSequenceKeypoint.new(1,    Color3.fromRGB(74,  201, 247)),
-})
 local INTRO_INFO = TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local GROW_INFO  = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local POP_INFO   = TweenInfo.new(0.55, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
@@ -207,7 +199,7 @@ local function buildEntry(parent, item)
 	body.BorderSizePixel  = 0
 	body.ZIndex           = 2
 	body.Parent           = holder
-	Instance.new("UICorner", body).CornerRadius = UDim.new(0, 8)
+	Instance.new("UICorner", body).CornerRadius = UDim.new(0, 12)
 	E.body = body
 
 	local bg = Instance.new("UIGradient")
@@ -219,21 +211,12 @@ local function buildEntry(parent, item)
 	stroke.Parent    = body
 	E.stroke = stroke
 
-	local bar = Instance.new("Frame")
-	bar.Name            = "Bar"
-	bar.Size            = UDim2.new(0, 4, 1, 0)
-	bar.BorderSizePixel = 0
-	bar.ZIndex          = 3
-	bar.Parent          = body
-	Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 8)
-	E.bar = bar
-
 	-- avatar
 	local avatar = Instance.new("ImageLabel")
 	avatar.Name             = "Avatar"
 	avatar.Size             = UDim2.new(0, avS, 0, avS)
 	avatar.Position         = UDim2.new(0, 18, 0.5, -avS / 2)
-	avatar.BackgroundColor3 = P.panel
+	avatar.BackgroundColor3 = P.cardEdge
 	avatar.BorderSizePixel  = 0
 	avatar.Image            = thumbUrl(item.u)
 	avatar.ZIndex           = 5
@@ -318,18 +301,15 @@ local function buildEntry(parent, item)
 	tile.BorderSizePixel  = 0
 	tile.ZIndex           = 5
 	tile.Parent           = body
-	Instance.new("UICorner", tile).CornerRadius = UDim.new(0, 10)
-	-- même dégradé que les cases du UGC SHOP (bleu clair ↔ lavande, tourne en 17 s)
+	Instance.new("UICorner", tile).CornerRadius = UDim.new(0, 12)
 	local tGrad = Instance.new("UIGradient")
-	tGrad.Color  = TILE_GRADIENT
-	tGrad.Parent = tile
-	registerAnim(tGrad, {}, function(t, _, g)
-		g.Rotation = (t * 360 / 17) % 360
-	end)
+	tGrad.Color    = ColorSequence.new(P.tileTop, P.tileBottom)
+	tGrad.Rotation = 90
+	tGrad.Parent   = tile
 	local tStroke = Instance.new("UIStroke")
-	tStroke.Color        = P.accent2
+	tStroke.Color        = P.tileStroke
 	tStroke.Thickness    = 1.5
-	tStroke.Transparency = 0.45
+	tStroke.Transparency = 0.4
 	tStroke.Parent       = tile
 	local tScale = Instance.new("UIScale")
 	tScale.Parent = tile
@@ -350,13 +330,13 @@ local function buildEntry(parent, item)
 	local flash = Instance.new("Frame")
 	flash.Name                   = "Flash"
 	flash.Size                   = UDim2.new(1, 0, 1, 0)
-	flash.BackgroundColor3       = P.accent1
+	flash.BackgroundColor3       = P.accent
 	flash.BackgroundTransparency = 1
 	flash.BorderSizePixel        = 0
 	flash.ZIndex                 = 4
 	flash:SetAttribute("NoFade", true)
 	flash.Parent                 = body
-	Instance.new("UICorner", flash).CornerRadius = UDim.new(0, 8)
+	Instance.new("UICorner", flash).CornerRadius = UDim.new(0, 12)
 	local fGrad = Instance.new("UIGradient")
 	fGrad.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0.0, 0),
@@ -365,6 +345,18 @@ local function buildEntry(parent, item)
 	})
 	fGrad.Parent = flash
 	E.flash = flash
+
+	local dim = Instance.new("Frame")
+	dim.Name                   = "Age"
+	dim.Size                   = UDim2.new(1, 0, 1, 0)
+	dim.BackgroundColor3       = P.bgB
+	dim.BackgroundTransparency = 1
+	dim.BorderSizePixel        = 0
+	dim.ZIndex                 = 15
+	dim:SetAttribute("NoFade", true)
+	dim.Parent                 = body
+	Instance.new("UICorner", dim).CornerRadius = UDim.new(0, 12)
+	E.dim = dim
 
 	------------------------------------------------------------------
 	-- 🖱️ survol + clic → fiche profil (comme les autres boards)
@@ -375,7 +367,7 @@ local function buildEntry(parent, item)
 	hint.AnchorPoint            = Vector2.new(0, 0.5)
 	hint.AutomaticSize          = Enum.AutomaticSize.X
 	hint.Size                   = UDim2.new(0, 0, 0, hintH)
-	hint.BackgroundColor3       = Color3.fromRGB(22, 30, 44)
+	hint.BackgroundColor3       = P.cardEdge
 	hint.BackgroundTransparency = 1
 	hint.BorderSizePixel        = 0
 	hint.Visible                = false
@@ -384,7 +376,7 @@ local function buildEntry(parent, item)
 	hint.Parent                 = body
 	Instance.new("UICorner", hint).CornerRadius = UDim.new(1, 0)
 	local hStroke = Instance.new("UIStroke")
-	hStroke.Color        = SELF_BLUE
+	hStroke.Color        = P.accent
 	hStroke.Transparency = 1
 	hStroke.Parent       = hint
 	local hPad = Instance.new("UIPadding")
@@ -454,7 +446,7 @@ local function buildEntry(parent, item)
 		tween(hint,    HOVER_INFO, { BackgroundTransparency = on and 0.15 or 1 })
 		tween(hStroke, HOVER_INFO, { Transparency = on and 0.35 or 1 })
 		tween(hIcon,   HOVER_INFO, { ImageTransparency = tr })
-		tween(tStroke, HOVER_INFO, { Transparency = on and 0.1 or 0.45 })
+		tween(tStroke, HOVER_INFO, { Transparency = on and 0.05 or 0.4 })
 		local tw = tween(hText, HOVER_INFO, { TextTransparency = tr })
 		if not on then
 			tw.Completed:Connect(function()
@@ -479,27 +471,21 @@ local function applyStyle(E)
 	if E.styled == (isVip and "vip" or isSelf and "self" or "base") then return end
 	E.styled = isVip and "vip" or isSelf and "self" or "base"
 
+	E.bg.Color = ColorSequence.new(P.card, P.cardEdge)
 	if isVip then
-		E.bg.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0.00, Color3.fromRGB(12, 9, 3)),
-			ColorSequenceKeypoint.new(0.45, Color3.fromRGB(24, 18, 5)),
-			ColorSequenceKeypoint.new(1.00, Color3.fromRGB(78, 57, 12)),
-		})
-		E.stroke.Color, E.stroke.Thickness, E.stroke.Transparency = GOLD, 2.5, 0
-		E.bar.BackgroundColor3 = GOLD
+		-- 👑 VIP : la carte reste mauve, seuls le contour, le nom et l'anneau passent en or
+		E.stroke.Color, E.stroke.Thickness, E.stroke.Transparency = GOLD, 2, 0.1
 		E.nameLbl.TextColor3   = GOLD_NAME
 		E.nameLbl.Size         = E.nameVipW
 		E.avStroke.Color, E.avStroke.Thickness, E.avStroke.Transparency = Color3.new(1, 1, 1), 3, 0
 		E.avGrad.Enabled       = true
 	else
-		E.bg.Color = ColorSequence.new(P.entry, P.entryEdge)
-		E.stroke.Color        = isSelf and SELF_BLUE or P.entryStroke
+		E.stroke.Color        = isSelf and P.self or P.cardStroke
 		E.stroke.Thickness    = isSelf and 2 or 1
-		E.stroke.Transparency = isSelf and 0.1 or 0.5
-		E.bar.BackgroundColor3 = isSelf and SELF_BLUE or P.accent1
+		E.stroke.Transparency = isSelf and 0.1 or 0.45
 		E.nameLbl.TextColor3   = P.white
 		E.nameLbl.Size         = E.nameFullW
-		E.avStroke.Color, E.avStroke.Thickness, E.avStroke.Transparency = P.accent2, 2, 0.3
+		E.avStroke.Color, E.avStroke.Thickness, E.avStroke.Transparency = P.accent, 2, 0.35
 		E.avGrad.Enabled       = false
 	end
 	E.vipIcon.Visible = isVip
@@ -575,6 +561,9 @@ function View:sync(list)
 			if firstLoad then playIntro(E, i) else playNew(E) end
 		end
 		E.holder.LayoutOrder = i
+		-- les 4 plus récents à fond, puis de plus en plus discrets
+		local age = math.clamp((i - 4) * 0.07, 0, 0.45)
+		tween(E.dim, HOVER_INFO, { BackgroundTransparency = 1 - age })
 	end
 	for id, E in pairs(self.byId) do
 		if not keep[id] then
@@ -738,53 +727,45 @@ end
 local function buildBoardUI(sg)
 	for _, c in ipairs(sg:GetChildren()) do c:Destroy() end
 
+	-- un seul fond mauve, sans cadre intérieur ni pied de page : un fil, pas un classement
 	local main = Instance.new("Frame")
 	main.Name             = "MainFrame"
 	main.Size             = UDim2.new(1, 0, 1, 0)
-	main.BackgroundColor3 = P.bg
+	main.BackgroundColor3 = Color3.new(1, 1, 1)   -- le dégradé fait la couleur
 	main.BorderSizePixel  = 0
 	main.Parent           = sg
 	local bgGrad = Instance.new("UIGradient")
 	bgGrad.Color    = ColorSequence.new(P.bgA, P.bgB)
-	bgGrad.Rotation = 135
+	bgGrad.Rotation = 90
 	bgGrad.Parent   = main
 
-
 	local content = Instance.new("Frame")
-	content.Name             = "ContentFrame"
-	content.Size             = UDim2.new(0.96, 0, 0.895, 0)
-	content.Position         = UDim2.new(0.02, 0, 0.03, 0)
-	content.BackgroundColor3 = P.panel
-	content.BorderSizePixel  = 0
-	content.ClipsDescendants = true
-	content.Parent           = main
-	Instance.new("UICorner", content).CornerRadius = UDim.new(0, 12)
-	local cStroke = Instance.new("UIStroke")
-	cStroke.Color        = P.stroke
-	cStroke.Thickness    = 1
-	cStroke.Transparency = 0.5
-	cStroke.Parent       = content
+	content.Name                   = "ContentFrame"
+	content.Size                   = UDim2.new(1, 0, 1, 0)
+	content.BackgroundTransparency = 1
+	content.ClipsDescendants       = true
+	content.Parent                 = main
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name                   = "ScrollingFrame"
-	scroll.Size                   = UDim2.new(0.97, 0, 0.97, 0)
-	scroll.Position               = UDim2.new(0.015, 0, 0.015, 0)
+	scroll.Size                   = UDim2.new(1, 0, 1, 0)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel        = 0
-	scroll.ScrollBarThickness     = 5
-	scroll.ScrollBarImageColor3   = P.accent2
+	scroll.ScrollBarThickness     = 4
+	scroll.ScrollBarImageColor3   = P.accent
+	scroll.ScrollBarImageTransparency = 0.4
 	scroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
 	scroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
 	scroll.Parent                 = content
 	local list = Instance.new("UIListLayout")
 	list.SortOrder = Enum.SortOrder.LayoutOrder
-	list.Padding   = UDim.new(0, 8)
+	list.Padding   = UDim.new(0, 12)
 	list.Parent    = scroll
 	local pad = Instance.new("UIPadding")
-	pad.PaddingTop    = UDim.new(0, 10)
-	pad.PaddingBottom = UDim.new(0, 10)
-	pad.PaddingLeft   = UDim.new(0, 16)
-	pad.PaddingRight  = UDim.new(0, 16)
+	pad.PaddingTop    = UDim.new(0, 28)
+	pad.PaddingBottom = UDim.new(0, 28)
+	pad.PaddingLeft   = UDim.new(0, 36)
+	pad.PaddingRight  = UDim.new(0, 36)
 	pad.Parent        = scroll
 
 	local msg = Instance.new("TextLabel")
@@ -794,36 +775,12 @@ local function buildBoardUI(sg)
 	msg.Text                   = CFG.emptyText
 	msg.TextColor3             = P.muted
 	msg.TextScaled             = true
-	msg.Font                   = Enum.Font.Gotham
+	msg.Font                   = Enum.Font.FredokaOne
 	msg.LayoutOrder            = 1e7
 	msg.Visible                = false
 	msg.Parent                 = scroll
 	local mc = Instance.new("UITextSizeConstraint", msg)
-	mc.MaxTextSize = 20; mc.MinTextSize = 10
-
-	local footer = Instance.new("Frame")
-	footer.Name             = "Footer"
-	footer.Size             = UDim2.new(0.96, 0, 0.047, 0)
-	footer.Position         = UDim2.new(0.02, 0, 0.943, 0)
-	footer.BackgroundColor3 = P.footer
-	footer.BorderSizePixel  = 0
-	footer.Parent           = main
-	Instance.new("UICorner", footer).CornerRadius = UDim.new(0, 8)
-	local fStroke = Instance.new("UIStroke")
-	fStroke.Color        = P.stroke
-	fStroke.Thickness    = 1
-	fStroke.Transparency = 0.5
-	fStroke.Parent       = footer
-	local fLbl = Instance.new("TextLabel")
-	fLbl.Size                   = UDim2.new(1, 0, 1, 0)
-	fLbl.BackgroundTransparency = 1
-	fLbl.Text                   = CFG.footerText
-	fLbl.TextColor3             = P.muted
-	fLbl.TextScaled             = true
-	fLbl.Font                   = Enum.Font.Gotham
-	fLbl.Parent                 = footer
-	local flc = Instance.new("UITextSizeConstraint", fLbl)
-	flc.MaxTextSize = 16; flc.MinTextSize = 8
+	mc.MaxTextSize = 22; mc.MinTextSize = 10
 
 	return { content = content, scroll = scroll, msg = msg }
 end

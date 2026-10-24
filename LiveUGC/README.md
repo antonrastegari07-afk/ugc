@@ -3,12 +3,13 @@
 Board qui affiche en direct les derniers UGC récupérés :
 **qui** (avatar + nom, VIP doré, clic → fiche profil) et **quel UGC** (nom + image).
 Aucune heure ni temps de récupération n'est affiché.
-Le titre **● LIVE UGC REDEEMS** flotte au-dessus du panneau (BillboardGui), dans le même style que le « LIVE NOW! » du shop d'Halloween : texte épais, dégradé vertical, contour sombre, et un point rouge qui pulse à côté de « LIVE ».
-L'image de l'UGC est posée sur une tuile claire, pour que les UGC noirs restent visibles. Le nom de l'UGC est du même violet que `[UGC REDEEM]` dans le chat.
+Le titre **● LIVE UGC REDEEMS** flotte au-dessus du panneau (BillboardGui), dans le même style que le « LIVE NOW! » du shop d'Halloween : texte épais et penché, dégradé lavande → mauve, contour sombre, et un point rouge qui clignote à côté de « LIVE ».
+Tout le board suit un seul thème mauve. Ce n'est pas un classement : pas de rang, et les redeems plus anciens deviennent de plus en plus discrets.
+L'image de l'UGC est posée sur une case mauve moyen, lisible pour les UGC noirs comme pour les clairs. Le nom de l'UGC est du même mauve que `[UGC REDEEM]` dans le chat.
 
 À chaque nouveau redeem :
 - une place s'ouvre en haut de la liste et les autres descendent,
-- l'entry glisse, l'image de l'UGC apparaît en grossissant légèrement et un flash rose s'efface,
+- la carte glisse, l'image de l'UGC apparaît en grossissant légèrement et un léger flash mauve s'efface,
 - une onde part du point rouge du titre.
 
 Ça marche entre tous les serveurs : le redeem s'affiche partout en ~1 s (MessagingService).
@@ -54,7 +55,7 @@ Fais exactement comme pour tes autres leaderboards :
    Tu peux copier la SurfaceGui d'un leaderboard existant.
 
 Le client remplace tout seul le contenu de la SurfaceGui, et la rend cliquable de la même manière que le Core.
-Le titre flottant est créé automatiquement au-dessus de la Part, sans rien à placer à la main. Il prend 85 % de la largeur du panneau.
+Le titre flottant est créé automatiquement au-dessus de la Part, sans rien à placer à la main. Il peut faire jusqu'à 160 % de la largeur du panneau.
 
 ## 6. Tester
 
@@ -85,12 +86,12 @@ Le titre flottant est créé automatiquement au-dessus de la Part, sans rien à 
 
 | Réglage | Rôle |
 |---|---|
-| `title`, `verb`, `emptyText`, `footerText` | les textes |
+| `title`, `verb`, `emptyText` | les textes |
 | `billboard` | le titre flottant : taille (`widthScale`, `heightRatio`), hauteur au-dessus du panneau (`gap`), police (`font`), vitesse du point rouge (`blinkSpeed`), dégradé, contour |
 | `boardNames` | les noms des Parts |
 | `maxShown` | nombre de lignes affichées |
 | `entryHeight` | hauteur d'une ligne |
-| `palette` | les couleurs (`tileA`/`tileB` = fond de la tuile UGC, `ugcName` = couleur du nom de l'UGC) |
+| `palette` | le thème mauve (`card` = cartes, `tileTop`/`tileBottom` = case de l'UGC, `ugcName` = nom de l'UGC, `self` = ta ligne) |
 
 ## Coût
 

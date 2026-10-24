@@ -134,17 +134,41 @@ local function emitter(parent, props)
 end
 local function burst(e, n) e:Emit(math.max(1, math.floor(n * PSCALE + 0.5))) end
 
-local function sfx(name, parent, volMul)
-	local s = Config.Sounds and Config.Sounds[name]
-	if not s then return nil end
+local SFX_FALLBACK = { Equip = "rbxasset://sounds/unsheath.wav", Dash = "rbxasset://sounds/swordlunge.wav",
+	Slash = "rbxasset://sounds/swordslash.wav" }
+
+-- id final d'un son (config → sinon son Roblox par défaut) ; nil = pas de son
+local function sfxId(name)
+	local s = (Config.Sounds and Config.Sounds[name]) or {}
+	-- 🔇 seul un Volume = 0 EXPLICITE coupe le son (avant : Volume absent = 0 → silence)
+	if s.Volume ~= nil and s.Volume <= 0 then return nil end
 	local id = s.Id
 	if type(id) == "number" then id = tostring(id) end
-	local fallback = ({ Equip = "rbxasset://sounds/unsheath.wav", Dash = "rbxasset://sounds/swordlunge.wav",
-		Slash = "rbxasset://sounds/swordslash.wav" })[name]
-	if type(id) ~= "string" or id == "" then id = fallback end
-	if not id or (s.Volume or 0) <= 0 then return nil end
+	if type(id) ~= "string" or id == "" then id = SFX_FALLBACK[name] end
+	if not id then return nil end
 	if not id:find("rbx") then id = "rbxassetid://" .. id end
-	local snd = new("Sound", { Name = "FX_" .. name, SoundId = id, Volume = (s.Volume or 0.5) * (volMul or 1),
+	return id, s.Volume or 0.5
+end
+
+-- ⏳ précharge : sans ça, le tout premier dash est muet le temps que l'audio se télécharge
+task.spawn(function()
+	local list = {}
+	for _, n in ipairs({ "Dash", "Slash", "Equip", "Ready" }) do
+		local id = sfxId(n)
+		if id then
+			local snd = Instance.new("Sound")
+			snd.SoundId = id
+			table.insert(list, snd)
+		end
+	end
+	pcall(function() game:GetService("ContentProvider"):PreloadAsync(list) end)
+end)
+
+local function sfx(name, parent, volMul)
+	if not parent then return nil end
+	local id, vol = sfxId(name)
+	if not id then return nil end
+	local snd = new("Sound", { Name = "FX_" .. name, SoundId = id, Volume = vol * (volMul or 1),
 		PlaybackSpeed = Config.SoundPitch or 1, RollOffMaxDistance = 90, RollOffMinDistance = 8 }, parent)
 	snd:Play()
 	if not snd.Looped then
@@ -607,12 +631,20 @@ end
 -- le dash = coup de faux : charge (éclats qui se resserrent), élan (onde, lignes, fantômes),
 -- frappe (nappe éclatante + fumée), impact (éclats de cristal + onde au sol)
 function FX.Dash(tool, character, dir, isLocal)
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	-- 🔊 sons EN PREMIER : avant, ils étaient joués tout à la fin, donc le moindre
+	--    return ou la moindre erreur dans un effet visuel coupait le son du dash.
+	local sndParent = hrp or (tool and tool:FindFirstChild("Handle"))
+	sfx("Dash", sndParent, isLocal and 1 or 0.55)
+	task.delay(0.16, function()
+		if sndParent and sndParent.Parent then sfx("Slash", sndParent, isLocal and 1 or 0.5) end
+	end)
+
 	local h = handles[tool] or FX.Attach(tool, isLocal)
 	if not h then return end
 	local now = os.clock()
 	h.dashT = now
 	local P = h.P
-	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	if not hrp then return end
 	dir = (dir and dir.Magnitude > 0.1) and dir.Unit or hrp.CFrame.LookVector
 	local flameTex = h.gold and "FlameGold" or "Flame"
@@ -737,10 +769,6 @@ function FX.Dash(tool, character, dir, isLocal)
 			burst(dust, 8)
 		end
 	end)
-
-	-- sons
-	sfx("Dash", hrp, isLocal and 1 or 0.55)
-	task.delay(0.16, function() sfx("Slash", hrp, isLocal and 1 or 0.5) end)
 end
 
 -- recharge (0 → 1) : la lame se rallume et les éclats s'allument un par un ; éclat + son quand c'est prêt
