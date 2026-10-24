@@ -156,14 +156,34 @@ end
 local badId = {}
 local SOUND_NAMES = { "Dash", "Slash", "Equip", "Ready" }
 
+-- 🎧 TES sons (ta faux) : UN Sound par nom, créé une fois, gardé chargé dans SoundService
+--    et rejoué à chaque fois. Son « 2D » : il ne se balade pas avec le HumanoidRootPart
+--    lancé à 92 studs/s, et il n'a jamais besoin d'être rechargé.
+--    (avant : un NOUVEAU Sound à chaque dash, pas encore chargé au moment du Play)
+local SoundService = game:GetService("SoundService")
+local mine = {}
+local function mySound(name)
+	local id, vol = sfxId(name)
+	if not id then return nil end
+	if badId[id] then id = SFX_FALLBACK[name] or id end
+	local snd = mine[name]
+	if not snd or not snd.Parent then
+		snd = Instance.new("Sound")
+		snd.Name = "ScytheFX_" .. name
+		snd.Parent = SoundService
+		mine[name] = snd
+	end
+	if snd.SoundId ~= id then snd.SoundId = id end
+	snd.PlaybackSpeed = Config.SoundPitch or 1
+	return snd, vol, id
+end
+
 -- ⏳ précharge : sans ça, le tout premier dash est muet le temps que l'audio se télécharge
 task.spawn(function()
 	local list, byId = {}, {}
 	for _, n in ipairs(SOUND_NAMES) do
-		local id = sfxId(n)
-		if id then
-			local snd = Instance.new("Sound")
-			snd.SoundId = id
+		local snd, _, id = mySound(n)
+		if snd then
 			table.insert(list, snd)
 			byId[id] = byId[id] or {}
 			table.insert(byId[id], n)
@@ -176,12 +196,34 @@ task.spawn(function()
 				warn(("⚠️ [ScytheFX] son %s (%s) impossible à charger → son par défaut. "
 					.. "Vérifie que l'audio appartient au créateur du jeu (ou qu'il est public)."):format(
 					table.concat(byId[contentId], "/"), contentId))
+				for _, n in ipairs(byId[contentId]) do mySound(n) end   -- bascule tout de suite
 			end
 		end)
 	end)
 end)
 
-local function sfx(name, parent, volMul)
+local function debugSound(name, snd)
+	if not Config.Debug then return end
+	-- mesuré 0.25 s après le Play : « volume réel » = 0 alors qu'il joue → le fichier est muet à cet endroit
+	task.delay(0.25, function()
+		if not snd.Parent then return end
+		print(("🔊 [ScytheFX] %s → %s | volume %.2f | chargé : %s | durée %.2f s | joue : %s | volume réel : %.1f"):format(
+			name, snd.SoundId, snd.Volume, tostring(snd.IsLoaded), snd.TimeLength,
+			tostring(snd.IsPlaying), snd.PlaybackLoudness))
+	end)
+end
+
+-- isMine = true → le son de TA faux (2D, préchargé) ; sinon → son 3D posé sur `parent`
+local function sfx(name, parent, volMul, isMine)
+	if isMine then
+		local snd, vol = mySound(name)
+		if not snd then return nil end
+		snd.Volume = vol * (volMul or 1)
+		snd.TimePosition = 0
+		snd:Play()
+		debugSound(name, snd)
+		return snd
+	end
 	if not parent then return nil end
 	local id, vol = sfxId(name)
 	if not id then return nil end
@@ -189,20 +231,7 @@ local function sfx(name, parent, volMul)
 	local snd = new("Sound", { Name = "FX_" .. name, SoundId = id, Volume = vol * (volMul or 1),
 		PlaybackSpeed = Config.SoundPitch or 1, RollOffMaxDistance = 90, RollOffMinDistance = 8 }, parent)
 	snd:Play()
-	-- 🩺 2e filet : un son qui n'a toujours pas chargé après 3 s est marqué « muet »
-	--    → les prochains dash utilisent le son par défaut.
-	if not snd.IsLoaded and not badId[id] and SFX_FALLBACK[name] and id ~= SFX_FALLBACK[name] then
-		task.delay(3, function()
-			if not snd.IsLoaded and not badId[id] then
-				badId[id] = true
-				warn(("⚠️ [ScytheFX] son %s (%s) toujours pas chargé après 3 s → son par défaut au prochain coup. "
-					.. "Audio en modération, refusé, ou d'un autre compte que le jeu ?"):format(name, id))
-			end
-		end)
-	end
-	if Config.Debug then
-		print(("🔊 [ScytheFX] %s → %s | volume %.2f | chargé : %s"):format(name, id, snd.Volume, tostring(snd.IsLoaded)))
-	end
+	debugSound(name, snd)
 	if not snd.Looped then
 		snd.Ended:Connect(function() snd:Destroy() end)
 		Debris:AddItem(snd, 6)
@@ -657,7 +686,7 @@ function FX.Equip(tool, isLocal)
 		burst(ring, 1)
 		Debris:AddItem(b, 1.2) ; Debris:AddItem(sp, 1.2) ; Debris:AddItem(ring, 1)
 	end
-	sfx("Equip", tool:FindFirstChild("Handle"), isLocal and 1 or 0.6)
+	sfx("Equip", tool:FindFirstChild("Handle"), isLocal and 1 or 0.6, isLocal)
 end
 
 -- le dash = coup de faux : charge (éclats qui se resserrent), élan (onde, lignes, fantômes),
@@ -667,9 +696,9 @@ function FX.Dash(tool, character, dir, isLocal)
 	-- 🔊 sons EN PREMIER : avant, ils étaient joués tout à la fin, donc le moindre
 	--    return ou la moindre erreur dans un effet visuel coupait le son du dash.
 	local sndParent = hrp or (tool and tool:FindFirstChild("Handle"))
-	sfx("Dash", sndParent, isLocal and 1 or 0.55)
+	sfx("Dash", sndParent, isLocal and 1 or 0.55, isLocal)
 	task.delay(0.16, function()
-		if sndParent and sndParent.Parent then sfx("Slash", sndParent, isLocal and 1 or 0.5) end
+		if isLocal or (sndParent and sndParent.Parent) then sfx("Slash", sndParent, isLocal and 1 or 0.5, isLocal) end
 	end)
 
 	local h = handles[tool] or FX.Attach(tool, isLocal)
@@ -809,7 +838,7 @@ function FX.SetCooldown(tool, k)
 	if not h then return end
 	if h.cd < 1 and k >= 1 then
 		h.readyFlare = os.clock()
-		sfx("Ready", tool:FindFirstChild("Head"))
+		sfx("Ready", tool:FindFirstChild("Head"), 1, h.isLocal)
 		local head = tool:FindFirstChild("Head")
 		local knot = head and head:FindFirstChild("Knot")
 		if knot then
