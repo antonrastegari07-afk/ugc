@@ -1,0 +1,450 @@
+--════════════════════════════════════════════════════════════
+-- 🎽 UGC REDEEM LOG — SERVEUR (v2 optimisée + détection totale)
+--
+-- Détecte TOUTES les voies d'acquisition :
+--   shop / late / timeout / quit / bugfix  → hooks du script principal
+--   exploit                                 → hook anti-exploit
+--   free / admin                            → API manuelle
+--   external                                → AUDIT de possession (catalogue
+--                                             Roblox, giveaway hors-jeu, etc.)
+--
+-- 💾 Coût : 4 écritures par redeem (rare). Audit = 0 lecture DataStore
+--    tant que le joueur ne possède aucun UGC configuré.
+--════════════════════════════════════════════════════════════
+local Players            = game:GetService("Players")
+local ReplicatedStorage   = game:GetService("ReplicatedStorage")
+local DataStoreService    = game:GetService("DataStoreService")
+local MarketplaceService  = game:GetService("MarketplaceService")
+local HttpService         = game:GetService("HttpService")
+
+local ADMIN_IDS = { 3203521470, 11017023724, 8456613930, 8142402169, 10420404767 }
+
+-- 🔧 RÉGLAGES AUDIT
+local AUDIT_ENABLED     = false   -- false = coupe complètement l'audit
+local AUDIT_START_DELAY = 45     -- s après le join avant de mettre en file
+local AUDIT_SPACING     = 2.5    -- s entre 2 appels PlayerOwnsAsset (GLOBAL)
+local AUDIT_RECHECK     = 900    -- s avant une 2e passe (0 = désactivé)
+
+local UGC_CONFIG = require(ReplicatedStorage:WaitForChild("UGC_CONFIG"))
+
+local LOG_STORE  = DataStoreService:GetDataStore("UGCRedeems_v1")
+local P_STORE    = DataStoreService:GetDataStore("UGCRedeemsPlayer_v1")
+local RANK_COUNT = DataStoreService:GetOrderedDataStore("UGCRedeemCount_v1")
+local RANK_SPENT = DataStoreService:GetOrderedDataStore("UGCRedeemSpent_v1")
+
+local META_KEY, MAX_PER_BUCKET, MAX_PLAYER_ITEMS, META_TTL = "meta", 100, 60, 30
+local JOB = (game.JobId ~= "" and game.JobId) or "studio"
+
+local function mk(name, class)
+	local r = ReplicatedStorage:FindFirstChild(name)
+	if not r then r = Instance.new(class); r.Name = name; r.Parent = ReplicatedStorage end
+	return r
+end
+local getLog    = mk("AdminGetUGCRedeems", "RemoteFunction")
+local getTop    = mk("AdminGetUGCTop",     "RemoteFunction")
+local getUserFn = mk("AdminGetUGCPlayer",  "RemoteFunction")
+
+local function isAdmin(id)
+	for _, a in ipairs(ADMIN_IDS) do if a == id then return true end end
+	return false
+end
+
+-- ── état mémoire (tout est purgé, voir la boucle de nettoyage) ──
+local metaCache, metaAt = nil, 0
+local registered   = {}   -- [bucketKey] = true
+local bucketSuffix = {}   -- [base] = dernier suffixe connu non plein
+local recentDedup  = {}   -- ["uid_asset"] = os.time()
+local devProdAt    = {}   -- [userId] = os.time()
+local pCache       = {}   -- [userId] = { d = record, t = os.clock() }
+local rateLimit    = {}   -- ["uid:remote"] = os.clock()
+local ownCache     = {}   -- [userId] = { [assetId] = bool }
+local checkQueue   = {}   -- file d'appels PlayerOwnsAsset
+local auditPending = {}   -- [userId] = { remaining = n, owned = {} }
+local auditDone    = {}   -- ["uid:pass"] = true
+
+-- ════════════════════════════════════════════════════════════
+-- LOG GLOBAL (buckets journaliers)
+-- ════════════════════════════════════════════════════════════
+local function readMeta(force)
+	local now = os.time()
+	-- "force" ne relit que si le cache a plus de 10 s → pas de spam au refresh
+	if metaCache and (now - metaAt) < (force and 10 or META_TTL) then return metaCache end
+	local ok, data = pcall(function() return LOG_STORE:GetAsync(META_KEY) end)
+	if not ok then return metaCache end
+	if type(data) ~= "table" or type(data.buckets) ~= "table" then data = { buckets = {} } end
+	metaCache, metaAt = data, now
+	for _, b in ipairs(data.buckets) do registered[b] = true end
+	return data
+end
+
+local function registerBucket(key)
+	if registered[key] then return end
+	local ok = pcall(function()
+		LOG_STORE:UpdateAsync(META_KEY, function(old)
+			if type(old) ~= "table" or type(old.buckets) ~= "table" then old = { buckets = {} } end
+			for _, b in ipairs(old.buckets) do if b == key then return nil end end
+			table.insert(old.buckets, key)
+			return old
+		end)
+	end)
+	if ok then registered[key] = true; metaAt = 0 end
+end
+
+local function writeEntry(entry)
+	local t = os.date("!*t", os.time())
+	local base = string.format("b_%04d%02d%02d", t.year, t.month, t.day)
+	local start = bucketSuffix[base] or 1          -- ⚡ reprend où on s'était arrêté
+	for suffix = start, start + 29 do
+		local key, full = base .. "_" .. suffix, false
+		local ok = pcall(function()
+			LOG_STORE:UpdateAsync(key, function(old)
+				if type(old) ~= "table" or type(old.entries) ~= "table" then old = { entries = {} } end
+				if #old.entries >= MAX_PER_BUCKET then full = true; return nil end
+				table.insert(old.entries, entry)
+				return old
+			end)
+		end)
+		if not ok then return false end
+		if not full then
+			bucketSuffix[base] = suffix
+			registerBucket(key)
+			return true
+		end
+		bucketSuffix[base] = suffix + 1
+	end
+	return false
+end
+
+-- ════════════════════════════════════════════════════════════
+-- FICHE JOUEUR + CLASSEMENTS
+-- ════════════════════════════════════════════════════════════
+local function updatePlayerRecord(userId, item, countSpent)
+	local newCount, newSpent = 0, 0
+	local ok = pcall(function()
+		P_STORE:UpdateAsync("u_" .. userId, function(old)
+			if type(old) ~= "table" then old = { c = 0, sp = 0, fr = 0, it = {} } end
+			old.c  = (tonumber(old.c) or 0) + 1
+			if countSpent then old.sp = (tonumber(old.sp) or 0) + (item.p or 0) end
+			if item.f then old.fr = (tonumber(old.fr) or 0) + 1 end
+			old.lt = item.t
+			if type(old.it) ~= "table" then old.it = {} end
+			table.insert(old.it, item)
+			while #old.it > MAX_PLAYER_ITEMS do table.remove(old.it, 1) end
+			newCount, newSpent = old.c, old.sp or 0
+			return old
+		end)
+	end)
+	if not ok then return end
+	pCache[userId] = nil
+	return newCount, newSpent
+end
+
+-- ════════════════════════════════════════════════════════════
+-- 🔌 API DE LOG
+-- opts = { price, source, player, name, note, countSpent }
+-- ════════════════════════════════════════════════════════════
+local function ugcSnapshot(assetId, fallbackName)
+	local cfg = UGC_CONFIG.GetByAssetId(assetId)
+	return {
+		name  = (cfg and cfg.Name) or fallbackName or ("Asset " .. assetId),
+		img   = (cfg and (cfg.ImageId or cfg.AssetId)) or assetId,
+		price = cfg and cfg.Price or nil,
+	}
+end
+
+_G.UGCRedeem_Log = function(userId, assetId, opts)
+	userId, assetId = tonumber(userId), tonumber(assetId)
+	if not userId or not assetId then return end
+	opts = opts or {}
+
+	local dk, now = userId .. "_" .. assetId, os.time()
+	if recentDedup[dk] and (now - recentDedup[dk]) < 300 then return end
+	recentDedup[dk] = now
+
+	local pl   = opts.player or Players:GetPlayerByUserId(userId)
+	local snap = ugcSnapshot(assetId, opts.name)
+	local price = math.max(0, math.floor(tonumber(opts.price) or snap.price or 0))
+	local countSpent = (opts.countSpent ~= false)
+
+	-- 📊 Stats UGC précalculées (part Robux, stock, délai, voie…)
+	if _G.EconStats and _G.EconStats.RecordUGC then
+		pcall(_G.EconStats.RecordUGC, userId, assetId, {
+			pp = countSpent and price or 0, s = opts.source, name = opts.name or snap.name,
+			listPrice = snap.price, opened = opts.opened,
+		})
+	end
+
+	local ptsAfter
+	if _G.tempsJoueurs and type(_G.tempsJoueurs[userId]) == "table" then
+		local d = _G.tempsJoueurs[userId]
+		ptsAfter = math.floor((d.base or 0) + (d.future or 0))
+	end
+
+	local entry = {
+		id = HttpService:GenerateGUID(false),
+		u = userId, n = (pl and pl.Name) or opts.name, d = pl and pl.DisplayName or nil,
+		a = assetId, an = snap.name, ai = snap.img,
+		p = price, f = (price <= 0 and countSpent),
+		s = tostring(opts.source or "shop"), t = now, pa = ptsAfter,
+		rbx = (function()
+			local d = devProdAt[userId]
+			if type(d) == "table" and (now - d.t) < 900 then return d.n or true end
+			return nil
+		end)(),
+		srv = JOB, nt = opts.note,
+	}
+
+	-- ⚡ écritures SÉQUENTIELLES et espacées : jamais de rafale
+	task.spawn(function()
+		writeEntry(entry)
+		task.wait(0.2)
+		local c, sp = updatePlayerRecord(userId, {
+			a = entry.a, an = entry.an, ai = entry.ai, p = entry.p,
+			f = entry.f, s = entry.s, t = entry.t, rbx = entry.rbx,
+		}, countSpent)
+		if c then
+			task.wait(0.2)
+			pcall(function() RANK_COUNT:SetAsync(tostring(userId), c) end)
+			if countSpent and sp and sp > 0 then
+				task.wait(0.2)
+				pcall(function() RANK_SPENT:SetAsync(tostring(userId), math.floor(sp)) end)
+			end
+		end
+		print(string.format("🎽 UGC REDEEM | %s (%d) | %s | %s pts | src=%s%s",
+			entry.n or "?", userId, entry.an, tostring(entry.p), entry.s,
+			entry.rbx and " | robux<15min" or ""))
+	end)
+end
+
+_G.UGCRedeem_NoteDevProduct = function(userId, productName)
+	userId = tonumber(userId)
+	if userId then devProdAt[userId] = { t = os.time(), n = productName } end
+end
+
+_G.UGCRedeem_LogFree = function(userId, assetId, note)
+	_G.UGCRedeem_Log(userId, assetId, { price = 0, source = "free", note = note })
+end
+_G.UGCRedeem_LogExploit = function(userId, assetId, details)
+	_G.UGCRedeem_Log(userId, assetId, {
+		price = 0, source = "exploit", countSpent = false, note = details,
+	})
+end
+
+_G.UGCRedeem_GetPlayer = function(userId, force)
+	userId = tonumber(userId); if not userId then return nil end
+	local c = pCache[userId]
+	if not force and c and (os.clock() - c.t) < 60 then return c.d end
+	local ok, data = pcall(function() return P_STORE:GetAsync("u_" .. userId) end)
+	if not ok then return c and c.d or nil end
+	if type(data) ~= "table" then data = { c = 0, sp = 0, fr = 0, it = {} } end
+	pCache[userId] = { d = data, t = os.clock() }
+	return data
+end
+
+-- ════════════════════════════════════════════════════════════
+-- 🔍 AUDIT DE POSSESSION (détecte le catalogue / hors-shop)
+-- Ordre volontaire : d'abord PlayerOwnsAsset (pas de DataStore),
+-- et on ne lit la fiche QUE si le joueur possède au moins un UGC.
+-- ════════════════════════════════════════════════════════════
+local function finalizeAudit(userId)
+	local st = auditPending[userId]
+	auditPending[userId] = nil
+	if not st or #st.owned == 0 then return end          -- ✅ 0 lecture DataStore
+
+	local rec = _G.UGCRedeem_GetPlayer(userId, true)     -- 1 seule lecture
+	local known = {}
+	if rec and type(rec.it) == "table" then
+		for _, it in ipairs(rec.it) do known[tostring(it.a)] = true end
+	end
+
+	for _, assetId in ipairs(st.owned) do
+		if not known[tostring(assetId)] then
+			_G.UGCRedeem_Log(userId, assetId, {
+				price = 0, source = "external", countSpent = false,
+				note = "détecté par audit de possession (catalogue / hors-shop / antérieur au log)",
+			})
+			task.wait(0.5)
+		end
+	end
+end
+
+local function enqueueAudit(userId, pass)
+	if not AUDIT_ENABLED then return end
+	if #checkQueue > 400 then return end   -- 🛡️ serveur plein : on saute cette passe
+	local key = userId .. ":" .. pass
+	if auditDone[key] then return end
+	auditDone[key] = true
+
+	local list = {}
+	ownCache[userId] = ownCache[userId] or {}
+	for _, u in ipairs(UGC_CONFIG.Items) do
+		if ownCache[userId][u.AssetId] ~= true then    -- déjà vu possédé → on saute
+			table.insert(list, u.AssetId)
+		end
+	end
+	if #list == 0 then return end
+
+	auditPending[userId] = { remaining = #list, owned = {} }
+	for _, a in ipairs(list) do
+		table.insert(checkQueue, { u = userId, a = a })
+	end
+end
+
+task.spawn(function()
+	while true do
+		-- ⚡ on jette les jobs morts SANS consommer de slot de 2.5 s
+		local job = table.remove(checkQueue, 1)
+		while job and (auditPending[job.u] == nil or not Players:GetPlayerByUserId(job.u)) do
+			auditPending[job.u] = nil
+			job = table.remove(checkQueue, 1)
+		end
+		if not job then
+			task.wait(1)
+			continue
+		end
+		task.wait(AUDIT_SPACING)
+		local pl, st = Players:GetPlayerByUserId(job.u), auditPending[job.u]
+		if pl and st then
+			local owns = false
+			local ok, res = pcall(function()
+				return MarketplaceService:PlayerOwnsAsset(pl, job.a)
+			end)
+			if ok then owns = res end
+			ownCache[job.u] = ownCache[job.u] or {}
+			ownCache[job.u][job.a] = owns
+			if owns then table.insert(st.owned, job.a) end
+			st.remaining -= 1
+			if st.remaining <= 0 then
+				task.spawn(function() finalizeAudit(job.u) end)
+			end
+		end
+	end
+end)
+
+Players.PlayerAdded:Connect(function(player)
+	if not AUDIT_ENABLED then return end
+	task.spawn(function()
+		task.wait(AUDIT_START_DELAY + math.random() * 15)
+		if player.Parent then enqueueAudit(player.UserId, 1) end
+		if AUDIT_RECHECK > 0 then
+			task.wait(AUDIT_RECHECK)
+			if player.Parent then enqueueAudit(player.UserId, 2) end
+		end
+	end)
+end)
+
+_G.UGCRedeem_ForceAudit = function(userId)
+	userId = tonumber(userId); if not userId then return end
+	auditDone[userId .. ":manual"] = nil
+	enqueueAudit(userId, "manual")
+	print("🔍 Audit UGC mis en file pour " .. userId)
+end
+
+-- ════════════════════════════════════════════════════════════
+-- REMOTES ADMIN (rate limit séparé par remote)
+-- ════════════════════════════════════════════════════════════
+local function rl(userId, tag, sec)
+	local k, now = userId .. ":" .. tag, os.clock()
+	if rateLimit[k] and (now - rateLimit[k]) < (sec or 0.6) then return false end
+	rateLimit[k] = now
+	return true
+end
+
+getLog.OnServerInvoke = function(player, cursor, wanted)
+	if not isAdmin(player.UserId) then return { entries = {} } end
+	-- ⚡ On ATTEND son tour au lieu de répondre « occupé » : le client
+	--    s'arrêtait au premier refus → seulement 1-2 jours chargés.
+	local t0 = os.clock()
+	while not rl(player.UserId, "log", 0.15) do
+		if os.clock() - t0 > 4 then return { entries = {}, cursor = cursor, hasMore = true, throttled = true } end
+		task.wait(0.05)
+	end
+	wanted = math.clamp(tonumber(wanted) or 30, 5, 80)
+	local meta = readMeta(cursor == nil)
+	if not meta then return { entries = {}, error = "DataStore unavailable" } end
+	local buckets = meta.buckets or {}
+	local i, out, reads = tonumber(cursor) or #buckets, {}, 0
+	while i >= 1 and #out < wanted and reads < 6 do
+		local key = buckets[i]; reads += 1
+		local ok, data = pcall(function() return LOG_STORE:GetAsync(key) end)
+		if ok and type(data) == "table" and type(data.entries) == "table" then
+			for j = #data.entries, 1, -1 do
+				local e = data.entries[j]
+				if type(e) == "table" then table.insert(out, e) end
+			end
+		end
+		i -= 1
+	end
+	return { entries = out, cursor = i, hasMore = i >= 1 }
+end
+
+getTop.OnServerInvoke = function(player, metric, n)
+	if not isAdmin(player.UserId) then return { entries = {} } end
+	if not rl(player.UserId, "top") then return { entries = {} } end
+	n = math.clamp(tonumber(n) or 50, 1, 100)
+	local store = (metric == "spent") and RANK_SPENT or RANK_COUNT
+	local ok, pages = pcall(function() return store:GetSortedAsync(false, n) end)
+	if not ok or not pages then return { entries = {} } end
+	local out = {}
+	local okPage, page = pcall(function() return pages:GetCurrentPage() end)
+	if okPage and type(page) == "table" then
+		for _, e in ipairs(page) do
+			local uid = tonumber(e.key)
+			if uid then table.insert(out, { userId = uid, value = e.value }) end
+		end
+	end
+	return { entries = out, metric = (metric == "spent") and "spent" or "count" }
+end
+
+getUserFn.OnServerInvoke = function(player, targetUserId)
+	if not isAdmin(player.UserId) then return nil end
+	if not rl(player.UserId, "user") then return nil end
+	return _G.UGCRedeem_GetPlayer(tonumber(targetUserId))
+end
+
+-- ════════════════════════════════════════════════════════════
+-- 🧹 NETTOYAGE MÉMOIRE (toutes les 5 min)
+-- ════════════════════════════════════════════════════════════
+task.spawn(function()
+	while true do
+		task.wait(300)
+		local now, clk = os.time(), os.clock()
+		for k, t in pairs(recentDedup) do
+			if now - t > 600 then recentDedup[k] = nil end
+		end
+		for uid, c in pairs(pCache) do
+			if (clk - c.t) > 300 and not Players:GetPlayerByUserId(uid) then pCache[uid] = nil end
+		end
+		for uid in pairs(ownCache) do
+			if not Players:GetPlayerByUserId(uid) then ownCache[uid] = nil end
+		end
+		for k in pairs(auditDone) do
+			local uid = tonumber(tostring(k):match("^(%d+)"))
+			if uid and not Players:GetPlayerByUserId(uid) then auditDone[k] = nil end
+		end
+		for uid, d in pairs(devProdAt) do
+			if type(d) ~= "table" or (now - d.t) > 1800 then devProdAt[uid] = nil end
+		end
+		for k in pairs(rateLimit) do
+			if (clk - rateLimit[k]) > 300 then rateLimit[k] = nil end
+		end
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+	local id = p.UserId
+	devProdAt[id], ownCache[id], auditPending[id] = nil, nil, nil
+end)
+
+_G.DebugUGCRedeem = function(userId)
+	local d = _G.UGCRedeem_GetPlayer(userId, true)
+	if not d then print("🎽 Aucune donnée pour " .. tostring(userId)); return end
+	print(string.format("🎽 UGC de %d : %d items | %d pts | %d gratuits",
+		userId, d.c or 0, d.sp or 0, d.fr or 0))
+	for _, it in ipairs(d.it or {}) do
+		print(string.format("   • %s | %d pts | %s | %s",
+			it.an, it.p or 0, it.s or "?", os.date("!%Y-%m-%d %H:%M", it.t or 0)))
+	end
+end
+
+print("✅ UGC REDEEM LOG v2 chargé (audit de possession : " .. tostring(AUDIT_ENABLED) .. ")")
