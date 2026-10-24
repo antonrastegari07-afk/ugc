@@ -1,0 +1,1942 @@
+-- ============================================================
+-- UGC SHOP GENERATOR - LocalScript avec système de LIKES
+-- À placer dans : UGCshop > ShopFrame
+-- ============================================================
+local Players            = game:GetService("Players")
+local ReplicatedStorage  = game:GetService("ReplicatedStorage")
+local TweenService       = game:GetService("TweenService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local SoundService       = game:GetService("SoundService")
+
+local player    = Players.LocalPlayer
+local ShopFrame = script.Parent
+
+-- ============================================================
+-- CHARGEMENT DE UGC_CONFIG
+-- ============================================================
+local UGC_CONFIG  = require(ReplicatedStorage:WaitForChild("UGC_CONFIG"))
+local UGC_ITEMS   = UGC_CONFIG.GetPriceTable()
+ReplicatedStorage:WaitForChild("UGCShopOrder", 5)   -- ↕️ ordre choisi dans l'admin
+local sortedItems = UGC_CONFIG.GetSortedItems()
+-- ❤️ Nombre de likes visible ? (case à cocher dans l'admin)
+local function likeCountShown()
+	local f = ReplicatedStorage:FindFirstChild("UGCShopOrder")
+	return f ~= nil and f:GetAttribute("ShowLikeCount") == true
+end
+
+-- ============================================================
+-- RÉFÉRENCES
+-- ============================================================
+local ScrollingFrame = ShopFrame:WaitForChild("ScrollingFrame")
+local SelectedFrame  = ShopFrame:WaitForChild("Selected")
+local NoUGCSelected  = SelectedFrame:WaitForChild("NoUGCSelected")
+local UGCUpdateLabel = SelectedFrame:WaitForChild("UGCupdate")
+
+local TemplateBtn      = ScrollingFrame:WaitForChild("MagicDominusButton")
+local TemplateSelected = NoUGCSelected
+
+-- ============================================================
+-- REMOTE EVENTS
+-- ============================================================
+local purchaseUGCEvent        = ReplicatedStorage:WaitForChild("PurchaseUGC")
+local promptUGCEvent          = ReplicatedStorage:WaitForChild("PromptUGCPurchase")
+local confirmUGCPurchaseEvent = ReplicatedStorage:WaitForChild("ConfirmUGCPurchase")
+local UpdateStockEvent        = ReplicatedStorage:WaitForChild("UpdateStockEvent")
+local GetStockFunction        = ReplicatedStorage:WaitForChild("GetStockFunction")
+local UpdateButtonStateEvent  = ReplicatedStorage:WaitForChild("UpdateButtonStateEvent")
+
+-- ✅ NOUVEAUX REMOTES LIKES
+local toggleLikeEvent       = ReplicatedStorage:WaitForChild("ToggleLikeEvent")
+local likeUpdateEvent       = ReplicatedStorage:WaitForChild("LikeUpdateEvent")
+local requestLikesDataFunc  = ReplicatedStorage:WaitForChild("RequestLikesDataFunction")
+
+-- ============================================================
+-- CONFIGURATION GRILLE
+-- ============================================================
+local COLUMNS   = 3
+local BTN_SCALE = 0.28
+local GAP_SCALE = (1 - BTN_SCALE * COLUMNS) / (COLUMNS + 1)
+
+-- 🔧 Rate custom du carrousel d'offres pendant que le shop UGC est ouvert
+local POINTS_OFFER_DISPLAY_TIME = 5   -- s par offre "points" (séparé du DISPLAY_TIME normal)
+
+-- ============================================================
+-- ÉTAT DU SHOP
+-- ============================================================
+local currentOpenFrame    = nil
+local currentActiveButton = nil
+local originalBtnColors   = {}
+local scrollButtons       = {}
+local buttonFrames        = {}
+local ugcStockState       = {}
+local ugcGradients        = {}
+
+-- 👁️ VISIBILITÉ DES UGC (drapeau publié par UGCSalesLock)
+--
+--    ⚠️ Déclarée ICI, et pas plus bas : `reorganizeGrid` s'en sert, et en Lua
+--    une fonction locale définie APRÈS son utilisation est lue comme une
+--    globale — donc nil, donc le shop plante à la première réorganisation.
+local visFlag = ReplicatedStorage:FindFirstChild("UGCSalesLock")
+
+local function ugcHidden(assetId)
+	if not visFlag then
+		visFlag = ReplicatedStorage:FindFirstChild("UGCSalesLock")
+		if not visFlag then return false end   -- script serveur absent → tout visible
+	end
+	return visFlag:GetAttribute("Hide_" .. tostring(assetId)) == true
+end
+
+local comingSoonLabel = nil
+local function placeComingSoon(sfW, btnPx, gapPx, totalRows)
+	if not comingSoonLabel then return 0 end
+	local labelH = btnPx * 0.09
+	local labelY = gapPx + totalRows * (btnPx + gapPx)
+	comingSoonLabel.Position = UDim2.new(0.1, 0, 0, labelY)
+	comingSoonLabel.Size     = UDim2.new(0.8, 0, 0, labelH)
+	return labelH + gapPx -- hauteur à ajouter au canvas
+end
+
+-- ============================================================
+-- ÉTAT DES LIKES
+-- ============================================================
+local likedByPlayer    = {}   -- [assetId] = bool
+local likeCounts       = {}   -- [assetId] = number
+local likeButtons      = {}   -- [assetId] = TextButton (heart)
+local likeCountLabels  = {}   -- [assetId] = TextLabel
+local likesDataLoaded  = false
+local pendingLikeToggle = {}  -- [assetId] = tick() (anti-double-click client)
+local CLIENT_LIKE_COOLDOWN = 0.5
+
+-- ============================================================
+-- UTILITAIRES
+-- ============================================================
+local function formatNumber(num)
+	if num >= 1000000 then
+		return string.format("%.1fM", num / 1000000)
+	elseif num >= 1000 then
+		return string.format("%.1fK", num / 1000)
+	else
+		return tostring(num)
+	end
+end
+
+-- ========================================
+-- 🪙 PIÈCE DEVANT LE PRIX (bouton d'achat)
+--
+--   Roblox ne sait pas insérer d'image dans un texte : le RichText n'a pas de
+--   balise <img>. Il faut donc un vrai ImageLabel posé à côté du nombre.
+--
+--   Pour que « pièce + prix » reste centré dans le bouton, on réserve la
+--   largeur de la pièce à gauche avec un UIPadding : le texte se recentre
+--   alors tout seul dans ce qui reste, et l'ensemble retombe pile au milieu.
+--   La pièce, elle, est positionnée à partir de la largeur RÉELLE du texte
+--   (TextBounds), donc ça marche à n'importe quelle taille de bouton.
+-- ========================================
+-- Prix en toutes lettres sur le bouton : 2000000 → « 2,000,000 ».
+--
+-- Volontairement séparé de `formatNumber`, qui reste en 2.0M pour les
+-- notifications et le panneau de vérification : sur un bandeau qui s'affiche
+-- deux secondes, la forme courte se lit d'un coup d'œil. Sur un bouton
+-- d'achat, on veut au contraire voir le prix exact avant de payer.
+local function formatFullPrice(n)
+	local s = tostring(math.floor(tonumber(n) or 0))
+
+	-- Une virgule tous les 3 chiffres, en partant de la droite : on retourne
+	-- la chaîne, on découpe par paquets de 3, puis on la remet à l'endroit.
+	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	if out:sub(1, 1) == "," then out = out:sub(2) end   -- ex. 100 → ",100"
+	return out
+end
+local TextService = game:GetService("TextService")
+
+local COIN_IMAGE  = "rbxassetid://109902708234199"   -- même pièce que le billboard
+local COIN_SCALE  = 0.70   -- taille de la pièce, en fraction de la hauteur du bouton
+local COIN_GAP    = 0.12   -- écart pièce ↔ prix, en fraction de la taille de la pièce
+local TEXT_SCALE  = 0.52   -- taille du prix, en fraction de la hauteur du bouton
+local SIDE_MARGIN = 0.06   -- marge minimale à gauche et à droite, en fraction de la largeur
+
+-- Prix en toutes lettres : 2000000 → « 2,000,000 »
+local function formatFullPrice(n)
+	local s = tostring(math.floor(tonumber(n) or 0))
+	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	if out:sub(1, 1) == "," then out = out:sub(2) end
+	return out
+end
+
+-- ========================================
+-- 🪙 PIÈCE + PRIX SUR LE BOUTON D'ACHAT
+--
+--   Roblox n'a pas de balise image dans le RichText : il faut un vrai
+--   ImageLabel. Le piège, c'est le centrage.
+--
+--   Plutôt que de calculer des positions — ce qui dépend de la façon dont ton
+--   template place son label — on pose une rangée horizontale centrée sur le
+--   BOUTON. C'est Roblox qui centre, donc c'est juste quel que soit ton
+--   template.
+--
+--   Le label d'origine est cloné (police, couleur, contour, dégradé suivent)
+--   puis masqué : ton style est conservé au pixel près.
+-- ========================================
+local function attachPriceCoin(priceLabel, priceText)
+	local button = priceLabel.Parent
+	if not button then return end
+
+	priceLabel.Visible = false   -- gardé comme modèle de style, plus affiché
+
+	local row = button:FindFirstChild("PriceRow")
+	local coin, txt, list
+
+	if row then
+		list = row:FindFirstChildOfClass("UIListLayout")
+		coin = row:FindFirstChild("Coin")
+		txt  = row:FindFirstChild("Amount")
+	else
+		row = Instance.new("Frame")
+		row.Name                   = "PriceRow"
+		row.BackgroundTransparency = 1
+		row.Size                   = UDim2.new(1, 0, 1, 0)
+		row.Position               = UDim2.new(0, 0, 0, 0)
+		row.ZIndex                 = priceLabel.ZIndex + 1
+		row.Parent                 = button
+
+		-- 🎯 C'est CETTE ligne qui centre. Aucun calcul, aucune hypothèse.
+		list = Instance.new("UIListLayout")
+		list.FillDirection       = Enum.FillDirection.Horizontal
+		list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		list.VerticalAlignment   = Enum.VerticalAlignment.Center
+		list.SortOrder           = Enum.SortOrder.LayoutOrder
+		list.Parent              = row
+
+		coin = Instance.new("ImageLabel")
+		coin.Name                   = "Coin"
+		coin.LayoutOrder            = 1
+		coin.BackgroundTransparency = 1
+		coin.Image                  = COIN_IMAGE
+		coin.ScaleType              = Enum.ScaleType.Fit
+		coin.Size                   = UDim2.new(0, 20, 0, 20)
+		coin.ZIndex                 = row.ZIndex + 1
+		coin.Parent                 = row
+
+		-- Clone : on récupère d'un coup la police, la couleur, le UIStroke et
+		-- le UIGradient de ton bouton, sans avoir à les recopier un par un.
+		txt = priceLabel:Clone()
+		txt.Name           = "Amount"
+		txt.LayoutOrder    = 2
+		txt.Visible        = true
+		txt.AnchorPoint    = Vector2.new(0, 0)
+		txt.Position       = UDim2.new(0, 0, 0, 0)
+		txt.Size           = UDim2.new(0, 10, 1, 0)
+		txt.TextScaled     = false          -- incompatible avec AutomaticSize
+		txt.TextWrapped    = false
+		txt.AutomaticSize  = Enum.AutomaticSize.X
+		txt.TextXAlignment = Enum.TextXAlignment.Center
+		txt.TextYAlignment = Enum.TextYAlignment.Center
+		txt.ZIndex         = row.ZIndex + 1
+
+		-- Une marge ou une contrainte héritée fausserait la largeur automatique
+		for _, c in ipairs(txt:GetChildren()) do
+			if c:IsA("UIPadding") or c:IsA("UIAspectRatioConstraint")
+				or c:IsA("UISizeConstraint") then
+				c:Destroy()
+			end
+		end
+		txt.Parent = row
+	end
+
+	txt.Text = priceText
+
+	local function refresh()
+		local w, h = button.AbsoluteSize.X, button.AbsoluteSize.Y
+		if w <= 1 or h <= 1 then return end
+
+		local size = math.floor(h * COIN_SCALE)
+		local gap  = math.max(2, math.floor(size * COIN_GAP))
+
+		coin.Size    = UDim2.new(0, size, 0, size)
+		list.Padding = UDim.new(0, gap)
+
+		-- Taille du texte : on part d'une fraction de la hauteur, puis on
+		-- réduit tant que « pièce + écart + prix » dépasse la place dispo.
+		-- TextService donne la largeur exacte, donc ça tombe juste du premier
+		-- coup dans la quasi-totalité des cas.
+		local avail = w - size - gap - math.floor(w * SIDE_MARGIN * 2)
+		local ts = math.max(8, math.floor(h * TEXT_SCALE))
+
+		while ts > 8 do
+			local m = TextService:GetTextSize(txt.Text, ts, txt.Font, Vector2.new(10000, 10000))
+			if m.X <= avail then break end
+			ts = ts - 1
+		end
+		txt.TextSize = ts
+	end
+
+	refresh()
+	button:GetPropertyChangedSignal("AbsoluteSize"):Connect(refresh)
+	task.defer(refresh)
+end
+
+-- ============================================================
+-- ATTENDRE UNE TAILLE VALIDE DU SCROLLINGFRAME
+-- ============================================================
+local function waitForValidSize(timeout)
+	timeout = timeout or 5
+	local elapsed = 0
+	while ScrollingFrame.AbsoluteSize.X <= 1 and elapsed < timeout do
+		task.wait(0.05)
+		elapsed += 0.05
+	end
+	return ScrollingFrame.AbsoluteSize.X > 1
+end
+
+-- ============================================================
+-- PLAY CLICK EFFECT
+-- ============================================================
+local function playClickEffect(targetFrame)
+	if not targetFrame then return end
+	local flash = Instance.new("Frame")
+	flash.Name                   = "ClickFlash"
+	flash.Size                   = UDim2.new(1, 6, 1, 6)
+	flash.Position               = UDim2.new(0, -3, 0, -3)
+	flash.BackgroundColor3       = Color3.fromRGB(255, 255, 255)
+	flash.BackgroundTransparency = 0.25
+	flash.BorderSizePixel        = 0
+	flash.ZIndex                 = 20
+	flash.Parent                 = targetFrame
+	local existingCorner = targetFrame:FindFirstChildOfClass("UICorner")
+	local co = Instance.new("UICorner")
+	co.CornerRadius = existingCorner and existingCorner.CornerRadius or UDim.new(0, 8)
+	co.Parent = flash
+	TweenService:Create(flash,
+		TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{BackgroundTransparency = 1}
+	):Play()
+	task.delay(0.4, function()
+		if flash and flash.Parent then flash:Destroy() end
+	end)
+end
+
+-- ============================================================
+-- SÉLECTION DES FRAMES
+-- ============================================================
+local function closeAllFrames()
+	for _, child in pairs(SelectedFrame:GetChildren()) do
+		if child:IsA("Frame") then child.Visible = false end
+	end
+	currentOpenFrame = nil
+end
+
+local function resetButtonColor(imgBtn)
+	if imgBtn and originalBtnColors[imgBtn] then
+		imgBtn.BackgroundColor3 = originalBtnColors[imgBtn]
+	end
+end
+
+local function openFrame(frameName, imgBtn)
+	closeAllFrames()
+	if currentActiveButton then
+		local wasGray = false
+		for _, ugc in ipairs(UGC_CONFIG.Items) do
+			local btn = scrollButtons[ugc.ButtonName]
+			if btn == currentActiveButton and ugcStockState[ugc.ButtonName] == false then
+				wasGray = true
+				break
+			end
+		end
+		if wasGray then
+			currentActiveButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+		else
+			resetButtonColor(currentActiveButton)
+		end
+	end
+	local frameToOpen = SelectedFrame:FindFirstChild(frameName)
+	if frameToOpen then
+		frameToOpen.Visible     = true
+		currentOpenFrame        = frameToOpen
+		UGCUpdateLabel.Text     = frameName
+		imgBtn.BackgroundColor3 = Color3.fromRGB(97, 194, 81)
+		currentActiveButton     = imgBtn
+	else
+		warn("Frame '" .. frameName .. "' introuvable dans Selected!")
+		NoUGCSelected.Visible = true
+		UGCUpdateLabel.Text   = "No Selection"
+	end
+end
+
+local function resetToNoSelection()
+	closeAllFrames()
+	if currentActiveButton then
+		resetButtonColor(currentActiveButton)
+		currentActiveButton = nil
+	end
+	NoUGCSelected.Visible = true
+	UGCUpdateLabel.Text   = "No Selection"
+end
+
+-- ============================================================
+-- NOTIFICATION
+-- ============================================================
+local function showNotification(message, isError)
+	pcall(function()
+		local gui = player:WaitForChild("PlayerGui")
+		local old = gui:FindFirstChild("UGCNotification")
+		if old then old:Destroy() end
+		local sg = Instance.new("ScreenGui")
+		sg.Name = "UGCNotification" ; sg.ResetOnSpawn = false
+		sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling ; sg.Parent = gui
+		local fr = Instance.new("Frame")
+		fr.Size = UDim2.new(0,450,0,120) ; fr.Position = UDim2.new(0.5,0,0.5,0)
+		fr.AnchorPoint = Vector2.new(0.5,0.5) ; fr.BackgroundColor3 = Color3.fromRGB(20,20,20)
+		fr.BackgroundTransparency = 0.3 ; fr.BorderSizePixel = 0 ; fr.Parent = sg
+		local co = Instance.new("UICorner") ; co.CornerRadius = UDim.new(0,15) ; co.Parent = fr
+		local st = Instance.new("UIStroke")
+		st.Color = isError and Color3.fromRGB(255,85,85) or Color3.fromRGB(85,255,127)
+		st.Thickness = 3 ; st.Parent = fr
+		local tl = Instance.new("TextLabel")
+		tl.Size = UDim2.new(1,-20,1,-20) ; tl.Position = UDim2.new(0,10,0,10)
+		tl.BackgroundTransparency = 1 ; tl.Text = message
+		tl.TextColor3 = isError and Color3.fromRGB(255,100,100) or Color3.fromRGB(100,255,150)
+		tl.TextStrokeColor3 = Color3.new(0,0,0) ; tl.TextStrokeTransparency = 0.5
+		tl.Font = Enum.Font.GothamBold ; tl.TextSize = 24
+		tl.TextWrapped = true ; tl.Parent = fr
+		fr.Size = UDim2.new(0,0,0,0)
+		TweenService:Create(fr,
+			TweenInfo.new(0.4,Enum.EasingStyle.Bounce,Enum.EasingDirection.Out),
+			{Size=UDim2.new(0,450,0,120)}):Play()
+		task.delay(2.5, function()
+			if not sg.Parent then return end
+			local fi = TweenInfo.new(0.3,Enum.EasingStyle.Quad,Enum.EasingDirection.In)
+			TweenService:Create(fr,fi,{BackgroundTransparency=1,Size=UDim2.new(0,450,0,80)}):Play()
+			TweenService:Create(tl,fi,{TextTransparency=1,TextStrokeTransparency=1}):Play()
+			local bf = TweenService:Create(st,fi,{Transparency=1}) ; bf:Play()
+			bf.Completed:Connect(function() sg:Destroy() end)
+		end)
+	end)
+end
+
+-- ============================================================
+-- CONFETTIS
+-- ============================================================
+local function createConfetti(sourceBtn)
+	pcall(function()
+		local sg = sourceBtn:FindFirstAncestorOfClass("ScreenGui")
+		if not sg then return end
+		local ap = sourceBtn.AbsolutePosition ; local as = sourceBtn.AbsoluteSize
+		for _ = 1, 30 do
+			local c = Instance.new("Frame")
+			c.Size = UDim2.new(0,math.random(5,15),0,math.random(5,15))
+			c.Position = UDim2.fromOffset(ap.X+as.X/2, ap.Y+as.Y/2)
+			c.AnchorPoint = Vector2.new(0.5,0.5)
+			c.BackgroundColor3 = Color3.fromHSV(math.random(),1,1)
+			c.BorderSizePixel = 0 ; c.Parent = sg
+			local a = math.random()*math.pi*2 ; local d = math.random(100,300)
+			local t = TweenService:Create(c,
+				TweenInfo.new(1,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{
+					Position=UDim2.fromOffset(ap.X+as.X/2+math.cos(a)*d, ap.Y+as.Y/2+math.sin(a)*d),
+					Rotation=math.random(-180,180), BackgroundTransparency=1})
+			t:Play()
+			task.delay(1, function() c:Destroy() end)
+		end
+	end)
+end
+
+-- ============================================================
+-- GRADIENT ANIMÉ
+-- ============================================================
+local function attachGradient(targetFrame, isEmpty)
+	for _, child in pairs(targetFrame:GetChildren()) do
+		if child:IsA("UIGradient") then child:Destroy() end
+		if child:IsA("LocalScript") and child.Name == "LocalScript" then child:Destroy() end
+	end
+	local g = Instance.new("UIGradient")
+	if isEmpty then
+		g.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0,    Color3.fromRGB(80,  80,  85)),
+			ColorSequenceKeypoint.new(0.25, Color3.fromRGB(110, 110, 115)),
+			ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(75,  75,  80)),
+			ColorSequenceKeypoint.new(0.75, Color3.fromRGB(100, 100, 105)),
+			ColorSequenceKeypoint.new(1,    Color3.fromRGB(80,  80,  85)),
+		})
+		g.Rotation = 0
+	else
+		g.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0,    Color3.fromRGB(78,  200, 247)),
+			ColorSequenceKeypoint.new(0.25, Color3.fromRGB(199, 210, 255)),
+			ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(72,  194, 247)),
+			ColorSequenceKeypoint.new(0.75, Color3.fromRGB(188, 202, 255)),
+			ColorSequenceKeypoint.new(1,    Color3.fromRGB(74,  201, 247)),
+		})
+		g.Rotation = 0
+		TweenService:Create(g,
+			TweenInfo.new(17, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, false, 0),
+			{Rotation = 360}):Play()
+	end
+	g.Parent = targetFrame
+	return g
+end
+
+-- ============================================================
+-- 🆕 SYSTÈME DE LIKES — UI ET ANIMATION
+-- ============================================================
+local PINK_LIGHT    = Color3.fromRGB(255, 182, 213)
+local PINK_BRIGHT   = Color3.fromRGB(255, 90,  150)
+local PINK_DEEP     = Color3.fromRGB(220, 40,  100)
+local PINK_OUTLINE  = Color3.fromRGB(255, 150, 190)  -- ✅ Contour rose pour cœur non liké
+
+-- Palette stock (gradient dynamique selon disponibilité)
+local STOCK_GREEN_LIGHT   = Color3.fromRGB(150, 255, 180)
+local STOCK_GREEN_BRIGHT  = Color3.fromRGB(40,  220, 100)
+local STOCK_GREEN_DEEP    = Color3.fromRGB(50, 196, 62)
+local STOCK_ORANGE_LIGHT  = Color3.fromRGB(255, 210, 140)
+local STOCK_ORANGE_BRIGHT = Color3.fromRGB(255, 165, 60)
+local STOCK_ORANGE_DEEP   = Color3.fromRGB(180, 90,  20)
+local STOCK_RED_LIGHT     = Color3.fromRGB(255, 140, 140)
+local STOCK_RED_BRIGHT    = Color3.fromRGB(255, 50,  50)
+local STOCK_RED_DEEP      = Color3.fromRGB(150, 20,  20)
+
+-- Met à jour l'affichage du coeur + compteur pour un AssetId donné
+local function refreshLikeUI(assetId)
+	local heartBtn = likeButtons[assetId]
+	local countLbl = likeCountLabels[assetId]
+	if not heartBtn or not countLbl then return end
+	local liked = likedByPlayer[assetId] == true
+	local count = likeCounts[assetId] or 0
+	-- ⚠️ TOUJOURS ♥ (U+2665). Le ♡ (U+2661) n'existe pas dans FredokaOne :
+	--    Roblox dessine alors le rectangle "glyphe manquant" = le carré gris.
+	--    L'état non-liké se rend par la transparence, pas par un autre caractère.
+	heartBtn.Text = "♥"
+	local hStroke = heartBtn:FindFirstChildOfClass("UIStroke")
+	if liked then
+		heartBtn.TextColor3       = PINK_BRIGHT
+		heartBtn.TextTransparency = 0
+		if hStroke then hStroke.Color = PINK_DEEP    ; hStroke.Transparency = 0    end
+	else
+		heartBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+		heartBtn.TextTransparency = 0.62   -- cœur "creux" : seul le contour rose ressort
+		if hStroke then hStroke.Color = PINK_OUTLINE ; hStroke.Transparency = 0.15 end
+	end
+	countLbl.Text = formatNumber(count)
+end
+
+-- Cache des tailles d'origine (pour rebondir à la BONNE taille)
+local heartOriginalSizes = {}
+
+-- Animation bounce du coeur (style Instagram)
+local function bounceHeart(heartBtn)
+	if not heartBtn or not heartBtn.Parent then return end
+	heartBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	-- Capturer la taille d'origine au 1er passage
+	if not heartOriginalSizes[heartBtn] then
+		heartOriginalSizes[heartBtn] = heartBtn.Size
+	end
+	local origSize = heartOriginalSizes[heartBtn]
+	-- Taille "pop" = 1.45× la taille d'origine
+	local bigSize = UDim2.new(
+		origSize.X.Scale  * 1.45, origSize.X.Offset * 1.45,
+		origSize.Y.Scale  * 1.45, origSize.Y.Offset * 1.45
+	)
+	local popBig = TweenService:Create(
+		heartBtn,
+		TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{Size = bigSize}
+	)
+	popBig:Play()
+	popBig.Completed:Connect(function()
+		if not heartBtn or not heartBtn.Parent then return end
+		TweenService:Create(
+			heartBtn,
+			TweenInfo.new(0.35, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out),
+			{Size = origSize}   -- ✅ retour à la taille d'origine, pas 1×1
+		):Play()
+	end)
+end
+
+-- Petit flash heart particle (effet plaisant au like)
+local function spawnHeartParticle(heartBtn)
+	if not heartBtn or not heartBtn.Parent then return end
+	pcall(function()
+		local sg = heartBtn:FindFirstAncestorOfClass("ScreenGui")
+		if not sg then return end
+		local ap = heartBtn.AbsolutePosition
+		local as = heartBtn.AbsoluteSize
+		local p = Instance.new("TextLabel")
+		p.Name                   = "HeartParticle"
+		p.Size                   = UDim2.fromOffset(as.X * 0.8, as.Y * 0.8)
+		p.Position               = UDim2.fromOffset(ap.X + as.X/2, ap.Y + as.Y/2)
+		p.AnchorPoint            = Vector2.new(0.5, 0.5)
+		p.BackgroundTransparency = 1
+		p.Text                   = "♥"
+		p.TextColor3             = PINK_BRIGHT
+		p.Font                   = Enum.Font.SourceSansBold   -- FredokaOne n'a pas le ♥
+		p.TextScaled             = true
+		p.ZIndex                 = 50
+		p.Parent                 = sg
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = PINK_DEEP
+		stroke.Thickness = 2
+		stroke.Parent = p
+		TweenService:Create(p,
+			TweenInfo.new(0.65, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{
+				Position = UDim2.fromOffset(ap.X + as.X/2, ap.Y + as.Y/2 - 60),
+				TextTransparency = 1,
+				Size = UDim2.fromOffset(as.X * 1.4, as.Y * 1.4),
+			}
+		):Play()
+		TweenService:Create(stroke,
+			TweenInfo.new(0.65, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{Transparency = 1}
+		):Play()
+		task.delay(0.7, function()
+			if p and p.Parent then p:Destroy() end
+		end)
+	end)
+end
+
+-- Toggle d'un like (avec optimistic UI)
+local function onHeartClick(assetId)
+	local now = tick()
+	-- Anti-double-click client
+	if pendingLikeToggle[assetId] and (now - pendingLikeToggle[assetId]) < CLIENT_LIKE_COOLDOWN then
+		return
+	end
+	pendingLikeToggle[assetId] = now
+	-- Optimistic update
+	local wasLiked = likedByPlayer[assetId] == true
+	likedByPlayer[assetId] = not wasLiked
+	likeCounts[assetId] = math.max(0, (likeCounts[assetId] or 0) + (wasLiked and -1 or 1))
+	refreshLikeUI(assetId)
+	local heartBtn = likeButtons[assetId]
+	if heartBtn then
+		bounceHeart(heartBtn)
+		if not wasLiked then
+			-- On vient de liker → petite particule qui s'envole
+			spawnHeartParticle(heartBtn)
+		end
+	end
+	-- Envoi serveur (le serveur a le dernier mot et nous renverra LikeUpdateEvent)
+	pcall(function()
+		toggleLikeEvent:FireServer(assetId)
+	end)
+end
+
+-- Mises à jour serveur (autres joueurs OU rate-limit OU resync multi-serveur)
+likeUpdateEvent.OnClientEvent:Connect(function(assetId, newState, newCount)
+	if type(assetId) ~= "number" then return end
+	if newState ~= nil then
+		likedByPlayer[assetId] = newState
+	end
+	if type(newCount) == "number" then
+		likeCounts[assetId] = newCount
+	end
+	refreshLikeUI(assetId)
+end)
+
+-- Récupère les données likes au 1er ouverture du shop
+local function fetchLikesDataOnce()
+	if likesDataLoaded then return end
+	task.spawn(function()
+		local ok, data = pcall(function()
+			return requestLikesDataFunc:InvokeServer()
+		end)
+		if ok and type(data) == "table" then
+			-- player likes
+			for assetKey, _ in pairs(data.playerLikes or {}) do
+				local id = tonumber(assetKey)
+				if id then likedByPlayer[id] = true end
+			end
+			-- global counts
+			for assetKey, count in pairs(data.globalCounts or {}) do
+				local id = tonumber(assetKey)
+				if id and type(count) == "number" then
+					likeCounts[id] = count
+				end
+			end
+			-- Rafraîchir toutes les UI déjà créées
+			for assetId in pairs(likeButtons) do
+				refreshLikeUI(assetId)
+			end
+			likesDataLoaded = true
+		else
+			warn("⚠️ [LIKES] Impossible de charger les likes : " .. tostring(data))
+		end
+	end)
+end
+
+-- ============================================================
+-- RÉORGANISATION DE LA GRILLE
+-- ============================================================
+local function reorganizeGrid()
+	task.spawn(function()
+		task.wait()
+		local elapsed = 0
+		while ScrollingFrame.AbsoluteSize.X <= 1 and elapsed < 3 do
+			task.wait(0.05)
+			elapsed += 0.05
+		end
+		local sfW = ScrollingFrame.AbsoluteSize.X
+		if sfW <= 1 then
+			warn("[UGCShopGenerator] reorganizeGrid: AbsoluteSize invalide, abandon.")
+			return
+		end
+		local btnPx = sfW * BTN_SCALE
+		local gapPx = sfW * GAP_SCALE
+		local available = {}
+		local exhausted = {}
+
+		for _, ugc in ipairs(sortedItems) do
+			local frame = buttonFrames[ugc.ButtonName]
+
+			if ugcHidden(ugc.AssetId) then
+				-- 👁️ Masqué : on ne le détruit pas, on le sort de la grille.
+				--    Il retrouvera sa place exacte dès que tu le réactives,
+				--    sans que le joueur ait à recharger quoi que ce soit.
+				if frame then frame.Visible = false end
+			elseif ugcStockState[ugc.ButtonName] == false then
+				if frame then frame.Visible = true end
+				table.insert(exhausted, ugc)
+			else
+				if frame then frame.Visible = true end
+				table.insert(available, ugc)
+			end
+		end
+		local finalOrder = {}
+		for _, ugc in ipairs(available) do table.insert(finalOrder, ugc) end
+		for _, ugc in ipairs(exhausted) do table.insert(finalOrder, ugc) end
+		local totalRows = math.ceil(#finalOrder / COLUMNS)
+		local totalHeight = gapPx + totalRows * (btnPx + gapPx)
+		totalHeight += placeComingSoon(sfW, btnPx, gapPx, totalRows)
+		ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+		local tweenInfo = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		for gridIdx, ugc in ipairs(finalOrder) do
+			local idx = gridIdx - 1
+			local col = idx % COLUMNS
+			local row = math.floor(idx / COLUMNS)
+			local posX = GAP_SCALE + col * (BTN_SCALE + GAP_SCALE)
+			local posY = gapPx + row * (btnPx + gapPx)
+			local btn = buttonFrames[ugc.ButtonName]
+			if btn then
+				TweenService:Create(btn, tweenInfo, {
+					Position = UDim2.new(posX, 0, 0, posY),
+					Size     = UDim2.new(BTN_SCALE, 0, 0, btnPx),
+				}):Play()
+			end
+		end
+	end)
+end
+
+-- ============================================================
+-- METTRE À JOUR L'ÉTAT D'UN BOUTON
+-- ============================================================
+local function setButtonStockState(buttonName, isActive, skipReorganize)
+	local wasActive = ugcStockState[buttonName]
+	ugcStockState[buttonName] = isActive
+	local outerFrame = buttonFrames[buttonName]
+	if not outerFrame then return end
+	attachGradient(outerFrame, not isActive)
+	if not skipReorganize and wasActive ~= isActive then
+		reorganizeGrid()
+	end
+end
+
+-- ============================================================
+-- ANIMATION BOUTON
+-- ============================================================
+local function attachButtonAnimation(imgBtn, outerFrame)
+	for _, child in pairs(imgBtn:GetChildren()) do
+		if child:IsA("LocalScript") and child.Name == "button animation" then
+			child:Destroy()
+		end
+	end
+	local origSize, origPos
+	local info = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local function capture()
+		if not origSize then
+			origSize = outerFrame.Size
+			origPos  = outerFrame.Position
+		end
+	end
+	local function scaleTo(s)
+		capture()
+		local anchor = outerFrame.AnchorPoint
+		local ns = UDim2.new(
+			origSize.X.Scale*s,  origSize.X.Offset*s,
+			origSize.Y.Scale*s,  origSize.Y.Offset*s)
+		local np
+		if anchor.X == 0.5 and anchor.Y == 0.5 then
+			np = origPos
+		else
+			np = UDim2.new(
+				origPos.X.Scale  + origSize.X.Scale  *(1-s)/2,
+				origPos.X.Offset + origSize.X.Offset *(1-s)/2,
+				origPos.Y.Scale  + origSize.Y.Scale  *(1-s)/2,
+				origPos.Y.Offset + origSize.Y.Offset *(1-s)/2)
+		end
+		TweenService:Create(outerFrame, info, {Size=ns, Position=np}):Play()
+	end
+	imgBtn.MouseEnter:Connect(function()       scaleTo(0.9)  end)
+	imgBtn.MouseLeave:Connect(function()       scaleTo(1.0)  end)
+	imgBtn.MouseButton1Down:Connect(function() scaleTo(0.85) end)
+	imgBtn.MouseButton1Up:Connect(function()   scaleTo(0.9)  end)
+end
+
+-- ============================================================
+-- LOGIQUE D'ACHAT
+-- ============================================================
+local isProcessing = {}
+local confirmedPurchases = {}
+
+-- ⏳ ÉTAT DE VÉRIFICATION
+--    Le serveur refuse de toute façon tout nouvel achat pendant ce temps.
+--    Le verrou client sert uniquement à expliquer au joueur, jamais à
+--    sécuriser : un exploiteur qui le contourne se fait refuser côté serveur.
+local verifying = { active = false, endsAt = 0, token = 0, amount = 0, gui = nil }
+
+local function verifyPanelSize()
+	local cam = workspace.CurrentCamera
+	local vp  = (cam and cam.ViewportSize.Y > 1) and cam.ViewportSize or Vector2.new(1280, 720)
+	local w   = math.min(vp.X * 0.92, 430)
+	local h   = math.clamp(vp.Y * 0.155, 84, 116)
+	return w, h
+end
+
+local function closeVerifyPanel()
+	verifying.active = false
+	verifying.amount = 0
+	verifying.token  = verifying.token + 1
+
+	local g = verifying.gui
+	verifying.gui = nil
+	if not g then return end
+
+	pcall(function()
+		local fr = g:FindFirstChildOfClass("Frame")
+		if fr then
+			TweenService:Create(fr,
+				TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				{ Size = UDim2.new(0, 0, 0, 0) }):Play()
+		end
+	end)
+	task.delay(0.3, function() if g and g.Parent then g:Destroy() end end)
+end
+
+local function openVerifyPanel(seconds, amount)
+	closeVerifyPanel()
+
+	seconds = math.clamp(tonumber(seconds) or 30, 3, 300)
+	amount  = tonumber(amount) or 0
+
+	verifying.token  = verifying.token + 1
+	local myToken    = verifying.token
+	verifying.active = true
+	verifying.endsAt = tick() + seconds
+	verifying.amount = amount
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name           = "UGCVerifyingGui"
+	gui.ResetOnSpawn   = false
+	gui.IgnoreGuiInset = false     -- reste sous la barre Roblox, sur tous les appareils
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.DisplayOrder   = 500
+	gui.Parent         = player:WaitForChild("PlayerGui")
+	verifying.gui = gui
+
+	local w, h = verifyPanelSize()
+
+	local fr = Instance.new("Frame")
+	fr.AnchorPoint            = Vector2.new(0.5, 0)
+	fr.Position               = UDim2.new(0.5, 0, 0, 10)
+	fr.Size                   = UDim2.new(0, 0, 0, 0)
+	fr.BackgroundColor3       = Color3.fromRGB(18, 18, 24)
+	fr.BackgroundTransparency = 0.05
+	fr.BorderSizePixel        = 0
+	fr.Parent                 = gui
+	local co = Instance.new("UICorner") ; co.CornerRadius = UDim.new(0, 14) ; co.Parent = fr
+	local st = Instance.new("UIStroke")
+	st.Color = Color3.fromRGB(255, 175, 60) ; st.Thickness = 2 ; st.Parent = fr
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 8) ; pad.PaddingBottom = UDim.new(0, 8)
+	pad.PaddingLeft = UDim.new(0, 12) ; pad.PaddingRight = UDim.new(0, 12)
+	pad.Parent = fr
+
+	-- Ligne 1 : intitulé à gauche, compte à rebours à droite
+	local title = Instance.new("TextLabel")
+	title.Size                   = UDim2.new(0.72, 0, 0.27, 0)
+	title.Position               = UDim2.new(0, 0, 0, 0)
+	title.BackgroundTransparency = 1
+	title.Font                   = Enum.Font.Gotham
+	title.Text                   = "Verifying your purchase..."
+	title.TextColor3             = Color3.fromRGB(235, 200, 150)
+	title.TextScaled             = true
+	title.TextXAlignment         = Enum.TextXAlignment.Left
+	title.Parent                 = fr
+
+	local timer = Instance.new("TextLabel")
+	timer.AnchorPoint            = Vector2.new(1, 0)
+	timer.Size                   = UDim2.new(0.24, 0, 0.27, 0)
+	timer.Position               = UDim2.new(1, 0, 0, 0)
+	timer.BackgroundTransparency = 1
+	timer.Font                   = Enum.Font.FredokaOne
+	timer.Text                   = tostring(math.ceil(seconds)) .. "s"
+	timer.TextColor3             = Color3.fromRGB(255, 190, 80)
+	timer.TextScaled             = true
+	timer.TextXAlignment         = Enum.TextXAlignment.Right
+	timer.Parent                 = fr
+
+	-- Ligne 2 : LE message, en gros, avec le montant gelé dedans
+	local big = Instance.new("TextLabel")
+	big.Size                   = UDim2.new(1, 0, 0.42, 0)
+	big.Position               = UDim2.new(0, 0, 0.31, 0)
+	big.BackgroundTransparency = 1
+	big.Font                   = Enum.Font.FredokaOne
+	big.Text                   = (amount > 0)
+		and (formatNumber(amount) .. " POINTS ARE SAFE")
+		or  "YOUR POINTS ARE SAFE"
+	big.TextColor3             = Color3.fromRGB(255, 255, 255)
+	big.TextScaled             = true
+	big.TextXAlignment         = Enum.TextXAlignment.Center
+	big.Parent                 = fr
+	local bigStroke = Instance.new("UIStroke")
+	bigStroke.Color = Color3.fromRGB(120, 75, 0) ; bigStroke.Thickness = 1.5
+	bigStroke.Parent = big
+
+	-- Ligne 3 : barre de progression
+	local track = Instance.new("Frame")
+	track.AnchorPoint     = Vector2.new(0, 1)
+	track.Size            = UDim2.new(1, 0, 0.11, 0)
+	track.Position        = UDim2.new(0, 0, 1, 0)
+	track.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+	track.BorderSizePixel = 0
+	track.Parent          = fr
+	local tco = Instance.new("UICorner") ; tco.CornerRadius = UDim.new(1, 0) ; tco.Parent = track
+
+	local fill = Instance.new("Frame")
+	fill.Size             = UDim2.new(1, 0, 1, 0)
+	fill.BackgroundColor3 = Color3.fromRGB(255, 175, 60)
+	fill.BorderSizePixel  = 0
+	fill.Parent           = track
+	local fco = Instance.new("UICorner") ; fco.CornerRadius = UDim.new(1, 0) ; fco.Parent = fill
+
+	TweenService:Create(fr,
+		TweenInfo.new(0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Size = UDim2.new(0, w, 0, h) }):Play()
+
+	TweenService:Create(fill,
+		TweenInfo.new(seconds, Enum.EasingStyle.Linear),
+		{ Size = UDim2.new(0, 0, 1, 0) }):Play()
+
+	-- 📱 Suit les changements de taille d'écran (rotation, redimensionnement)
+	local cam = workspace.CurrentCamera
+	local vpConn
+	if cam then
+		vpConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			if not fr.Parent then return end
+			local nw, nh = verifyPanelSize()
+			fr.Size = UDim2.new(0, nw, 0, nh)
+		end)
+	end
+	gui.Destroying:Connect(function()
+		if vpConn then vpConn:Disconnect() end
+	end)
+
+	-- Compte à rebours. Le token empêche un ancien panneau de continuer à
+	-- écrire dans l'interface après qu'un nouveau a été ouvert.
+	task.spawn(function()
+		while verifying.token == myToken and gui.Parent do
+			local left = math.max(0, verifying.endsAt - tick())
+			if timer.Parent then timer.Text = tostring(math.ceil(left)) .. "s" end
+			if left <= 0 then
+				if timer.Parent then timer.Text = "" end
+				if title.Parent then title.Text = "Almost done..." end
+				break
+			end
+			task.wait(0.25)
+		end
+	end)
+
+	-- 🛟 Filet : si aucune réponse du serveur n'arrive, on déverrouille quand
+	--    même. Le serveur, lui, a déjà libéré le joueur au bout du délai.
+	task.delay(seconds + 12, function()
+		if verifying.token == myToken and verifying.active then
+			closeVerifyPanel()
+		end
+	end)
+end
+
+-- 🔑 LE PANNEAU EST PILOTÉ PAR L'ATTRIBUT, PAS PAR UN REMOTE.
+--    Même mécanisme que la pastille au-dessus de la tête, qui marche déjà.
+--    Un attribut se réplique tout seul : plus aucun risque qu'un RemoteEvent
+--    resté nil au démarrage du serveur fasse disparaître le panneau en silence.
+local function syncVerifyPanel()
+	local amount = player:GetAttribute("UGCPending")
+
+	if type(amount) == "number" and amount > 0 then
+		if verifying.active then return end   -- déjà ouvert, on ne rouvre pas
+
+		local endsAt = tonumber(player:GetAttribute("UGCPendingUntil")) or 0
+		local left   = endsAt - os.time()
+		if left < 3 then left = 3 end          -- attribut arrivé en retard
+		openVerifyPanel(left, amount)
+	else
+		closeVerifyPanel()
+	end
+end
+
+player:GetAttributeChangedSignal("UGCPending"):Connect(syncVerifyPanel)
+syncVerifyPanel()   -- au cas où une vérif serait déjà en cours au chargement
+
+--════════════════════════════════════════════════════════════
+-- 🛑 VENTES COUPÉES PAR UN ADMIN
+--
+--   L'état arrive par un objet à attributs répliqué, pas par un RemoteEvent :
+--   un joueur qui rejoint APRÈS le gel doit le savoir aussi, et un attribut
+--   est déjà là quand son interface se construit.
+--   Ce test n'est que du confort : le serveur refuse de toute façon.
+--════════════════════════════════════════════════════════════
+local salesLock = ReplicatedStorage:WaitForChild("UGCSalesLock", 20)
+
+local function salesBlocked()
+	if not salesLock then return false end   -- script serveur absent → on ne gêne pas
+	return salesLock:GetAttribute("Blocked") == true
+end
+
+local frozenGui = nil
+
+local function frozenPanelSize()
+	local cam = workspace.CurrentCamera
+	local vp  = (cam and cam.ViewportSize.Y > 1) and cam.ViewportSize or Vector2.new(1280, 720)
+	local w   = math.min(vp.X * 0.90, 460)
+	local h   = math.min(vp.Y * 0.82, 430)
+	return w, h
+end
+
+local function openFrozenPanel(notReady)
+	if frozenGui and frozenGui.Parent then return end   -- déjà affiché
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name           = "UGCSalesFrozenGui"
+	gui.ResetOnSpawn   = false
+	gui.IgnoreGuiInset = true
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.DisplayOrder   = 600
+	gui.Parent         = player:WaitForChild("PlayerGui")
+	frozenGui = gui
+
+	-- Voile qui avale les clics : on ne ferme QUE par le bouton vert, pour être
+	-- sûr que le message a été vu.
+	local veil = Instance.new("TextButton")
+	veil.Size = UDim2.fromScale(1, 1)
+	veil.BackgroundColor3 = Color3.new(0, 0, 0)
+	veil.BackgroundTransparency = 1
+	veil.AutoButtonColor = false
+	veil.Text = ""
+	veil.BorderSizePixel = 0
+	veil.ZIndex = 1
+	veil.Parent = gui
+	TweenService:Create(veil, TweenInfo.new(0.25), { BackgroundTransparency = 0.45 }):Play()
+
+	local w, h = frozenPanelSize()
+
+	local card = Instance.new("Frame")
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.Position    = UDim2.new(0.5, 0, 0.5, 0)
+	card.Size        = UDim2.new(0, 0, 0, 0)
+	card.BackgroundColor3 = Color3.fromRGB(20, 20, 27)
+	card.BorderSizePixel  = 0
+	card.ZIndex = 2
+	card.Parent = gui
+	local cc = Instance.new("UICorner") ; cc.CornerRadius = UDim.new(0, 16) ; cc.Parent = card
+	local cs = Instance.new("UIStroke")
+	cs.Color = Color3.fromRGB(235, 60, 65) ; cs.Thickness = 2.5 ; cs.Parent = card
+	local cp = Instance.new("UIPadding")
+	cp.PaddingTop = UDim.new(0, 14) ; cp.PaddingBottom = UDim.new(0, 14)
+	cp.PaddingLeft = UDim.new(0, 16) ; cp.PaddingRight = UDim.new(0, 16)
+	cp.Parent = card
+
+	local titleH = 40
+	local btnH   = 50
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, 0, 0, titleH)
+	title.Position = UDim2.new(0, 0, 0, 0)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.FredokaOne
+	title.Text = notReady and "⏳ ONE MOMENT" or "🛑 UGC PURCHASES ARE PAUSED"
+	title.TextColor3 = Color3.fromRGB(255, 90, 95)
+	title.TextScaled = true
+	title.ZIndex = 3
+	title.Parent = card
+
+	-- Le texte est dans une zone défilante : sur un petit écran il reste
+	-- entièrement lisible au lieu d'être rogné.
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Position = UDim2.new(0, 0, 0, titleH + 8)
+	scroll.Size = UDim2.new(1, 0, 1, -(titleH + btnH + 24))
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 3
+	scroll.ScrollBarImageColor3 = Color3.fromRGB(90, 90, 105)
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	scroll.ZIndex = 3
+	scroll.Parent = card
+
+	local body = Instance.new("TextLabel")
+	body.Size = UDim2.new(1, -6, 0, 0)
+	body.AutomaticSize = Enum.AutomaticSize.Y
+	body.BackgroundTransparency = 1
+	body.Font = Enum.Font.Gotham
+	body.TextColor3 = Color3.fromRGB(228, 228, 235)
+	body.TextSize = 15
+	body.TextWrapped = true
+	body.TextXAlignment = Enum.TextXAlignment.Left
+	body.TextYAlignment = Enum.TextYAlignment.Top
+	body.RichText = true
+	body.ZIndex = 4
+	body.Parent = scroll
+
+	if notReady then
+		body.Text = "The shop is still checking in with the server.\n\n"
+			.. "<b><font color=\"#5ADC8C\">YOUR POINTS ARE SAFE.</font></b>\n\n"
+			.. "This usually takes a few seconds. Please try again in a moment."
+	else
+		body.Text =
+			"An administrator has temporarily turned off all UGC purchases.\n\n"
+			.. "We found an exploit that could damage the economy, and we closed the "
+			.. "shop to protect everyone's items.\n\n"
+			.. "<b><font color=\"#5ADC8C\">YOUR POINTS ARE SAFE.</font></b>\n"
+			.. "Nothing has been taken from your account, and nothing will be.\n\n"
+			.. "Please check the <b>community support messages</b> for updates. "
+			.. "We're working hard to fix this and reopen the shop as soon as possible.\n\n"
+			.. "Thank you for your patience."
+
+		local extra = salesLock and salesLock:GetAttribute("Note")
+		if type(extra) == "string" and extra ~= "" then
+			body.Text = body.Text
+				.. "\n\n<font color=\"#FFC24A\">" .. extra .. "</font>"
+		end
+	end
+
+	local okBtn = Instance.new("TextButton")
+	okBtn.AnchorPoint = Vector2.new(0.5, 1)
+	okBtn.Position = UDim2.new(0.5, 0, 1, 0)
+	okBtn.Size = UDim2.new(1, 0, 0, btnH)
+	okBtn.BackgroundColor3 = Color3.fromRGB(55, 195, 100)
+	okBtn.AutoButtonColor = false
+	okBtn.BorderSizePixel = 0
+	okBtn.Font = Enum.Font.FredokaOne
+	okBtn.Text = "I UNDERSTAND"
+	okBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	okBtn.TextSize = 20
+	okBtn.ZIndex = 3
+	okBtn.Parent = card
+	local oc = Instance.new("UICorner") ; oc.CornerRadius = UDim.new(0, 11) ; oc.Parent = okBtn
+	local os_ = Instance.new("UIStroke")
+	os_.Color = Color3.fromRGB(30, 130, 65) ; os_.Thickness = 2 ; os_.Parent = okBtn
+
+	local scale = Instance.new("UIScale") ; scale.Parent = okBtn
+	okBtn.MouseEnter:Connect(function()
+		TweenService:Create(scale, TweenInfo.new(0.12), { Scale = 1.03 }):Play()
+	end)
+	okBtn.MouseLeave:Connect(function()
+		TweenService:Create(scale, TweenInfo.new(0.12), { Scale = 1 }):Play()
+	end)
+
+	local function closePanel()
+		if not gui.Parent then return end
+		frozenGui = nil
+		TweenService:Create(card,
+			TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ Size = UDim2.new(0, 0, 0, 0) }):Play()
+		TweenService:Create(veil, TweenInfo.new(0.2), { BackgroundTransparency = 1 }):Play()
+		task.delay(0.25, function() if gui and gui.Parent then gui:Destroy() end end)
+	end
+
+	okBtn.MouseButton1Click:Connect(closePanel)
+
+	-- 📱 Suit la rotation et le redimensionnement d'écran
+	local cam = workspace.CurrentCamera
+	local vpConn
+	if cam then
+		vpConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			if not card.Parent then return end
+			local nw, nh = frozenPanelSize()
+			card.Size = UDim2.new(0, nw, 0, nh)
+		end)
+	end
+	gui.Destroying:Connect(function() if vpConn then vpConn:Disconnect() end end)
+
+	TweenService:Create(card,
+		TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Size = UDim2.new(0, w, 0, h) }):Play()
+end
+
+MarketplaceService.PromptPurchaseFinished:Connect(function(who, boughtId, bought)
+	if who ~= player then return end
+	isProcessing[boughtId] = false
+	if bought then
+		pcall(function()
+			local s = SoundService:FindFirstChild("Buysound")
+			if s then s:Play() end
+		end)
+		showNotification("✅ Purchase successful!", false)
+	end
+end)
+
+confirmUGCPurchaseEvent.OnClientEvent:Connect(function(success, reason, assetId, itemName, waitSeconds, pendingAmount)
+	if assetId then
+		isProcessing[assetId] = false
+	end
+
+	-- ⏳ Le panneau est ouvert par l'attribut UGCPending, pas ici.
+	--    On sort simplement pour ne pas le refermer par erreur.
+	if reason == "verifying" then return end
+
+	-- 🛑 Le serveur a refusé parce que les ventes sont coupées. On arrive ici
+	--    si l'attribut n'était pas encore là au moment du clic, ou si quelqu'un
+	--    a contourné l'interface : dans les deux cas, même explication.
+	if reason == "sales_frozen" or reason == "sales_unknown" then
+		openFrozenPanel(reason == "sales_unknown")
+		return
+	end
+
+	-- 👁️ UGC masqué : pas la peine du panneau d'urgence, ce n'est pas une
+	--    crise. Le cas n'arrive que si quelqu'un a deviné l'assetId.
+	if reason == "sales_hidden" then
+		showNotification("⚠️ This item is not available right now.", true)
+		return
+	end
+
+	-- Toute autre réponse clôt la vérification en cours
+	if verifying.active then
+		closeVerifyPanel()
+	end
+
+	if success then
+		if reason == "delivered_via_escrow"
+			or reason == "delivered_via_bug_detection"
+			or reason == "delivered_via_timeout" then
+			pcall(function()
+				local s = SoundService:FindFirstChild("Buysound")
+				if s then s:Play() end
+			end)
+			showNotification(string.format("✅ %s successfully delivered!", itemName or "Item"), false)
+		end
+	else
+		if reason == "already_owned" then
+			showNotification(string.format("⚠️ You already own %s!", itemName or "this item"), true)
+
+		elseif reason == "state_changed" then
+			showNotification("⚠️ Please try again in a moment.", true)
+
+		elseif reason == "not_enough_points" then
+			showNotification("❌ Not enough points anymore.", true)
+
+		elseif reason == "timeout_refunded" then
+			showNotification("↩️ Purchase cancelled.\nYour points have been refunded.", false)
+
+		elseif reason == "refund_on_rejoin" then
+			showNotification("⏳ Rejoin the game and this will be settled automatically.", true)
+
+		elseif reason == "escrow_open" or reason == "resolving" then
+			showNotification("⏳ A purchase is still being verified.\nPlease wait.", true)
+
+		elseif reason == "debt" then
+			showNotification("⚠️ Settle your pending balance before buying again.", true)
+
+		elseif reason == "refund_pending" then
+			showNotification(string.format(
+				"⏳ Please wait %ds before your next purchase.", waitSeconds or 0), true)
+		end
+	end
+end)
+
+local function setupPurchaseLogic(purchaseBtn, assetId, itemName, itemPrice)
+	purchaseBtn.MouseButton1Click:Connect(function()
+		playClickEffect(purchaseBtn)
+
+		-- 🛑 Ventes coupées par un admin : on explique, et on ne déclenche RIEN.
+		--    Placé avant le test des points : dire « pas assez de points » à
+		--    quelqu'un alors que la boutique est fermée serait trompeur.
+		if salesBlocked() then
+			openFrozenPanel(salesLock and salesLock:GetAttribute("Ready") ~= true)
+			pcall(function()
+				local s = SoundService:FindFirstChild("buycancel")
+				if s then s:Play() end
+			end)
+			return
+		end
+
+		-- ⏳ Vérification en cours : le serveur refuserait de toute façon.
+		if verifying.active then
+			local left = math.max(0, math.ceil(verifying.endsAt - tick()))
+			showNotification(string.format(
+				"⏳ Please wait %ds.\n%s points are safe.",
+				left,
+				verifying.amount > 0 and formatNumber(verifying.amount) or "Your"), true)
+			pcall(function()
+				local s = SoundService:FindFirstChild("buycancel")
+				if s then s:Play() end
+			end)
+			return
+		end
+		pcall(function()
+			local s = SoundService:FindFirstChild("Sound4")
+			if s then s:Play() end
+		end)
+		if isProcessing[assetId] then
+			showNotification("⏳ Purchase in progress...", false)
+			return
+		end
+		local ls  = player:FindFirstChild("leaderstats")
+		local pts = ls and ls:FindFirstChild("Points")
+		local pp  = pts and pts.Value or 0
+		if pp < itemPrice then
+			local miss = itemPrice - pp
+			showNotification(string.format(
+				"❌ Not enough points!\n\nRequired: %s pts\nYou have: %s pts\nMissing: %s pts",
+				formatNumber(itemPrice), formatNumber(pp), formatNumber(miss)), true)
+			pcall(function()
+				local s = SoundService:FindFirstChild("buycancel")
+				if s then s:Play() end
+			end)
+			purchaseUGCEvent:FireServer(assetId)
+			return
+		end
+		isProcessing[assetId] = true
+		purchaseUGCEvent:FireServer(assetId)
+		task.delay(15, function() isProcessing[assetId] = false end)
+	end)
+end
+
+-- ============================================================
+-- LOGIQUE DE STOCK
+-- ============================================================
+local stockLabels  = {}
+local stockConfigs = {}
+-- 🌐 En mode « Stock Roblox », le total affiché est le VRAI total du
+--    catalogue, pas ton InitialStock. Le serveur nous l'envoie à chaque fois ;
+--    on le retient ici pour ne pas repartir sur la config au refresh suivant.
+local stockTotals  = {}
+
+local function updateStockLabel(assetId, cur, total)
+	local lbl = stockLabels[assetId]
+	local cfg = stockConfigs[assetId]
+	if not lbl or not cfg then return end
+
+	if type(total) == "number" and total > 0 then stockTotals[assetId] = total end
+	local max = stockTotals[assetId] or cfg.InitialStock or 0
+
+	lbl.Text = cur .. "/" .. max
+	local targetButtonName = nil
+	for _, ugc in ipairs(UGC_CONFIG.Items) do
+		if ugc.AssetId == assetId then
+			targetButtonName = ugc.ButtonName
+			break
+		end
+	end
+	-- Récupérer le gradient + stroke pour les colorer selon l'état
+	local gradient = lbl:FindFirstChildOfClass("UIGradient")
+	local stroke   = lbl:FindFirstChildOfClass("UIStroke")
+	-- Texte reste blanc, c'est le gradient qui colore
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	if cur == 0 then
+		-- ÉPUISÉ : gradient rouge
+		if gradient then
+			gradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0,   STOCK_RED_LIGHT),
+				ColorSequenceKeypoint.new(0.5, STOCK_RED_BRIGHT),
+				ColorSequenceKeypoint.new(1,   STOCK_RED_DEEP),
+			})
+		end
+		if stroke then stroke.Color = STOCK_RED_DEEP end
+		if targetButtonName then
+			local imgBtn = scrollButtons[targetButtonName]
+			if imgBtn then
+				imgBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+			end
+		end
+	elseif max > 0 and cur <= max * 0.3 then
+		-- FAIBLE : gradient orange
+		if gradient then
+			gradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0,   STOCK_ORANGE_LIGHT),
+				ColorSequenceKeypoint.new(0.5, STOCK_ORANGE_BRIGHT),
+				ColorSequenceKeypoint.new(1,   STOCK_ORANGE_DEEP),
+			})
+		end
+		if stroke then stroke.Color = STOCK_ORANGE_DEEP end
+		if targetButtonName then
+			local imgBtn = scrollButtons[targetButtonName]
+			if imgBtn and originalBtnColors[imgBtn] then
+				imgBtn.BackgroundColor3 = originalBtnColors[imgBtn]
+			end
+		end
+	else
+		-- OK : gradient vert
+		if gradient then
+			gradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0,   STOCK_GREEN_LIGHT),
+				ColorSequenceKeypoint.new(0.5, STOCK_GREEN_BRIGHT),
+				ColorSequenceKeypoint.new(1,   STOCK_GREEN_DEEP),
+			})
+		end
+		if stroke then stroke.Color = STOCK_GREEN_DEEP end
+		if targetButtonName then
+			local imgBtn = scrollButtons[targetButtonName]
+			if imgBtn and originalBtnColors[imgBtn] then
+				imgBtn.BackgroundColor3 = originalBtnColors[imgBtn]
+			end
+		end
+	end
+end
+
+UpdateStockEvent.OnClientEvent:Connect(function(newStocks, meta)
+	if type(newStocks) ~= "table" then return end
+
+	-- `meta` n'existe que depuis le nouveau système. S'il manque (ancien
+	-- serveur, ou message envoyé par une fonction non mise à jour), on garde
+	-- simplement les totaux déjà connus : rien ne casse.
+	local totals = (type(meta) == "table" and type(meta.totals) == "table")
+		and meta.totals or nil
+
+	for assetId in pairs(stockLabels) do
+		local key = tostring(assetId)
+		local v = newStocks[key]
+		if v ~= nil then
+			updateStockLabel(assetId, v, totals and totals[key] or nil)
+		end
+	end
+end)
+
+local function initStock(assetId)
+	task.spawn(function()
+		local data = GetStockFunction:InvokeServer(assetId)
+		if data then
+			stockConfigs[assetId] = data.Config
+			updateStockLabel(assetId, data.CurrentStock, data.Total)
+		else
+			local lbl = stockLabels[assetId]
+			if lbl then lbl.Text = "ERROR" ; lbl.TextColor3 = Color3.fromRGB(255,0,0) end
+		end
+	end)
+end
+
+UpdateButtonStateEvent.OnClientEvent:Connect(function(states)
+	local anyChanged = false
+	for _, ugc in ipairs(UGC_CONFIG.Items) do
+		local st = states[ugc.ButtonName]
+		if st then
+			local wasActive = ugcStockState[ugc.ButtonName]
+			setButtonStockState(ugc.ButtonName, st.IsActive, true)
+			if wasActive ~= st.IsActive then
+				anyChanged = true
+			end
+		end
+	end
+	if anyChanged then
+		reorganizeGrid()
+	end
+end)
+
+-- ============================================================
+-- NETTOYAGE
+-- ============================================================
+for _, child in pairs(ScrollingFrame:GetChildren()) do
+	if child:IsA("Frame") and child.Name ~= "MagicDominusButton" then
+		child:Destroy()
+	end
+end
+TemplateBtn.Visible = false
+
+for _, child in pairs(SelectedFrame:GetChildren()) do
+	if child:IsA("Frame") and child.Name ~= "NoUGCSelected" then
+		child:Destroy()
+	end
+end
+
+-- ============================================================
+-- GÉNÉRATION PRINCIPALE
+-- ============================================================
+local maxRow = 0
+for gridIdx, ugc in ipairs(sortedItems) do
+	local assetId   = ugc.AssetId
+	local imageId   = "rbxassetid://" .. tostring(ugc.ImageId or ugc.AssetId)
+	local itemName  = ugc.Name
+	local itemPrice = ugc.Price
+	local isNew     = ugc.IsNew == true
+	local idx = gridIdx - 1
+	local col = idx % COLUMNS
+	local row = math.floor(idx / COLUMNS)
+	if row > maxRow then maxRow = row end
+	local posX = GAP_SCALE + col * (BTN_SCALE + GAP_SCALE)
+	ugcStockState[ugc.ButtonName] = true
+	-- ─────────────────────────────────────────────
+	-- BOUTON SCROLLINGFRAME
+	-- ─────────────────────────────────────────────
+	local outerFrame = TemplateBtn:Clone()
+	outerFrame.Name     = ugc.ButtonPath
+	outerFrame.Visible  = true
+	outerFrame.Size     = UDim2.new(BTN_SCALE, 0, 0, 0)
+	outerFrame.Position = UDim2.new(posX, 0, 0, 0)
+	outerFrame.Parent   = ScrollingFrame
+	attachGradient(outerFrame, false)
+	local imgBtn = outerFrame:FindFirstChildOfClass("ImageButton")
+	if not imgBtn then
+		warn("ImageButton introuvable dans MagicDominusButton pour " .. itemName)
+		outerFrame:Destroy()
+		continue
+	end
+	imgBtn.Image = imageId
+	local newBadge = imgBtn:FindFirstChild("ImageLabel")
+	if newBadge then newBadge.Visible = isNew end
+	local lockBadge = imgBtn:FindFirstChild("Lock")
+	if lockBadge then
+		lockBadge.Image   = "rbxassetid://130535340323890"
+		lockBadge.Visible = true
+	end
+	attachButtonAnimation(imgBtn, outerFrame)
+	originalBtnColors[imgBtn]     = imgBtn.BackgroundColor3
+	scrollButtons[ugc.ButtonName] = imgBtn
+	buttonFrames[ugc.ButtonName]  = outerFrame
+	imgBtn.MouseButton1Click:Connect(function()
+		pcall(function()
+			local s = SoundService:FindFirstChild("Sound4")
+			if s then s:Play() end
+		end)
+		openFrame(ugc.FrameName, imgBtn)
+	end)
+	-- ─────────────────────────────────────────────
+	-- FRAME SELECTED
+	-- ─────────────────────────────────────────────
+	local selFrame = TemplateSelected:Clone()
+	selFrame.Name    = ugc.FrameName
+	selFrame.Visible = false
+	selFrame.Parent  = SelectedFrame
+	local nameLabel = selFrame:FindFirstChild("TextLabel")
+	if nameLabel then nameLabel:Destroy() end
+	local mainImg = Instance.new("ImageLabel")
+	mainImg.Name                   = "ItemImage"
+	mainImg.Size                   = UDim2.new(0.94, 0, 0.94, 0)
+	mainImg.Position               = UDim2.new(0.03, 0, 0.02, 0)
+	mainImg.AnchorPoint            = Vector2.new(0, 0)
+	mainImg.BackgroundTransparency = 1
+	mainImg.Image                  = imageId
+	mainImg.ScaleType              = Enum.ScaleType.Fit
+	mainImg.ZIndex                 = 2
+	mainImg.Parent                 = selFrame
+	local mic = Instance.new("UICorner")
+	mic.CornerRadius = UDim.new(0, 8)
+	mic.Parent       = mainImg
+	selFrame.ClipsDescendants = false
+	-- ─────────────────────────────────────────────
+	-- STOCK CONTAINER (gauche, 50%) — stylisé comme les likes
+	-- ─────────────────────────────────────────────
+	local stockContainer = Instance.new("Frame")
+	stockContainer.Name                   = "stock"
+	stockContainer.Size                   = UDim2.new(0.50, 0, 0.22, 0)
+	stockContainer.Position               = UDim2.new(0.25, 0, 1.22, 0)  -- centré en X, plus bas
+	stockContainer.BackgroundTransparency = 1
+	stockContainer.BorderSizePixel        = 0
+	stockContainer.ZIndex                 = 2
+	stockContainer.Parent                 = selFrame
+	-- Titre "Stock" — FredokaOne + stroke
+	local stockTitle = Instance.new("TextLabel")
+	stockTitle.Name                   = "StockTitle"
+	stockTitle.Size                   = UDim2.new(1, 0, 0.32, 0)
+	stockTitle.Position               = UDim2.new(0, 0, 0, 0)
+	stockTitle.BackgroundTransparency = 1
+	stockTitle.Text                   = "Stock"
+	stockTitle.Font                   = Enum.Font.FredokaOne
+	stockTitle.TextScaled             = true
+	stockTitle.TextXAlignment         = Enum.TextXAlignment.Center
+	stockTitle.TextColor3             = Color3.fromRGB(220, 255, 230)
+	stockTitle.ZIndex                 = 3
+	stockTitle.Parent                 = stockContainer
+	local stockTitleStroke = Instance.new("UIStroke")
+	stockTitleStroke.Color     = STOCK_GREEN_DEEP
+	stockTitleStroke.Thickness = 0.5
+	stockTitleStroke.Parent    = stockTitle
+	-- Valeur "5/25" — FredokaOne + gradient dynamique + stroke
+	local stockLabel = Instance.new("TextLabel")
+	stockLabel.Name                   = "StockLabel"
+	stockLabel.Size                   = UDim2.new(1, 0, 0.65, 0)
+	stockLabel.Position               = UDim2.new(0, 0, 0.35, 0)
+	stockLabel.BackgroundTransparency = 1
+	stockLabel.Text                   = "..."
+	stockLabel.TextColor3             = Color3.fromRGB(255, 255, 255)
+	stockLabel.Font                   = Enum.Font.FredokaOne
+	stockLabel.TextScaled             = true
+	stockLabel.TextXAlignment         = Enum.TextXAlignment.Center
+	stockLabel.ZIndex                 = 3
+	stockLabel.Parent                 = stockContainer
+	-- Gradient (mis à jour dynamiquement par updateStockLabel)
+	local stockGradient = Instance.new("UIGradient")
+	stockGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0,    STOCK_GREEN_LIGHT),
+		ColorSequenceKeypoint.new(0.5,  STOCK_GREEN_BRIGHT),
+		ColorSequenceKeypoint.new(1,    STOCK_GREEN_DEEP),
+	})
+	stockGradient.Rotation = 90
+	stockGradient.Parent   = stockLabel
+	local stockStroke = Instance.new("UIStroke")
+	stockStroke.Color        = STOCK_GREEN_DEEP
+	stockStroke.Thickness    = 0.5
+	stockStroke.Transparency = 0.2
+	stockStroke.Parent       = stockLabel
+	stockLabels[assetId]  = stockLabel
+	stockConfigs[assetId] = ugc
+	initStock(assetId)
+	-- ─────────────────────────────────────────────
+	-- 🆕 LIKES CONTAINER (droite, 50% largeur)
+	-- ─────────────────────────────────────────────
+	local likeContainer = Instance.new("Frame")
+	likeContainer.Name                   = "likes"
+	-- 🎯 Même largeur et même X que le bloc Stock, juste en dessous.
+	--    L'ancien 0.85/1.60 sortait du cadre (0.85+0.42 = 1.27 en X) : le cœur
+	--    se retrouvait posé par-dessus les boutons de la ScrollingFrame, et
+	--    c'est un bouton « épuisé » (dégradé gris) qu'on voyait à côté de lui.
+	likeContainer.Size     = UDim2.new(0.42, 0, 0.18, 0)
+	likeContainer.Position = UDim2.new(0.85, 0, 1.60, 0)
+	likeContainer.BackgroundTransparency = 1
+	likeContainer.BorderSizePixel        = 0
+	likeContainer.ZIndex                 = 2
+	likeContainer.Parent                 = selFrame
+	-- Ligne du bas plus haute pour accueillir le gros coeur
+	local heartRow = Instance.new("Frame")
+	heartRow.Name                   = "HeartRow"
+	heartRow.Size                   = UDim2.new(1, 0, 0.65, 0)   -- ✅ plus grand (0.50 → 0.65)
+	heartRow.Position               = UDim2.new(0, 0, 0.35, 0)
+	heartRow.BackgroundTransparency = 1
+	heartRow.ClipsDescendants       = false                       -- ✅ laisse déborder le bounce
+	heartRow.ZIndex                 = 3
+	heartRow.Parent                 = likeContainer
+	-- Cœur PLUS GROS + contour rose au lieu de gris
+	-- Cœur centré, plus à droite
+	local heartBtn = Instance.new("TextButton")
+	heartBtn.Name                   = "HeartButton"
+	heartBtn.AnchorPoint            = Vector2.new(0.5, 0.5)
+	heartBtn.Position = UDim2.fromScale(0.7, 0.20)
+	heartBtn.Size     = UDim2.fromScale(0.45, 1.5)
+	heartBtn.BackgroundTransparency = 1
+	heartBtn.BorderSizePixel        = 0
+	-- 🩹 Un autre script du jeu remet ce fond à 0 après coup (couleur 163,162,165 =
+	--    valeur par défaut d'Instance.new). On ne cherche pas à savoir lequel :
+	--    on reprend la main dès qu'il touche à la propriété.
+	heartBtn:GetPropertyChangedSignal("BackgroundTransparency"):Connect(function()
+		if heartBtn.BackgroundTransparency ~= 1 then
+			heartBtn.BackgroundTransparency = 1
+		end
+	end)
+	heartBtn:GetPropertyChangedSignal("BorderSizePixel"):Connect(function()
+		if heartBtn.BorderSizePixel ~= 0 then
+			heartBtn.BorderSizePixel = 0
+		end
+	end)
+	heartBtn.Text                   = "♥"            -- ✅ jamais ♡
+	heartBtn.TextColor3             = Color3.fromRGB(255, 255, 255)
+	heartBtn.TextTransparency       = 0.62
+	-- SourceSansBold est une police Roblox historique : elle a une couverture
+	-- Unicode large et contient le ♥. FredokaOne, non → carré gris.
+	heartBtn.Font                   = Enum.Font.SourceSansBold
+	heartBtn.TextScaled             = true
+	heartBtn.AutoButtonColor        = false
+	heartBtn.Selectable             = false          -- pas de cadre de sélection manette
+	heartBtn.ZIndex                 = 4
+	heartBtn.Visible                = true           -- ✅ réactivé
+	heartBtn.Parent                 = likeContainer
+
+	local heartStroke = Instance.new("UIStroke")
+	heartStroke.Name         = "HeartStroke"
+	heartStroke.Color        = PINK_OUTLINE
+	heartStroke.Thickness    = 2
+	heartStroke.Transparency = 0.15
+	heartStroke.Parent       = heartBtn
+	local countLabel = Instance.new("TextLabel")
+	countLabel.Name                   = "LikeCount"
+	countLabel.AnchorPoint            = Vector2.new(0.5, 0)
+	countLabel.Position  = UDim2.fromScale(0.7, 0.68)
+	countLabel.Size      = UDim2.fromScale(0.6, 0.35)
+	countLabel.BackgroundTransparency = 1
+	countLabel.Text                   = "..."
+	countLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	countLabel.Font                   = Enum.Font.FredokaOne
+	countLabel.TextScaled             = true
+	countLabel.Visible                     = likeCountShown()  -- ❤️ réglé depuis l'admin
+	countLabel.TextTransparency            = 0
+	countLabel.BackgroundTransparency      = 1
+	countLabel.TextXAlignment         = Enum.TextXAlignment.Center
+	countLabel.ZIndex                 = 4
+	countLabel.Parent                 = likeContainer
+	-- Enregistrer les refs
+	likeButtons[assetId]     = heartBtn
+	likeCountLabels[assetId] = countLabel
+	likeCounts[assetId]      = likeCounts[assetId] or 0
+	likedByPlayer[assetId]   = likedByPlayer[assetId] or false
+	-- Click handler
+	heartBtn.MouseButton1Click:Connect(function()
+		pcall(function()
+			local s = SoundService:FindFirstChild("Sound4")
+			if s then s:Play() end
+		end)
+		onHeartClick(assetId)
+	end)
+	-- Rafraîchir au cas où les données sont déjà arrivées
+	if likesDataLoaded then
+		refreshLikeUI(assetId)
+	end
+	-- ─────────────────────────────────────────────
+	-- BOUTON D'ACHAT
+	-- ─────────────────────────────────────────────
+	local purchaseBtn = selFrame:FindFirstChild("WingsButton")
+	if purchaseBtn then
+		purchaseBtn.Name = ugc.ButtonPath
+		local priceLabel = purchaseBtn:FindFirstChildWhichIsA("TextLabel")
+		if priceLabel then
+			attachPriceCoin(priceLabel, formatFullPrice(itemPrice))
+		end
+	else
+		warn("WingsButton introuvable dans NoUGCSelected pour " .. itemName)
+	end
+	setupPurchaseLogic(purchaseBtn, assetId, itemName, itemPrice)
+end
+
+-- ============================================================
+-- 🆕 TEXTE "COMING SOON" EN BAS DE LA SCROLLINGFRAME
+-- ============================================================
+comingSoonLabel = Instance.new("TextLabel")
+comingSoonLabel.Name                   = "ComingSoonLabel"
+comingSoonLabel.BackgroundTransparency = 1
+comingSoonLabel.Text                   = "More UGCs coming soon!"
+comingSoonLabel.TextColor3             = Color3.fromRGB(182, 227, 251) -- bleu ciel
+comingSoonLabel.Font                   = Enum.Font.FredokaOne
+comingSoonLabel.TextScaled             = true
+comingSoonLabel.TextXAlignment         = Enum.TextXAlignment.Center
+comingSoonLabel.ZIndex                 = 5
+comingSoonLabel.Parent                 = ScrollingFrame
+local csStroke = Instance.new("UIStroke")
+csStroke.Color     = Color3.fromRGB(20, 80, 140)
+csStroke.Thickness = 1
+csStroke.Parent    = comingSoonLabel
+
+-- ============================================================
+-- CALCUL INITIAL DE LA GRILLE (FIX MOBILE)
+-- ============================================================
+local function applyInitialGrid()
+	local sfW = ScrollingFrame.AbsoluteSize.X
+	if sfW <= 1 then return false end
+	local btnPx = sfW * BTN_SCALE
+	local gapPx = sfW * GAP_SCALE
+	local available = {}
+	local exhausted = {}
+
+	for _, ugc in ipairs(sortedItems) do
+		local frame = buttonFrames[ugc.ButtonName]
+
+		if ugcHidden(ugc.AssetId) then
+			if frame then frame.Visible = false end
+		elseif ugcStockState[ugc.ButtonName] == false then
+			if frame then frame.Visible = true end
+			table.insert(exhausted, ugc)
+		else
+			if frame then frame.Visible = true end
+			table.insert(available, ugc)
+		end
+	end
+	local finalOrder = {}
+	for _, ugc in ipairs(available) do table.insert(finalOrder, ugc) end
+	for _, ugc in ipairs(exhausted) do table.insert(finalOrder, ugc) end
+	local totalRows   = math.ceil(#finalOrder / COLUMNS)
+	local totalHeight = gapPx + totalRows * (btnPx + gapPx)
+	totalHeight += placeComingSoon(sfW, btnPx, gapPx, totalRows)
+	ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+	for gridIdx, ugc in ipairs(finalOrder) do
+		local idx = gridIdx - 1
+		local col = idx % COLUMNS
+		local row = math.floor(idx / COLUMNS)
+		local posX = GAP_SCALE + col * (BTN_SCALE + GAP_SCALE)
+		local posY = gapPx + row * (btnPx + gapPx)
+		local btn = buttonFrames[ugc.ButtonName]
+		if btn then
+			btn.Position = UDim2.new(posX, 0, 0, posY)
+			btn.Size     = UDim2.new(BTN_SCALE, 0, 0, btnPx)
+		end
+	end
+	print(string.format(
+		"✅ [UGCShopGenerator] Grille appliquée: %d lignes | btnPx=%.0f | gapPx=%.0f",
+		totalRows, btnPx, gapPx))
+	return true
+end
+
+local gridApplied = false
+ShopFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+	if ShopFrame.Visible then
+		-- 🔒 Carrousel → points uniquement, rate custom, tant que le shop UGC est ouvert
+		if _G.OffersLockCategory then
+			_G.OffersLockCategory("points", POINTS_OFFER_DISPLAY_TIME)
+		end
+		-- 🆕 Lazy-load des likes la 1ère fois que le shop s'ouvre
+		fetchLikesDataOnce()
+		if not gridApplied then
+			task.wait()
+			if applyInitialGrid() then
+				gridApplied = true
+			end
+		end
+	else
+		-- 🔓 Shop fermé → retour à la rotation normale
+		if _G.OffersUnlockCategory then
+			_G.OffersUnlockCategory()
+		end
+	end
+end)
+
+
+--════════════════════════════════════════════════════════════
+-- 👁️ Un admin vient d'afficher ou de masquer un UGC
+--
+--   La grille se refait toute seule : le joueur n'a pas à rouvrir le shop,
+--   et surtout pas à relancer la partie. C'est ce qui permet de lancer un
+--   UGC pour tout le monde en même temps.
+--════════════════════════════════════════════════════════════
+task.spawn(function()
+	local f = ReplicatedStorage:WaitForChild("UGCSalesLock", 30)
+	if not f then return end
+	visFlag = f
+
+	f.AttributeChanged:Connect(function(attr)
+		if attr:sub(1, 5) ~= "Hide_" then return end
+
+		-- S'il regardait justement la fiche de l'UGC qu'on masque, on referme
+		-- la sélection : sinon son bouton Buy resterait affiché à l'écran.
+		if f:GetAttribute(attr) == true then
+			local id = attr:sub(6)
+			for _, ugc in ipairs(UGC_CONFIG.Items) do
+				if tostring(ugc.AssetId) == id and UGCUpdateLabel.Text == ugc.FrameName then
+					resetToNoSelection()
+					break
+				end
+			end
+		end
+
+		reorganizeGrid()
+	end)
+
+	-- Le drapeau arrive parfois après la génération de la grille : on repasse
+	-- une fois pour cacher ce qui devait l'être dès le départ.
+	reorganizeGrid()
+end)
+--════════════════════════════════════════════════════════════
+-- ↕️ Un admin vient de changer l'ordre du shop → la grille se replace
+--════════════════════════════════════════════════════════════
+if UGC_CONFIG.OnOrderChanged then
+	UGC_CONFIG.OnOrderChanged(function()
+		sortedItems = UGC_CONFIG.GetSortedItems()
+		reorganizeGrid()
+	end)
+end
+
+--════════════════════════════════════════════════════════════
+-- ❤️ Un admin affiche / cache le nombre de likes
+--════════════════════════════════════════════════════════════
+task.spawn(function()
+	local f = ReplicatedStorage:WaitForChild("UGCShopOrder", 30)
+	if not f then return end
+	local function apply()
+		local show = likeCountShown()
+		for _, lbl in pairs(likeCountLabels) do
+			lbl.Visible = show
+		end
+	end
+	f:GetAttributeChangedSignal("ShowLikeCount"):Connect(apply)
+	apply()
+end)
+
+
+
+
+--════════════════════════════════════════════════════════════
+-- 🌀 FUSION COIL : messages
+--════════════════════════════════════════════════════════════
+local function formatDuree(s)
+	s = math.max(0, math.floor(tonumber(s) or 0))
+	local h   = math.floor(s / 3600)
+	local m   = math.floor((s % 3600) / 60)
+	local sec = s % 60
+	if h > 0 then return string.format("%dh %02dm", h, m) end
+	if m > 0 then return string.format("%dm %02ds", m, sec) end
+	return sec .. "s"
+end
+
+-- 🔕 Petit message discret en bas de l'écran (au-dessus de la hotbar)
+local function showToast(message)
+	pcall(function()
+		local gui = player:WaitForChild("PlayerGui")
+		local old = gui:FindFirstChild("CoilToast")
+		if old then old:Destroy() end
+
+		local sg = Instance.new("ScreenGui")
+		sg.Name = "CoilToast"
+		sg.ResetOnSpawn = false
+		sg.DisplayOrder = 400
+		sg.Parent = gui
+
+		local lbl = Instance.new("TextLabel")
+		lbl.AnchorPoint = Vector2.new(0.5, 1)
+		lbl.Position = UDim2.new(0.5, 0, 1, -80)
+		lbl.Size = UDim2.new(0, 0, 0, 32)
+		lbl.AutomaticSize = Enum.AutomaticSize.X
+		lbl.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+		lbl.BackgroundTransparency = 1
+		lbl.BorderSizePixel = 0
+		lbl.Font = Enum.Font.GothamMedium
+		lbl.TextSize = 15
+		lbl.TextColor3 = Color3.fromRGB(200, 200, 210)
+		lbl.TextTransparency = 1
+		lbl.Text = message
+		lbl.Parent = sg
+		local co = Instance.new("UICorner") ; co.CornerRadius = UDim.new(1, 0) ; co.Parent = lbl
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 14) ; pad.PaddingRight = UDim.new(0, 14) ; pad.Parent = lbl
+
+		TweenService:Create(lbl, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Position = UDim2.new(0.5, 0, 1, -90),
+			BackgroundTransparency = 0.35,
+			TextTransparency = 0,
+		}):Play()
+
+		task.delay(3, function()
+			if not sg.Parent then return end
+			local t = TweenService:Create(lbl, TweenInfo.new(0.4), {
+				BackgroundTransparency = 1, TextTransparency = 1 })
+			t:Play()
+			t.Completed:Connect(function() sg:Destroy() end)
+		end)
+	end)
+end
+
+task.spawn(function()
+	local ev = ReplicatedStorage:WaitForChild("FusionCoilNotify", 30)
+	if not ev then return end
+
+	ev.OnClientEvent:Connect(function(kind, seconds)
+		if kind == "given" then
+			showNotification("🌀 You got the Fusion Coil!\nActive for " .. formatDuree(seconds) .. ".", false)
+
+		elseif kind == "active" then
+			showNotification(seconds
+				and ("⚠️ You already have the Fusion Coil!\n" .. formatDuree(seconds) .. " left.")
+				or  "⚠️ You already have the Fusion Coil!", true)
+
+		elseif kind == "cooldown" then
+			showNotification("⏳ Fusion Coil on cooldown!\nTry again in " .. formatDuree(seconds) .. ".", true)
+
+		elseif kind == "busy" then
+			showNotification("⏳ Please wait a moment...", true)
+
+		elseif kind == "lost" then
+			showToast("🌀 Your Fusion Coil has expired.")
+		end
+	end)
+end)
