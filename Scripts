@@ -194,6 +194,9 @@ _G.UGCRedeem_Log = function(userId, assetId, opts)
 		srv = JOB, nt = opts.note,
 	}
 
+	-- 📡 Board public « LIVE UGC REDEEMS » (UGCLiveFeedServer)
+	if _G.UGCLiveFeed_Push then task.spawn(_G.UGCLiveFeed_Push, entry) end
+
 	-- ⚡ écritures SÉQUENTIELLES et espacées : jamais de rafale
 	task.spawn(function()
 		writeEntry(entry)
@@ -620,6 +623,8 @@ task.spawn(function()
 end)
 
 function Core.refreshVip() return fetchVip() end
+-- Boucle Heartbeat unique, partagée avec les autres boards (UGC Live Feed…)
+Core.registerAnim = registerAnim
 function Core.isVip(userId) return vipList[tostring(userId)] ~= nil end
 
 -- 🖱️ Ouvre la fiche profil (PlayerProfileHover expose _G.OpenPlayerProfile)
