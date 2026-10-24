@@ -1,0 +1,771 @@
+--[[
+	✨ ScytheFX V2.3 — tous les effets de la faux de Jack (LOCAL : chaque joueur les crée chez lui)
+	📍 ReplicatedStorage ▸ JackScythe ▸ ScytheFX   (ModuleScript)
+
+	Propre, sur la faux seulement (jamais sur le joueur) :
+	  • TRAÎNÉE de la lame (4 rubans le long de la courbe) + fil de la pointe
+	  • 4 ÉCLATS en orbite autour du nœud, avec leur traînée (ils montrent aussi la recharge du dash)
+	  • MÉDAILLON qui pend vers la gravité ressentie (balance au saut/dash, sans tremblement)
+	  • petite flamme du nœud + petites flammes AU BOUT des épines, dans leur direction (collées à la faux)
+	  • cristal flottant sous le pommeau ; étoiles sur la faux dorée
+	  • filament d'énergie courbe le long du fil (seulement si Scythe_Energy est uploadée)
+	La lueur des textures (EmissiveStrength) est FIXE et réglable pièce par pièce (SCYTHE_CONFIG ▸ Glow).
+--]]
+
+local RunService        = game:GetService("RunService")
+local UserInputService  = game:GetService("UserInputService")
+local Debris            = game:GetService("Debris")
+
+local Config = require(script.Parent:WaitForChild("SCYTHE_CONFIG"))
+local FX = {}
+
+local LOW = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+FX.LowEnd = LOW
+local LE = Config.LowEnd or {}
+local PSCALE = LOW and (LE.ParticleScale or 0.5) or 1
+local G = Config.Glow or {}
+local E = Config.Effects or {}
+local function opt(name)
+	if LOW and LE[name] == false then return false end
+	return E[name] ~= false
+end
+local function num(t, k, d) local v = t and t[k] ; return type(v) == "number" and v or d end
+
+-- couleurs (valeurs par défaut si ta config est ancienne)
+local DEF = {
+	Normal = { Core = Color3.fromRGB(250, 238, 255), Flame = Color3.fromRGB(176, 104, 255), Deep = Color3.fromRGB(92, 30, 190),
+		Edge = Color3.fromRGB(214, 170, 255), Smoke = Color3.fromRGB(46, 20, 70), Light = Color3.fromRGB(170, 100, 255),
+		Ghost = Color3.fromRGB(150, 80, 255), Number = Color3.fromRGB(246, 232, 255), NumberGlow = Color3.fromRGB(150, 70, 255) },
+	Gold = { Core = Color3.fromRGB(255, 252, 235), Flame = Color3.fromRGB(255, 206, 100), Deep = Color3.fromRGB(210, 130, 40),
+		Edge = Color3.fromRGB(255, 226, 150), Smoke = Color3.fromRGB(80, 50, 20), Light = Color3.fromRGB(255, 210, 120),
+		Ghost = Color3.fromRGB(255, 205, 95), Number = Color3.fromRGB(255, 248, 225), NumberGlow = Color3.fromRGB(255, 180, 60) },
+}
+local function palette(gold)
+	local key = gold and "Gold" or "Normal"
+	local src = (Config.Colors and Config.Colors[key]) or {}
+	local out = {}
+	for k, v in pairs(DEF[key]) do out[k] = ((Config.Version or 1) >= 2 and src[k]) or v end
+	return out
+end
+
+-- ── outils ──────────────────────────────────────────────────────
+local function new(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props or {}) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
+end
+local function setp(o, k, v) pcall(function() o[k] = v end) end
+local function ES(sa, v)       -- n'écrit que si la valeur change vraiment (jamais à chaque image)
+	if sa then pcall(function() if math.abs(sa.EmissiveStrength - v) > 0.01 then sa.EmissiveStrength = math.max(0, v) end end) end
+end
+local function seq(...)
+	local cs = { ... }
+	if #cs == 1 then return ColorSequence.new(cs[1]) end
+	local kp = {}
+	for i, c in ipairs(cs) do table.insert(kp, ColorSequenceKeypoint.new((i - 1) / (#cs - 1), c)) end
+	return ColorSequence.new(kp)
+end
+local function nseq(...)
+	local kp = {}
+	for _, p in ipairs({ ... }) do table.insert(kp, NumberSequenceKeypoint.new(p[1], p[2], p[3] or 0)) end
+	return NumberSequence.new(kp)
+end
+local function smooth(u) u = math.clamp(u, 0, 1) return u * u * (3 - 2 * u) end
+local function decay(now, t0, k) return math.exp(-math.max(0, now - t0) * k) * (now >= t0 and 1 or 0) end
+
+local BUILTIN = {
+	Flame = "rbxasset://textures/particles/fire_main.dds",
+	FlameGold = "rbxasset://textures/particles/fire_main.dds",
+	Energy = "rbxasset://textures/particles/sparkles_main.dds",
+	Shard = "rbxasset://textures/particles/sparkles_main.dds",
+	Slash = "rbxasset://textures/particles/forcefield_glow_main.dds",
+	DashLine = "rbxasset://textures/particles/sparkles_main.dds",
+	Glow = "rbxasset://textures/particles/forcefield_glow_main.dds",
+	Spark = "rbxasset://textures/particles/sparkles_main.dds",
+	Star = "rbxasset://textures/particles/sparkles_main.dds",
+	Ring = "rbxasset://textures/particles/explosion01_shockwave_main.dds",
+	Smoke4x4 = "rbxasset://textures/particles/smoke_main.dds",
+	Wisp = "rbxasset://textures/particles/smoke_main.dds",
+}
+local function custom(name)
+	local id = Config.Textures and Config.Textures[name]
+	if type(id) == "number" then id = tostring(id) end
+	if type(id) == "string" and id ~= "" then
+		return id:find("rbx") and id or ("rbxassetid://" .. id)
+	end
+	return nil
+end
+local function TEX(name) return custom(name) or BUILTIN[name] or "" end
+-- couleur d'une flamme : la planche uploadée est déjà colorée (blanc) ; la flamme Roblox par défaut est teintée
+local function flameCol(P, name) return custom(name) and seq(Color3.new(1, 1, 1)) or seq(P.Core, P.Flame, P.Deep) end
+FX.Tex = TEX
+
+local function flame8(e, name, fps)
+	if custom(name) then
+		setp(e, "FlipbookLayout", Enum.ParticleFlipbookLayout.Grid8x8)
+		setp(e, "FlipbookMode", Enum.ParticleFlipbookMode.Loop)
+		setp(e, "FlipbookFramerate", NumberRange.new(fps or 30))
+		setp(e, "FlipbookStartRandom", true)
+	end
+end
+local function smoke4(e, name)
+	if name == "Smoke4x4" and custom(name) then
+		setp(e, "FlipbookLayout", Enum.ParticleFlipbookLayout.Grid4x4)
+		setp(e, "FlipbookMode", Enum.ParticleFlipbookMode.OneShot)
+	end
+end
+
+local function emitter(parent, props)
+	local e = new("ParticleEmitter", {
+		Name = "FX_Emitter", Texture = TEX("Spark"), Rate = 0, LightEmission = 1, LightInfluence = 0, ZOffset = 0.2,
+		Lifetime = NumberRange.new(0.5, 0.9), Speed = NumberRange.new(0), SpreadAngle = Vector2.new(0, 0),
+		Size = nseq({ 0, 0.3 }, { 1, 0 }), Transparency = nseq({ 0, 0 }, { 1, 1 }), LockedToPart = false,
+		Rotation = NumberRange.new(-12, 12), RotSpeed = NumberRange.new(-20, 20),
+	}, nil)
+	for k, v in pairs(props or {}) do
+		if k == "Brightness" or k == "Squash" or k:find("^Shape") or k:find("^Flipbook") or k == "Orientation"
+			or k == "VelocityInheritance" or k == "WindAffectsDrag" then setp(e, k, v)
+		elseif k == "Rate" then e.Rate = v * PSCALE
+		else e[k] = v end
+	end
+	e.Parent = parent
+	return e
+end
+local function burst(e, n) e:Emit(math.max(1, math.floor(n * PSCALE + 0.5))) end
+
+local function sfx(name, parent, volMul)
+	local s = Config.Sounds and Config.Sounds[name]
+	if not s then return nil end
+	local id = s.Id
+	if type(id) == "number" then id = tostring(id) end
+	local fallback = ({ Equip = "rbxasset://sounds/unsheath.wav", Dash = "rbxasset://sounds/swordlunge.wav",
+		Slash = "rbxasset://sounds/swordslash.wav" })[name]
+	if type(id) ~= "string" or id == "" then id = fallback end
+	if not id or (s.Volume or 0) <= 0 then return nil end
+	if not id:find("rbx") then id = "rbxassetid://" .. id end
+	local snd = new("Sound", { Name = "FX_" .. name, SoundId = id, Volume = (s.Volume or 0.5) * (volMul or 1),
+		PlaybackSpeed = Config.SoundPitch or 1, RollOffMaxDistance = 90, RollOffMinDistance = 8 }, parent)
+	snd:Play()
+	if not snd.Looped then
+		snd.Ended:Connect(function() snd:Destroy() end)
+		Debris:AddItem(snd, 6)
+	end
+	return snd
+end
+FX.Sound = sfx
+
+-- dossier monde pour les effets qui restent sur place
+local fxFolder
+local function folder()
+	if not fxFolder or not fxFolder.Parent then fxFolder = new("Folder", { Name = "JackScytheFX" }, workspace) end
+	return fxFolder
+end
+local function anchor(cf, life)
+	local p = new("Part", { Name = "FX_Anchor", Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
+		Transparency = 1, Size = Vector3.new(0.2, 0.2, 0.2), CFrame = cf, CastShadow = false }, folder())
+	Debris:AddItem(p, life or 2.5)
+	return p
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔩 PIÈCES ANIMÉES (moteurs posés par l'installeur : Motor_Medal, Motor_Shard1..4)
+--    outil tenu → Motor6D.Transform (local, rien n'est répliqué) ; modèle ancré (scène de Jack) → CFrame direct
+--    Motor_ShardN : C0 = place de repos de l'éclat (attribut Rest = repos − nœud) ; Motor_Medal : C0 = anneau (attribut Length)
+-- ════════════════════════════════════════════════════════════════
+local ORBIT_TILT = CFrame.Angles(math.rad(-28), 0, 0)   -- plan d'orbite incliné : passe SOUS la lame, jamais à travers
+local ORBIT_R = 0.74
+
+local lastT = setmetatable({}, { __mode = "k" })     -- dernier Transform posé (diagnostic)
+FX.LastTransform = function(m) return lastT[m] end
+local function driveMotor(m, T, followers)
+	if not m or not m.Part1 then return end
+	lastT[m] = T
+	if m.Part1.Anchored and m.Part0 then
+		local cf = m.Part0.CFrame * m.C0 * T * m.C1:Inverse()
+		m.Part1.CFrame = cf
+		for _, f in ipairs(followers or {}) do f[1].CFrame = cf * f[2] end      -- faces du numéro
+	else
+		setp(m, "Transform", T)     -- tout de suite…
+	end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🧷 POSE DES EFFETS SUR UNE FAUX
+-- ════════════════════════════════════════════════════════════════
+local handles = {}      -- [tool] = h
+local stepConn
+
+local function att(part, name) return part and part:FindFirstChild(name) end
+
+local simConn
+local function startLoop()
+	if stepConn then return end
+	-- …et réappliqué juste avant la physique (après l'Animator) : rien ne vient l'écraser
+	local okP, ev = pcall(function() return RunService.PreSimulation end)
+	if not okP or not ev then pcall(function() ev = RunService.Stepped end) end
+	simConn = ev and ev:Connect(function()
+		for m, T in pairs(lastT) do
+			if m.Parent and m.Part1 and not m.Part1.Anchored then setp(m, "Transform", T) end
+		end
+	end)
+	stepConn = RunService.RenderStepped:Connect(function(dt)
+		local now = os.clock()
+		dt = math.min(dt, 1 / 20)
+		for tool, h in pairs(handles) do
+			if not tool.Parent then FX.Detach(tool)
+			else
+				local ok, err = pcall(h.step, h, dt, now)
+				if not ok and Config.Debug then warn("[ScytheFX]", err) end
+			end
+		end
+		if next(handles) == nil then
+			stepConn:Disconnect() ; stepConn = nil
+			if simConn then simConn:Disconnect() ; simConn = nil end
+		end
+	end)
+end
+
+function FX.Attach(tool, isLocal)
+	if handles[tool] then return handles[tool] end
+	local gold = tool:GetAttribute("Gold") == true
+	local P = palette(gold)
+	local handle = tool:FindFirstChild("Handle")
+	local head = tool:FindFirstChild("Head")
+	local blade = tool:FindFirstChild("Blade")
+	if not (handle and head and blade) then return nil end
+	local medal = tool:FindFirstChild("Medal")
+	local flameTex = gold and "FlameGold" or "Flame"
+	local made = {}
+	local function keep(o) table.insert(made, o) return o end
+
+	local h = { tool = tool, gold = gold, P = P, isLocal = isLocal, made = made, dashT = -99, equipT = -99, impactT = -99,
+		cd = 1, readyFlare = -99, seed = math.random() * 100, orbit = math.random() * 6.28 }
+	local function SA(p) return p and p:FindFirstChildOfClass("SurfaceAppearance") end
+	h.sa = { Handle = SA(handle), Head = SA(head), Blade = SA(blade), Medal = SA(medal) }
+	h.shards = {}
+	for i = 1, 4 do
+		local m = handle:FindFirstChild("Motor_Shard" .. i)
+		local p = tool:FindFirstChild("Shard" .. i)
+		if m and p then
+			local rest = m:GetAttribute("Rest") or Vector3.zero
+			table.insert(h.shards, { m = m, p = p, sa = SA(p), rest = rest, phase = (i - 1) * math.pi / 2 + 0.3,
+				rr = ORBIT_R + (i % 2 == 0 and 0.05 or -0.03), yo = (i - 2.5) * 0.04, spin = math.random() * 6.28,
+				spinS = 1.6 + math.random() * 1.4, k = 1 })
+		end
+	end
+	h.medalMotor = handle:FindFirstChild("Motor_Medal")
+	h.faces = {}
+	if medal then
+		for _, nm in ipairs({ "PlaqueFace", "PlaqueFaceBack" }) do
+			local f = tool:FindFirstChild(nm)
+			if f then table.insert(h.faces, { f, medal.CFrame:ToObjectSpace(f.CFrame) }) end
+		end
+	end
+	h.guis = {}
+	for _, d in ipairs(tool:GetDescendants()) do
+		if d:IsA("SurfaceGui") and d.Name == "PlaqueGui" then
+			setp(d, "LightInfluence", 0)
+			setp(d, "Brightness", num(G, "NumberBrightness", 2.2))
+			table.insert(h.guis, d)
+			local n, s = d:FindFirstChild("Serial"), d:FindFirstChild("SerialShine")
+			if n then n.TextColor3 = P.Number end
+			if s then s.TextColor3 = P.NumberGlow end
+		end
+	end
+
+	-- 💡 lueur des textures : réglée UNE fois (la modifier à chaque image fait clignoter la SurfaceAppearance)
+	ES(h.sa.Handle, num(G, "Veins", 3)) ; ES(h.sa.Head, num(G, "Head", 3))
+	ES(h.sa.Blade, num(G, "Blade", 1.5)) ; ES(h.sa.Medal, num(G, "Medal", 2))
+	ES(SA(tool:FindFirstChild("Tips")), num(G, "SpikeTips", 5)) ; ES(SA(tool:FindFirstChild("Gem")), num(G, "Gem", 5))
+	for _, s in ipairs(h.shards) do ES(s.sa, num(G, "Shards", 5)) end
+
+	-- 💡 lumière du nœud
+	local knot = att(head, "Knot")
+	if knot and num(G, "PointLight", 1) > 0 then
+		h.light = keep(new("PointLight", { Name = "FX_Light", Color = P.Light, Brightness = num(G, "PointLight", 1),
+			Range = LOW and (LE.LightRange or 5) or num(G, "LightRange", 7), Shadows = false }, knot))
+	end
+
+	-- ── COLLÉS ───────────────────────────────────────────────────
+	-- filaments d'énergie qui courent le long du fil (seulement avec la vraie texture Scythe_Energy uploadée)
+	h.flow = {}
+	h.edgeBeams = {}
+	if opt("EnergyFlow") and custom("Energy") then
+		-- 2 segments courbes BeamA→BeamM→BeamB : la courbe épouse le fil (CurveSize calés dans Blender), fins, dans la lame
+		-- un filament sur CHAQUE face de la lame, posé juste au-dessus de la surface (visible des deux côtés)
+		for _, pr in ipairs({ { "BeamA", "BeamM" }, { "BeamM", "BeamB" }, { "BeamA2", "BeamM2" }, { "BeamM2", "BeamB2" } }) do
+			local a0, a1 = att(blade, pr[1]), att(blade, pr[2])
+			if a0 and a1 then
+				local b = keep(new("Beam", { Name = "FX_EnergyFlow", Attachment0 = a0, Attachment1 = a1, Texture = TEX("Energy"),
+					TextureMode = Enum.TextureMode.Static, TextureLength = 1.2, TextureSpeed = num(E, "EnergySpeed", 1.2),
+					LightEmission = 1, LightInfluence = 0, FaceCamera = true, Segments = 24, ZOffset = 0.02,
+					CurveSize0 = a0:GetAttribute("Curve0_" .. pr[2]) or 0, CurveSize1 = a1:GetAttribute("Curve1_" .. pr[1]) or 0,
+					Width0 = pr[1]:sub(1, 5) == "BeamA" and 0.08 or 0.065, Width1 = pr[1]:sub(1, 5) == "BeamA" and 0.065 or 0.035,
+					Color = seq(P.Core, P.Edge), Transparency = NumberSequence.new(0.4) }, blade))
+				setp(b, "Brightness", 1.6)
+				table.insert(h.flow, b)
+			end
+		end
+	end
+	-- ── QUI TRAÎNENT ─────────────────────────────────────────────
+	-- flamme d'âme au-dessus du nœud (penche quand tu cours, traîne derrière dans le dash)
+	local top = att(head, "CrownTop")
+	if top and opt("CrownFlame") then
+		h.crown = keep(emitter(top, { Name = "FX_Crown", Texture = TEX(flameTex), Rate = 11, LockedToPart = true,
+			Lifetime = NumberRange.new(0.3, 0.45), Speed = NumberRange.new(0.9, 1.4), SpreadAngle = Vector2.new(10, 10),
+			EmissionDirection = Enum.NormalId.Top, Drag = 1.5, LightEmission = 0.85, Brightness = 2,
+			Orientation = Enum.ParticleOrientation.VelocityParallel,
+			Size = nseq({ 0, 0.1 }, { 0.35, 0.24, 0.03 }, { 1, 0.04 }), Transparency = nseq({ 0, 0.3 }, { 0.75, 0.4 }, { 1, 1 }),
+			Color = flameCol(P, flameTex), ZOffset = 0.15 }))
+		flame8(h.crown, flameTex, 32)
+	end
+	-- petites flammes AU BOUT des épines du dos, dans le même sens que l'épine (collées à la faux)
+	h.licks = {}
+	if opt("TipFlames") then
+		for i = 1, 12 do
+			local a = att(blade, "FinTip" .. i)
+			if not a then break end
+			local e = keep(emitter(a, { Name = "FX_Lick", Texture = TEX(flameTex), Rate = 2, LockedToPart = true,
+				Lifetime = NumberRange.new(0.2, 0.32), Speed = NumberRange.new(0.5, 0.8), SpreadAngle = Vector2.new(8, 8),
+				EmissionDirection = Enum.NormalId.Top, Drag = 2, LightEmission = 0.85, Brightness = 2,
+				Orientation = Enum.ParticleOrientation.VelocityParallel,
+				Size = nseq({ 0, 0.03 }, { 0.3, math.max(0.06, 0.13 - i * 0.01), 0.02 }, { 1, 0.02 }),
+				Transparency = nseq({ 0, 0.2 }, { 0.7, 0.4 }, { 1, 1 }), Color = flameCol(P, flameTex) }))
+			flame8(e, flameTex, 34)
+			table.insert(h.licks, e)
+		end
+	end
+	-- 🌙 traînées : la nappe de la lame + le fil de la pointe
+	local root, tipE = att(blade, "Edge1"), att(blade, "Edge9")
+	local tipA, tipB = att(blade, "Tip"), att(blade, "Spine9")
+	h.slashes = {}
+	for k = 1, 7, 2 do                     -- 4 rubans Edge1→3→5→7→9 : la nappe suit la courbure de la lame
+		local a0, a1 = att(blade, "Edge" .. (k + 2)), att(blade, "Edge" .. k)
+		if a0 and a1 then
+			-- pas de texture : les 4 rubans se fondent en une seule nappe lisse (pas de lignes visibles entre eux)
+			local tr = keep(new("Trail", { Name = "FX_Slash", Attachment0 = a0, Attachment1 = a1, Texture = "",
+				Lifetime = 0.2, LightEmission = 1, LightInfluence = 0, FaceCamera = false,
+				MinLength = 0.03, Enabled = opt("GhostTrail"), Color = seq(P.Core, P.Edge, P.Flame),
+				Transparency = NumberSequence.new(0.92), WidthScale = nseq({ 0, 1 }, { 1, 0.7 }) }, blade))
+			setp(tr, "Brightness", 2)
+			table.insert(h.slashes, tr)
+		end
+	end
+	h.slash = h.slashes[1]
+	if root and tipE then
+		h.smokeSlash = keep(new("Trail", { Name = "FX_SmokeSlash", Attachment0 = att(blade, "Edge7") or tipE, Attachment1 = att(blade, "Edge3") or root,
+			Texture = TEX("Wisp"), TextureMode = Enum.TextureMode.Stretch, Lifetime = 0.4, LightEmission = 0.3, LightInfluence = 0.4,
+			FaceCamera = false, MinLength = 0.05, Enabled = false, Color = seq(P.Deep, P.Smoke),
+			Transparency = nseq({ 0, 0.6 }, { 1, 1 }), WidthScale = nseq({ 0, 1 }, { 1, 0.7 }) }, blade))
+	end
+	if tipA and tipB then
+		h.tipTrail = keep(new("Trail", { Name = "FX_TipTrail", Attachment0 = tipA, Attachment1 = tipB, Texture = TEX("Glow"),
+			Lifetime = 0.35, LightEmission = 1, LightInfluence = 0, FaceCamera = true, Enabled = opt("GhostTrail"), MinLength = 0.05,
+			Color = seq(P.Core, P.Flame), Transparency = NumberSequence.new(0.75), WidthScale = nseq({ 0, 0.6 }, { 1, 0 }) }, blade))
+		setp(h.tipTrail, "Brightness", 3)
+	end
+
+	-- 💎 éclats : petite traînée
+	for _, s in ipairs(h.shards) do
+		local a0, a1 = s.p:FindFirstChild("ShardTop"), s.p:FindFirstChild("ShardBottom")
+		if a0 and a1 and opt("Shards") then
+			s.trail = keep(new("Trail", { Name = "FX_ShardTrail", Attachment0 = a0, Attachment1 = a1, Texture = TEX("Glow"),
+				Lifetime = 0.22, LightEmission = 1, LightInfluence = 0, FaceCamera = true, MinLength = 0.02,
+				Color = seq(P.Core, P.Flame), Transparency = nseq({ 0, 0.5 }, { 1, 1 }), WidthScale = nseq({ 0, 1 }, { 1, 0 }) }, s.p))
+			setp(s.trail, "Brightness", 2.5)
+		end
+	end
+
+	-- 🥇 dorée : petites étoiles qui scintillent sur la faux (collées au maillage)
+	if gold and opt("GoldStars") then
+		for _, a in ipairs({ att(blade, "Edge3"), att(blade, "Edge6"), att(blade, "Spine4"), knot, att(handle, "Vein5"),
+			att(handle, "Vein2") }) do
+			if a then keep(emitter(a, { Name = "FX_Twinkle", Texture = TEX("Star"), Rate = 0.9, Lifetime = NumberRange.new(0.45, 0.7),
+				Size = nseq({ 0, 0 }, { 0.45, 0.26 }, { 1, 0 }), Color = seq(P.Core, P.Flame), Brightness = 4, LockedToPart = true,
+				RotSpeed = NumberRange.new(-60, 60) })) end
+		end
+	end
+
+	-- 💠 gemme du pommeau : tourne, respire, laisse un fin sillage
+	h.gemMotor = handle:FindFirstChild("Motor_Gem")
+	local gem = tool:FindFirstChild("Gem")
+	if gem and opt("PommelGem") then
+		local g0, g1 = gem:FindFirstChild("GemTop"), gem:FindFirstChild("GemBottom")
+		if g0 and g1 then
+			h.gemTrail = keep(new("Trail", { Name = "FX_GemTrail", Attachment0 = g0, Attachment1 = g1, Texture = TEX("Glow"),
+				Lifetime = 0.25, LightEmission = 1, LightInfluence = 0, FaceCamera = true, MinLength = 0.02,
+				Color = seq(P.Core, P.Flame), Transparency = nseq({ 0, 0.45 }, { 1, 1 }), WidthScale = nseq({ 0, 1 }, { 1, 0 }) }, gem))
+			setp(h.gemTrail, "Brightness", 2.5)
+		end
+	end
+
+	-- 🔊 murmure très doux (seulement ta faux)
+	if isLocal then h.idle = sfx("Idle", head) ; if h.idle then h.idle.Looped = true end end
+
+	-- ── pendule du médaillon (verlet : vraie gravité + inertie de la faux) ──
+	local pend = { on = h.medalMotor ~= nil and opt("MedalSwing") }
+
+	-- ── chaque image ──
+	function h:step(dt, now)
+		local t = now + self.seed
+		local P_ = self.P
+		local cd = self.cd                                     -- 0 = vient de dasher, 1 = prêt
+		local dashK = decay(now, self.dashT, 3.0)
+		local slashA = smooth((now - self.dashT - 0.14) / 0.04) * (1 - smooth((now - self.dashT - 0.34) / 0.12))
+		local impactK = decay(now, self.impactT, 5)
+		local equipK = decay(now, self.equipT, 2.2)
+		local readyK = decay(now, self.readyFlare, 4)
+
+		-- 2) effets collés
+		local hot = math.max(slashA, equipK * 0.8, readyK, impactK)
+		for _, b in ipairs(self.edgeBeams) do
+			b.Transparency = NumberSequence.new(math.clamp(0.72 - 0.55 * hot - 0.1 * (smooth(cd) - 1), 0.1, 0.92))
+		end
+		for _, b in ipairs(self.flow) do
+			b.TextureSpeed = num(E, "EnergySpeed", 1.2) * (1 + 3 * math.max(dashK, equipK))
+			b.Transparency = NumberSequence.new(math.clamp(0.4 - 0.3 * hot + 0.3 * (1 - smooth(cd)), 0.05, 0.95))
+		end
+
+		-- 3) traînées
+		local active = (now - self.dashT < 0.55) or (now - self.equipT < 0.8)
+		if self._slashMode ~= active then
+			self._slashMode = active
+			local tr = active and nseq({ 0, 0.45 }, { 0.5, 0.7 }, { 1, 1 }) or nseq({ 0, 0.93 }, { 1, 1 })
+			for _, sl in ipairs(self.slashes) do
+				if not opt("GhostTrail") then sl.Enabled = active end
+				sl.Transparency = tr
+			end
+		end
+		if self.smokeSlash then
+			local on = now - self.dashT < 0.5 and now - self.dashT > 0.1
+			if self.smokeSlash.Enabled ~= on then self.smokeSlash.Enabled = on end
+		end
+		if self.tipTrail then
+			if not opt("GhostTrail") and self.tipTrail.Enabled ~= active then self.tipTrail.Enabled = active end
+			local m = active and 0.1 or 0.8
+			if self._tipMode ~= m then self._tipMode = m ; self.tipTrail.Transparency = nseq({ 0, m }, { 1, 1 }) end
+		end
+		local lick = (1.8 + dashK * 30 + equipK * 10) * PSCALE
+		for _, e in ipairs(self.licks) do e.Rate = lick end
+		if self.crown then self.crown.Rate = (11 + dashK * 24 + equipK * 20) * PSCALE end
+
+		-- 4) éclats en orbite (et recharge : ils s'allument un par un)
+		local n = #self.shards
+		local spd = num(E, "ShardOrbitSpeed", 0.9) * (1 + 5 * dashK + 3 * equipK + 2 * readyK)
+		self.orbit += dt * spd
+		local tight = smooth((now - self.dashT) / 0.12) * (1 - smooth((now - self.dashT - 0.16) / 0.06))  -- se resserrent avant le coup
+		local blow = impactK                                                                             -- s'écartent à l'impact
+		local assemble = 1 - smooth((now - self.equipT) / 0.6)                                            -- arrivent de loin à la sortie
+		for i, s in ipairs(self.shards) do
+			local th = self.orbit + s.phase
+			local r = s.rr * (1 - 0.3 * tight + 0.55 * blow) + 2.2 * assemble
+			local y = s.yo + math.sin(now * 1.7 + s.phase * 2) * 0.05 + 0.7 * assemble * math.sin(s.phase * 3)
+			local pos = ORBIT_TILT * Vector3.new(math.sin(th) * r, y, math.cos(th) * r)
+			s.spin += dt * s.spinS * (1 + 4 * dashK)
+			-- le moteur est posé à la place de repos de l'éclat → Transform = déplacement depuis le repos
+			local T = CFrame.new(pos - s.rest) * CFrame.Angles(0.4 * math.sin(s.spin * 0.7), s.spin, 0.3)
+			if opt("Shards") then driveMotor(s.m, T) else driveMotor(s.m, CFrame.new()) end
+			if s.trail then
+				local on = cd >= (i - 1) / n
+				if s.trail.Enabled ~= on then s.trail.Enabled = on end
+			end
+		end
+
+		-- 5) médaillon : VRAI pendule simulé (point pesant au bout de sa chaîne, verlet à pas fixe de 1/240 s)
+		--    gravité + inertie de la faux (marcher, sauter, dasher, tourner) ; frein sur la vitesse RELATIVE à
+		--    l'anneau ; ne traverse jamais le manche et ne passe pas par-dessus. L'anneau est échantillonné au bon
+		--    instant de chaque pas (interpolé dans le temps) puis lissé à pas fixe : même résultat à 30, 60, 144 ou
+		--    240 FPS, sans tremblement. Rien de physique côté Roblox : il ne peut ni tirer sur le perso ni le bloquer.
+		local m = self.medalMotor
+		if m and pend.on and m.Part0 then
+			local pivotCF = m.Part0.CFrame * m.C0
+			local piv = pivotCF.Position
+			local L = m:GetAttribute("Length") or 0.46
+			local H = 1 / 240
+			if not pend.p or (piv - pend.piv).Magnitude > 4 or dt <= 0 or dt > 0.5 then
+				local p0 = piv + Vector3.new(0, -L, 0)
+				pend.p, pend.pp, pend.piv, pend.ps, pend.pvLast, pend.acc = p0, p0, piv, piv, piv, 0
+				pend.spd, pend.still = 0, 1
+			end
+			local spd = math.max(0.05, num(E, "MedalSwingSpeed", 1))
+			local g = Vector3.new(0, -workspace.Gravity * 0.5 * spd * spd, 0)
+			local fric = math.max(0, num(E, "MedalFriction", 0.04)) * 40
+			-- au repos (faux presque immobile depuis ~0.4 s) : frein « critique » → il se pose sans osciller.
+			-- Le frein n'arrive qu'après le petit balancement de l'arrêt.
+			local restC = math.max(fric, 2.2 * math.sqrt(-g.Y / L))
+			local spdK = 1 - math.exp(-H / 0.15)
+			local smoothK = 1 - math.exp(-H / 0.05)
+			local accP = dt < 0.1 and math.min(pend.acc, 0.1 - dt) or 0
+			pend.acc = accP + dt
+			local n = math.floor(pend.acc / H)
+			local from = pend.piv
+			pend.acc -= n * H
+			for k = 1, n do
+				local raw = from:Lerp(piv, (k * H - accP) / dt)              -- l'anneau à l'instant exact de ce pas
+				pend.ps = pend.ps + (raw - pend.ps) * smoothK                   -- lissé à pas fixe
+				local pv = pend.ps
+				local pvVel = pv - pend.pvLast
+				pend.spd += (pvVel.Magnitude / H - pend.spd) * spdK
+				pend.still = pend.spd < 1.5 and pend.still + H or 0
+				local calm = math.clamp((pend.still - 0.4) / 0.5, 0, 1)
+				local keep = math.exp(-(fric + (restC - fric) * calm * calm * (3 - 2 * calm)) * H)
+				local vel = pvVel + ((pend.p - pend.pp) - pvVel) * keep         -- frein sur la vitesse relative
+				local d = pivotCF:VectorToObjectSpace(pend.p + vel + g * H * H - pv)
+				d = d.Magnitude > 1e-6 and d.Unit or Vector3.new(0, -1, 0)
+				if d.X < 0.02 then d = Vector3.new(0.02, d.Y, d.Z).Unit end   -- jamais à travers le manche
+				if d.Y > 0.57 then                                              -- jamais par-dessus l'anneau (125° max)
+					local hz = Vector3.new(d.X, 0, d.Z)
+					hz = hz.Magnitude > 1e-6 and hz.Unit or Vector3.new(1, 0, 0)
+					d = hz * 0.8216 + Vector3.new(0, 0.57, 0)
+				end
+				pend.pp, pend.p, pend.pvLast = pend.p, pv + pivotCF:VectorToWorldSpace(d) * L, pv
+			end
+			pend.piv = piv
+			local dl = pivotCF:VectorToObjectSpace(pend.p - pend.pvLast)
+			dl = dl.Magnitude > 1e-6 and dl.Unit or Vector3.new(0, -1, 0)
+			if dl.X < 0.02 then dl = Vector3.new(0.02, dl.Y, dl.Z).Unit end
+			local down = Vector3.new(0, -1, 0)
+			local ax = down:Cross(dl)
+			local ang = math.acos(math.clamp(down:Dot(dl), -1, 1))
+			local T = ax.Magnitude > 1e-4 and CFrame.fromAxisAngle(ax.Unit, ang) or CFrame.new()
+			driveMotor(m, T, self.faces)
+		end
+
+		-- 6) gemme du pommeau
+		if self.gemMotor then
+			self.gemSpin = (self.gemSpin or 0) + dt * (1.4 + 8 * dashK + 4 * equipK)
+			local bob = math.sin(now * 1.9 + self.seed) * 0.035
+			driveMotor(self.gemMotor, CFrame.new(0, bob - 0.12 * equipK * 0, 0) * CFrame.Angles(0, self.gemSpin, 0.12 * math.sin(now * 1.3)))
+		end
+
+	end
+
+	handles[tool] = h
+	startLoop()
+	return h
+end
+
+function FX.Detach(tool)
+	local h = handles[tool]
+	if not h then return end
+	handles[tool] = nil
+	for _, o in ipairs(h.made) do pcall(function() o:Destroy() end) end
+	if h.idle then pcall(function() h.idle:Destroy() end) end
+	for _, s in ipairs(h.shards) do
+		lastT[s.m] = nil
+		pcall(function() if not s.p.Anchored then s.m.Transform = CFrame.new() end end)
+	end
+	if h.medalMotor then lastT[h.medalMotor] = nil ; pcall(function() h.medalMotor.Transform = CFrame.new() end) end
+	if h.gemMotor then lastT[h.gemMotor] = nil ; pcall(function() h.gemMotor.Transform = CFrame.new() end) end
+end
+
+function FX.Get(tool) return handles[tool] end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎆 MOMENTS
+-- ════════════════════════════════════════════════════════════════
+
+-- sortie : la faux se matérialise, les veines s'allument du pommeau à la lame, les éclats arrivent en tournoyant
+function FX.Equip(tool, isLocal)
+	local h = handles[tool] or FX.Attach(tool, isLocal)
+	if not h then return end
+	h.equipT = os.clock()
+	local P = h.P
+	local parts = {}
+	for _, p in ipairs(tool:GetDescendants()) do if p:IsA("BasePart") then table.insert(parts, p) end end
+	local t0 = os.clock()
+	local conn
+	conn = RunService.RenderStepped:Connect(function()
+		local u = smooth((os.clock() - t0) / 0.22)
+		for _, p in ipairs(parts) do if p.Parent then p.LocalTransparencyModifier = 1 - u end end
+		if u >= 1 then conn:Disconnect() end
+	end)
+	local head = tool:FindFirstChild("Head")
+	local knot = head and head:FindFirstChild("Knot")
+	if knot then
+		local flameTex = h.gold and "FlameGold" or "Flame"
+		local b = emitter(knot, { Name = "FX_EquipBurst", Texture = TEX(flameTex), Lifetime = NumberRange.new(0.3, 0.5),
+			Speed = NumberRange.new(5, 10), SpreadAngle = Vector2.new(180, 180), Drag = 6, Acceleration = Vector3.new(0, 6, 0),
+			Size = nseq({ 0, 0.55 }, { 1, 0.1 }), Brightness = 2.5, Transparency = nseq({ 0, 0 }, { 1, 1 }),
+			Color = flameCol(P, flameTex) })
+		flame8(b, flameTex, 40)
+		burst(b, 16)
+		local sp = emitter(knot, { Name = "FX_EquipSparks", Texture = TEX("Spark"), Lifetime = NumberRange.new(0.4, 0.8),
+			Speed = NumberRange.new(8, 16), SpreadAngle = Vector2.new(180, 180), Drag = 5,
+			Size = nseq({ 0, 0.12 }, { 1, 0 }), Color = seq(P.Core, P.Flame), Brightness = 4 })
+		burst(sp, 22)
+		local ring = emitter(knot, { Name = "FX_EquipRing", Texture = TEX("Ring"), Lifetime = NumberRange.new(0.35),
+			Speed = NumberRange.new(0.01), Size = nseq({ 0, 0.4 }, { 1, 3.2 }), Transparency = nseq({ 0, 0.2 }, { 1, 1 }),
+			Color = seq(P.Edge), Brightness = 2.5, LockedToPart = true })
+		burst(ring, 1)
+		Debris:AddItem(b, 1.2) ; Debris:AddItem(sp, 1.2) ; Debris:AddItem(ring, 1)
+	end
+	sfx("Equip", tool:FindFirstChild("Handle"), isLocal and 1 or 0.6)
+end
+
+-- le dash = coup de faux : charge (éclats qui se resserrent), élan (onde, lignes, fantômes),
+-- frappe (nappe éclatante + fumée), impact (éclats de cristal + onde au sol)
+function FX.Dash(tool, character, dir, isLocal)
+	local h = handles[tool] or FX.Attach(tool, isLocal)
+	if not h then return end
+	local now = os.clock()
+	h.dashT = now
+	local P = h.P
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	dir = (dir and dir.Magnitude > 0.1) and dir.Unit or hrp.CFrame.LookVector
+	local flameTex = h.gold and "FlameGold" or "Flame"
+	local head, blade = tool:FindFirstChild("Head"), tool:FindFirstChild("Blade")
+	local knot = head and head:FindFirstChild("Knot")
+
+	-- ⚡ charge : anneau qui se referme sur le nœud
+	if knot then
+		local c = emitter(knot, { Name = "FX_Charge", Texture = TEX("Ring"), Lifetime = NumberRange.new(0.14),
+			Speed = NumberRange.new(0.01), Size = nseq({ 0, 2.6 }, { 1, 0.2 }), Transparency = nseq({ 0, 0.6 }, { 1, 0 }),
+			Color = seq(P.Edge, P.Core), Brightness = 3, LockedToPart = true })
+		burst(c, 1)
+		Debris:AddItem(c, 0.6)
+	end
+
+	-- 💨 élan (marqueur Launch ≈ 0.13 s)
+	local launchAt = (Config.Dash and Config.Dash.WindUp) or 0.13
+	task.delay(launchAt, function()
+		if not hrp.Parent then return end
+		local start = hrp.Position
+		local a = anchor(CFrame.lookAt(start, start + dir), 2)
+		local petals = emitter(a, { Name = "FX_Petals", Texture = TEX(flameTex), Lifetime = NumberRange.new(0.25, 0.45),
+			Speed = NumberRange.new(14, 22), SpreadAngle = Vector2.new(90, 90), EmissionDirection = Enum.NormalId.Back,
+			Drag = 7, Acceleration = Vector3.new(0, 5, 0), Size = nseq({ 0, 1.3 }, { 1, 0.2 }), Brightness = 2.4,
+			Orientation = Enum.ParticleOrientation.VelocityParallel,
+			Transparency = nseq({ 0, 0 }, { 0.8, 0.4 }, { 1, 1 }), Color = flameCol(P, flameTex) })
+		flame8(petals, flameTex, 40)
+		burst(petals, 16)
+		local smoke = emitter(a, { Name = "FX_Smoke", Texture = TEX("Smoke4x4"), LightEmission = 0.15, LightInfluence = 0.5,
+			Lifetime = NumberRange.new(0.6, 0.9), Speed = NumberRange.new(2, 5), SpreadAngle = Vector2.new(80, 80),
+			EmissionDirection = Enum.NormalId.Back, Drag = 3, Size = nseq({ 0, 1.2 }, { 1, 3.2 }),
+			Transparency = nseq({ 0, 0.5 }, { 1, 1 }), Color = seq(P.Deep, P.Smoke), ZOffset = -0.5 })
+		smoke4(smoke, "Smoke4x4")
+		burst(smoke, 6)
+		local ring = emitter(a, { Name = "FX_Ring", Texture = TEX("Ring"), Lifetime = NumberRange.new(0.32),
+			Speed = NumberRange.new(0.01), EmissionDirection = Enum.NormalId.Front, Size = nseq({ 0, 1.5 }, { 1, 7 }),
+			Transparency = nseq({ 0, 0.1 }, { 1, 1 }), Color = seq(P.Edge), Brightness = 2.5,
+			Orientation = Enum.ParticleOrientation.VelocityPerpendicular, Rotation = NumberRange.new(0, 360) })
+		burst(ring, 1)
+		-- lignes de vitesse (partent de la lame, filent vers l'arrière)
+		local la = blade and blade:FindFirstChild("Edge5")
+		if la then
+			local lines = emitter(la, { Name = "FX_DashLines", Texture = TEX("DashLine"), Rate = 90,
+				Lifetime = NumberRange.new(0.1, 0.18), Speed = NumberRange.new(3, 9), SpreadAngle = Vector2.new(180, 180),
+				Orientation = Enum.ParticleOrientation.VelocityParallel, Size = nseq({ 0, 1.5 }, { 1, 0.7 }), Brightness = 2,
+				Transparency = nseq({ 0, 0.2 }, { 1, 1 }), Color = seq(P.Core, P.Edge), Acceleration = -dir * 260 })
+			task.delay((Config.Dash and Config.Dash.Duration or 0.2) + 0.15, function() if lines.Parent then lines.Enabled = false end end)
+			Debris:AddItem(lines, 1)
+		end
+	end)
+
+	-- 👻 images fantômes de la faux
+	local nGhost = Config.Afterimages or 3
+	if LOW and not LE.Afterimages then nGhost = 0 end
+	if nGhost > 0 then
+		local src = {}
+		for _, p in ipairs(tool:GetChildren()) do if p:IsA("MeshPart") then table.insert(src, p) end end
+		for k = 1, nGhost do
+			task.delay(launchAt + 0.05 + k * 0.045, function()
+				if not tool.Parent then return end
+				for _, p in ipairs(src) do
+					local g = p:Clone()
+					for _, d in ipairs(g:GetChildren()) do d:Destroy() end
+					g.Anchored = true ; g.CanCollide = false ; g.CanQuery = false ; g.CanTouch = false ; g.Massless = true
+					g.Material = Enum.Material.ForceField ; g.Color = P.Ghost ; g.Transparency = 0.2 ; g.CastShadow = false
+					g.CFrame = p.CFrame
+					g.Name = "FX_Ghost"
+					g.Parent = folder()
+					local born = os.clock()
+					local conn
+					conn = RunService.RenderStepped:Connect(function()
+						if not g.Parent then conn:Disconnect() return end
+						local u = (os.clock() - born) / 0.32
+						local cam = workspace.CurrentCamera
+						local near = 0     -- s'efface s'il est collé à la caméra (sinon le dasheur voit un gros fantôme)
+						if cam then near = math.clamp(1 - ((cam.CFrame.Position - g.Position).Magnitude - 4) / 8, 0, 1) end
+						g.Transparency = math.max(0.2 + 0.8 * u, near)
+						if u >= 1 then conn:Disconnect() g:Destroy() end
+					end)
+					Debris:AddItem(g, 0.5)
+				end
+			end)
+		end
+	end
+
+	-- 💥 impact (le coup touche ≈ 0.30 s) : éclats de cristal + flammes à la pointe, onde au sol si on est près du sol
+	task.delay(0.29, function()
+		if not tool.Parent or not blade or not blade.Parent then return end
+		h.impactT = os.clock()
+		if not opt("ImpactBurst") then return end
+		local tipA = blade:FindFirstChild("Tip") or blade:FindFirstChild("Edge9")
+		local pos = tipA and (blade.CFrame * tipA.CFrame).Position or blade.CFrame.Position
+		local a = anchor(CFrame.new(pos), 2)
+		local shards = emitter(a, { Name = "FX_ImpactShards", Texture = TEX("Shard"), Lifetime = NumberRange.new(0.5, 0.9),
+			Speed = NumberRange.new(10, 20), SpreadAngle = Vector2.new(180, 180), Acceleration = Vector3.new(0, -40, 0), Drag = 2,
+			Size = nseq({ 0, 0.38 }, { 1, 0.12 }), Color = seq(P.Core, P.Flame), Brightness = 3,
+			Transparency = nseq({ 0, 0 }, { 0.8, 0.2 }, { 1, 1 }), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-400, 400) })
+		burst(shards, 14)
+		local fl = emitter(a, { Name = "FX_ImpactFlame", Texture = TEX(flameTex), Lifetime = NumberRange.new(0.25, 0.4),
+			Speed = NumberRange.new(4, 9), SpreadAngle = Vector2.new(180, 180), Drag = 6, Acceleration = Vector3.new(0, 8, 0),
+			Size = nseq({ 0, 0.9 }, { 1, 0.15 }), Brightness = 2.5, Transparency = nseq({ 0, 0 }, { 1, 1 }), Color = flameCol(P, flameTex) })
+		flame8(fl, flameTex, 40)
+		burst(fl, 10)
+		-- onde au sol
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character, folder() }
+		local okR, hit = pcall(function() return workspace:Raycast(pos + Vector3.new(0, 1, 0), Vector3.new(0, -6, 0), params) end)
+		if not okR then hit = nil end
+		if hit then
+			local g = anchor(CFrame.lookAt(hit.Position + hit.Normal * 0.05, hit.Position + hit.Normal * 2), 2)
+			local gr = emitter(g, { Name = "FX_GroundRing", Texture = TEX("Ring"), Lifetime = NumberRange.new(0.45),
+				Speed = NumberRange.new(0.01), EmissionDirection = Enum.NormalId.Front, Size = nseq({ 0, 0.8 }, { 1, 6 }),
+				Transparency = nseq({ 0, 0.05 }, { 1, 1 }), Color = seq(P.Edge, P.Flame), Brightness = 3,
+				Orientation = Enum.ParticleOrientation.VelocityPerpendicular, Rotation = NumberRange.new(0, 360) })
+			burst(gr, 1)
+			local dust = emitter(g, { Name = "FX_GroundSmoke", Texture = TEX("Smoke4x4"), LightEmission = 0.2, LightInfluence = 0.5,
+				Lifetime = NumberRange.new(0.6, 1.0), Speed = NumberRange.new(5, 9), SpreadAngle = Vector2.new(85, 85),
+				EmissionDirection = Enum.NormalId.Front, Drag = 5, Size = nseq({ 0, 0.8 }, { 1, 2.4 }),
+				Transparency = nseq({ 0, 0.45 }, { 1, 1 }), Color = seq(P.Deep, P.Smoke), ZOffset = -0.3 })
+			smoke4(dust, "Smoke4x4")
+			burst(dust, 8)
+		end
+	end)
+
+	-- sons
+	sfx("Dash", hrp, isLocal and 1 or 0.55)
+	task.delay(0.16, function() sfx("Slash", hrp, isLocal and 1 or 0.5) end)
+end
+
+-- recharge (0 → 1) : la lame se rallume et les éclats s'allument un par un ; éclat + son quand c'est prêt
+function FX.SetCooldown(tool, k)
+	local h = handles[tool]
+	if not h then return end
+	if h.cd < 1 and k >= 1 then
+		h.readyFlare = os.clock()
+		sfx("Ready", tool:FindFirstChild("Head"))
+		local head = tool:FindFirstChild("Head")
+		local knot = head and head:FindFirstChild("Knot")
+		if knot then
+			local sp = emitter(knot, { Name = "FX_Ready", Texture = TEX("Star"), Lifetime = NumberRange.new(0.3, 0.5),
+				Speed = NumberRange.new(2, 5), SpreadAngle = Vector2.new(180, 180), Drag = 4,
+				Size = nseq({ 0, 0.3 }, { 1, 0 }), Color = seq(h.P.Core, h.P.Flame), Brightness = 4 })
+			burst(sp, 10)
+			Debris:AddItem(sp, 1)
+		end
+	end
+	h.cd = math.clamp(k, 0, 1)
+end
+
+function FX.Cleanup()
+	for tool in pairs(handles) do FX.Detach(tool) end
+	if fxFolder then fxFolder:Destroy() ; fxFolder = nil end
+end
+
+return FX
