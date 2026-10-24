@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService        = game:GetService("RunService")
 local TweenService      = game:GetService("TweenService")
 local Workspace         = game:GetService("Workspace")
+local TextService       = game:GetService("TextService")
 
 local Core = require(ReplicatedStorage:WaitForChild("LeaderboardCore"))
 local LocalPlayer = Players.LocalPlayer
@@ -59,8 +60,6 @@ local CFG = {
 		entry       = Color3.fromRGB(13, 8, 20),
 		entryEdge   = Color3.fromRGB(30, 16, 44),
 		entryStroke = Color3.fromRGB(78, 50, 108),
-		tileA       = Color3.fromRGB(250, 248, 255),   -- clair : les UGC noirs restent lisibles
-		tileB       = Color3.fromRGB(222, 214, 238),
 		ugcName     = Color3.fromRGB(172, 116, 251),   -- même violet que [UGC REDEEM] dans le chat
 		accent1     = Color3.fromRGB(255, 95, 190),    -- rose
 		accent2     = Color3.fromRGB(185, 125, 255),   -- violet
@@ -171,6 +170,13 @@ end
 --     └─ Body : [barre] [avatar] Nom (+VIP)          [tuile UGC]
 --                                redeemed  <UGC>
 --==============================================================================
+local TILE_GRADIENT = ColorSequence.new({
+	ColorSequenceKeypoint.new(0,    Color3.fromRGB(78,  200, 247)),
+	ColorSequenceKeypoint.new(0.25, Color3.fromRGB(199, 210, 255)),
+	ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(72,  194, 247)),
+	ColorSequenceKeypoint.new(0.75, Color3.fromRGB(188, 202, 255)),
+	ColorSequenceKeypoint.new(1,    Color3.fromRGB(74,  201, 247)),
+})
 local INTRO_INFO = TweenInfo.new(0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local GROW_INFO  = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local POP_INFO   = TweenInfo.new(0.55, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
@@ -313,10 +319,13 @@ local function buildEntry(parent, item)
 	tile.ZIndex           = 5
 	tile.Parent           = body
 	Instance.new("UICorner", tile).CornerRadius = UDim.new(0, 10)
+	-- même dégradé que les cases du UGC SHOP (bleu clair ↔ lavande, tourne en 17 s)
 	local tGrad = Instance.new("UIGradient")
-	tGrad.Color    = ColorSequence.new(P.tileA, P.tileB)
-	tGrad.Rotation = 90
-	tGrad.Parent   = tile
+	tGrad.Color  = TILE_GRADIENT
+	tGrad.Parent = tile
+	registerAnim(tGrad, {}, function(t, _, g)
+		g.Rotation = (t * 360 / 17) % 360
+	end)
 	local tStroke = Instance.new("UIStroke")
 	tStroke.Color        = P.accent2
 	tStroke.Thickness    = 1.5
@@ -611,11 +620,10 @@ local function buildBillboard(part, src)
 	--    On dessine en taille fixe (TEXT px) et un UIScale agrandit le tout,
 	--    texte ET contours, sans plafond.
 	local TEXT = 160
+	local GAP  = math.floor(TEXT * 0.22)
 	local row = Instance.new("Frame")
 	row.AnchorPoint            = Vector2.new(0.5, 0.5)
 	row.Position               = UDim2.fromScale(0.5, 0.5)
-	row.AutomaticSize          = Enum.AutomaticSize.XY
-	row.Size                   = UDim2.new()
 	row.BackgroundTransparency = 1
 	row.Parent                 = bb
 	local scale = Instance.new("UIScale")
@@ -624,7 +632,7 @@ local function buildBillboard(part, src)
 	list.FillDirection     = Enum.FillDirection.Horizontal
 	list.VerticalAlignment = Enum.VerticalAlignment.Center
 	list.SortOrder         = Enum.SortOrder.LayoutOrder
-	list.Padding           = UDim.new(0, math.floor(TEXT * 0.22))
+	list.Padding           = UDim.new(0, GAP)
 	list.Parent            = row
 
 	-- ● point rouge juste à gauche de « LIVE »
@@ -670,17 +678,12 @@ local function buildBillboard(part, src)
 
 	local title = Instance.new("TextLabel")
 	title.LayoutOrder            = 2
-	title.AutomaticSize          = Enum.AutomaticSize.XY
-	title.Size                   = UDim2.new()
 	title.BackgroundTransparency = 1
 	title.Text                   = CFG.title
 	title.TextColor3             = Color3.new(1, 1, 1)   -- le dégradé fait la couleur
 	title.TextSize               = TEXT
 	title.FontFace               = B.font
 	title.Parent                 = row
-	local tPad = Instance.new("UIPadding")             -- marge pour la pente de l'italique
-	tPad.PaddingRight = UDim.new(0, math.floor(TEXT * 0.12))
-	tPad.Parent       = title
 	local tGrad = Instance.new("UIGradient")
 	tGrad.Color    = ColorSequence.new(B.gradient[1], B.gradient[2])
 	tGrad.Rotation = 90
@@ -691,18 +694,31 @@ local function buildBillboard(part, src)
 	tStroke.LineJoinMode = Enum.LineJoinMode.Round
 	tStroke.Parent       = title
 
-	-- le groupe « ● + texte » remplit le billboard (en gardant ses proportions)
+	-- 📏 Taille RÉELLE du texte (mesurée une fois) → tailles fixes, rien d'automatique.
+	--    + marge pour la pente de l'italique et le contour.
+	local textW = math.floor(#CFG.title * TEXT * 0.72)          -- estimation de secours
+	local okB, bounds = pcall(function()
+		local q = Instance.new("GetTextBoundsParams")
+		q.Text, q.Font, q.Size, q.Width = CFG.title, B.font, TEXT, 1e5
+		return TextService:GetTextBoundsAsync(q)
+	end)
+	if okB and bounds and bounds.X > 0 then textW = math.ceil(bounds.X) end
+	local padX = math.floor(TEXT * 0.18)
+	local rowW = DOT + GAP + textW + padX
+	local rowH = math.floor(TEXT * 1.25)
+	title.Size = UDim2.fromOffset(textW + padX, rowH)
+	row.Size   = UDim2.fromOffset(rowW, rowH)
+
+	-- le groupe « ● + texte » remplit le billboard en gardant ses proportions.
+	-- ⚠️ tant que le billboard n'est pas mesuré (taille 0), on ne touche à rien :
+	--    une échelle à 0 faisait disparaître le titre pour de bon.
 	local function fit()
-		local s = scale.Scale
-		if s <= 0 then return end
-		local rw, rh = row.AbsoluteSize.X / s, row.AbsoluteSize.Y / s
-		if rw <= 0 or rh <= 0 then return end
-		local want = math.min(bb.AbsoluteSize.X / rw, bb.AbsoluteSize.Y / rh)
-		if math.abs(want - s) > 1e-3 then scale.Scale = want end
+		local bx, by = bb.AbsoluteSize.X, bb.AbsoluteSize.Y
+		if bx <= 0 or by <= 0 then return end
+		scale.Scale = math.min(bx / rowW, by / rowH)
 	end
 	bb:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-	row:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
-	task.defer(fit)
+	fit()
 
 	-- onde autour du point rouge à chaque nouveau redeem
 	local PING_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
