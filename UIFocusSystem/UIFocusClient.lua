@@ -25,6 +25,7 @@ local effects = Effects.new(C, {
 	Workspace = workspace,
 	TweenService = game:GetService("TweenService"),
 	StarterGui = game:GetService("StarterGui"),
+	Lighting = game:GetService("Lighting"),
 })
 -- Verrou de caméra séparé du choix du menu : un menu ouvert par script
 -- ne peut pas réintroduire le flou/zoom pendant les checkpoints du guide.
@@ -33,9 +34,13 @@ local function syncGameplay()
 end
 local phaseConnection = playerGui:GetAttributeChangedSignal("RookieGuidePhase"):Connect(syncGameplay)
 syncGameplay()
-local engine = Engine.new(playerGui, container, C, function(menu)
-	effects:Set(menu)
-	if C.Debug then print("[UIFocus]", menu and menu.Id or "aucune fenêtre ouverte") end
+local engine = Engine.new(playerGui, container, C, function(menu, effectMenu)
+	-- effectMenu = la fenêtre dont on applique le flou / zoom (voir CameraEffectsFrom)
+	effects:Set(effectMenu or menu)
+	if C.Debug then
+		print("[UIFocus]", menu and menu.Id or "aucune fenêtre ouverte",
+			(effectMenu and effectMenu ~= menu) and ("| effets de " .. effectMenu.Id) or "")
+	end
 end)
 local stopped = false
 local renderConnection

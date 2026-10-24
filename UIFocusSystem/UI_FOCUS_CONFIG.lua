@@ -53,8 +53,11 @@ C.Debug = false         -- écrit les changements de fenêtre dans Output
 C.Menus = {
 	-- Le guide reste propriétaire lorsque la boutique s'ouvre. Les commandes
 	-- tactiles restent utilisables. Aucune modification de caméra en jeu.
+	-- CameraEffectsFrom : quand la boutique UGC est ouverte PENDANT le guide,
+	-- on applique SON flou / zoom (le reste du guide n'en a jamais).
 	{ Id = "RookieGuide", ScreenGui = "RookieGuideUI", Trigger = "Enabled",
 		KeepWholeGui = true, Priority = 100, CameraEffects = false,
+		CameraEffectsFrom = { "UGCshop" },
 		ReplaceKeepScreenGuis = true,
 		KeepScreenGuis = { "RookieGuideHUD", "UGCshop", "TouchGui" } },
 	{ Id = "Settings", ScreenGui = "SettingsUI", Trigger = "Enabled", KeepWholeGui = true },

@@ -1,18 +1,63 @@
 -- Flou et caméra : le FOV d'origine est conservé pendant toute la session,
 -- y compris si un menu se rouvre pendant l'animation de fermeture.
+--
+-- 🩹 FOV « normal » APPRIS, plus jamais lu au moment où le menu s'ouvre.
+--    Avant : baseFOV = FOV de la caméra à l'ouverture. Si à cet instant le FOV
+--    était provisoirement plus haut (coup de FOV du dash de la faux, sprint,
+--    tween d'un autre script pas fini…), cette valeur devenait le « normal » :
+--    à la fermeture on y revenait et ça restait jusqu'à ce que le joueur rejoigne.
+--    Maintenant : le normal est le FOV de départ, mis à jour SEULEMENT quand
+--    aucun menu n'est ouvert et que le FOV est resté stable 1 s.
+--
+-- 🎮 Phase jouable du Rookie Guide : AUCUN flou, quelle que soit sa source.
+--    Les BlurEffect sous la caméra et dans Lighting sont coupés (Enabled = false)
+--    pendant la phase, puis remis exactement comme avant.
 local Effects = {}
 Effects.__index = Effects
+
+local STABLE_DELAY = 1.0   -- s sans changement avant d'adopter un nouveau FOV « normal »
 
 function Effects.new(config, services)
 	local self = setmetatable({
 		config = config, services = services, menu = nil,
 		session = nil, core = {}, destroyed = false, gameplay = false,
+		normalFOV = nil, fovToken = 0, fovConnection = nil,
+		muted = {}, muteConnections = {},
 	}, Effects)
+	self:_watchCamera()
 	self.cameraConnection = services.Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
 		self:_release()
+		self:_watchCamera()
+		if self.gameplay then self:_muteBlurs(true) end
 		if self.menu then self:_animate() end
 	end)
 	return self
+end
+
+function Effects:_clampFOV(v)
+	local z = self.config.Zoom
+	local minimum = math.clamp(z.MinFOV or 20, 1, 120)
+	local maximum = math.clamp(z.MaxFOV or 110, minimum, 120)
+	return math.clamp(v, minimum, maximum)
+end
+
+-- Apprend le FOV « normal » : seulement au repos (aucun menu, aucune session)
+-- et après STABLE_DELAY sans changement. Un coup de FOV de 0.6 s n'est jamais adopté.
+function Effects:_watchCamera()
+	if self.fovConnection then self.fovConnection:Disconnect() self.fovConnection = nil end
+	local cam = self.services.Workspace.CurrentCamera
+	if not cam then return end
+	if not self.normalFOV then self.normalFOV = self:_clampFOV(cam.FieldOfView) end
+	self.fovConnection = cam:GetPropertyChangedSignal("FieldOfView"):Connect(function()
+		if self.menu or self.session then return end
+		self.fovToken += 1
+		local token, value = self.fovToken, cam.FieldOfView
+		task.delay(STABLE_DELAY, function()
+			if self.destroyed or token ~= self.fovToken or self.menu or self.session then return end
+			if self.services.Workspace.CurrentCamera ~= cam or cam.FieldOfView ~= value then return end
+			self.normalFOV = self:_clampFOV(value)
+		end)
+	end)
 end
 
 function Effects:_core(on)
@@ -34,6 +79,39 @@ function Effects:_core(on)
 			pcall(function() starterGui:SetCoreGuiEnabled(Enum.CoreGuiType[name], was) end)
 		end
 		self.core = {}
+	end
+end
+
+-- 🎮 Coupe / remet TOUS les BlurEffect (caméra + Lighting), y compris ceux des
+--    anciens scripts, pendant la phase jouable du guide.
+function Effects:_muteOne(object)
+	if not object:IsA("BlurEffect") or self.muted[object] ~= nil then return end
+	self.muted[object] = object.Enabled
+	object.Enabled = false
+	-- un script qui rallume son flou pendant la phase est recoupé
+	table.insert(self.muteConnections, object:GetPropertyChangedSignal("Enabled"):Connect(function()
+		if self.gameplay and object.Enabled then object.Enabled = false end
+	end))
+end
+
+function Effects:_muteBlurs(on)
+	for _, c in ipairs(self.muteConnections) do c:Disconnect() end
+	self.muteConnections = {}
+	if on then
+		local roots = { self.services.Lighting, self.services.Workspace.CurrentCamera }
+		for _, root in ipairs(roots) do
+			if root then
+				for _, d in ipairs(root:GetDescendants()) do self:_muteOne(d) end
+				table.insert(self.muteConnections, root.DescendantAdded:Connect(function(d)
+					self:_muteOne(d)
+				end))
+			end
+		end
+	else
+		for object, was in pairs(self.muted) do
+			if object.Parent then pcall(function() object.Enabled = was end) end
+		end
+		self.muted = {}
 	end
 end
 
@@ -61,7 +139,9 @@ function Effects:_animate()
 	local session = self.session
 	if not session then
 		if not self.menu then return end
-		session = { camera = cam, baseFOV = cam.FieldOfView, version = 0, zoomControlled = false }
+		-- ✅ le FOV normal appris, pas le FOV de cet instant (qui peut être en plein coup de FOV)
+		session = { camera = cam, baseFOV = self.normalFOV or self:_clampFOV(cam.FieldOfView),
+			version = 0, zoomControlled = false }
 		self.session = session
 	end
 	session.version = session.version + 1
@@ -111,9 +191,7 @@ function Effects:_animate()
 		session.zoomControlled = true
 		local offset = self.menu.FOVOffset
 		if offset == nil then offset = zoomConfig.FOVOffset or -10 end
-		local minimum = math.clamp(zoomConfig.MinFOV or 20, 1, 120)
-		local maximum = math.clamp(zoomConfig.MaxFOV or 110, minimum, 120)
-		fov = math.clamp(session.baseFOV + offset, minimum, maximum)
+		fov = self:_clampFOV(session.baseFOV + offset)
 	end
 	if session.zoomControlled then
 		session.fovTween = animate(cam, "FieldOfView", fov,
@@ -124,6 +202,14 @@ end
 function Effects:SetGameplay(on)
 	if self.destroyed or self.gameplay == on then return end
 	self.gameplay = on
+	self:_muteBlurs(on)
+	-- en entrant dans la phase jouable : FOV normal tout de suite
+	if on then
+		local cam = self.services.Workspace.CurrentCamera
+		if cam and self.normalFOV and not self.session then
+			pcall(function() cam.FieldOfView = self.normalFOV end)
+		end
+	end
 	self:_animate()
 end
 
@@ -140,9 +226,12 @@ function Effects:Destroy()
 	if self.destroyed then return end
 	self.destroyed = true
 	self.cameraConnection:Disconnect()
+	if self.fovConnection then self.fovConnection:Disconnect() end
 	self.menu = nil
 	self:_core(false)
 	self:_release()
+	self.gameplay = false
+	self:_muteBlurs(false)
 end
 
 return Effects

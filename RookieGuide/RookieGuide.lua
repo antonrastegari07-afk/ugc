@@ -198,6 +198,18 @@ local function buildUI(s)
 	s.message = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 68),
 		Size = UDim2.new(1, -24, 0, 100), BackgroundTransparency = 1 }, s.safe)
 	make("UISizeConstraint", { MaxSize = Vector2.new(760, 260) }, s.message)
+	-- Fond du texte : noir semi-transparent, arrondi, qui s'efface en dégradé
+	-- sur les deux côtés (le texte ressort sans « carte » aux bords durs).
+	s.backdrop = make("Frame", { Name = "Backdrop", Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = C.Style.BackdropTransparency or 0.45,
+		BorderSizePixel = 0, Active = false, ZIndex = 1 }, s.message)
+	make("UICorner", { CornerRadius = UDim.new(0, 18) }, s.backdrop)
+	make("UIGradient", { Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0.00, 1),
+		NumberSequenceKeypoint.new(0.18, 0),
+		NumberSequenceKeypoint.new(0.82, 0),
+		NumberSequenceKeypoint.new(1.00, 1),
+	}) }, s.backdrop)
 	s.title = text(s.message, "", C.Style.MaxTextSize)
 	s.title.Position, s.title.Size = UDim2.fromOffset(12, 10), UDim2.new(1, -24, 0, 72)
 	for _, label in ipairs({s.title}) do

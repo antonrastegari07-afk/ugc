@@ -182,6 +182,23 @@ function Engine:Step(now)
 		end
 	end
 
+	-- 🎥 Fenêtre qui décide du flou / zoom. D'habitude la fenêtre active ; mais une
+	--    fenêtre sans effets caméra (le Rookie Guide) peut les prêter à une fenêtre
+	--    ouverte par-dessus, listée dans CameraEffectsFrom (ex. la boutique UGC).
+	local effect = active and active.definition or nil
+	if active and active.definition.CameraEffects == false and active.definition.CameraEffectsFrom then
+		local allowed = {}
+		for _, id in ipairs(active.definition.CameraEffectsFrom) do allowed[id] = true end
+		local best
+		for _, candidate in ipairs(self.candidates) do
+			if candidate ~= active and candidate.wasOpen and allowed[candidate.definition.Id]
+				and (not best or candidate.order > best.order) then
+				best = candidate
+			end
+		end
+		if best then effect = best.definition end
+	end
+
 	local mask = {}
 	if active then
 		local keep = {}
@@ -216,9 +233,9 @@ function Engine:Step(now)
 			self:_write(r, value)
 		end
 	end
-	if self.active ~= active then
-		self.active = active
-		if self.changed then self.changed(active and active.definition or nil) end
+	if self.active ~= active or self.effect ~= effect then
+		self.active, self.effect = active, effect
+		if self.changed then self.changed(active and active.definition or nil, effect) end
 	end
 end
 
@@ -238,7 +255,7 @@ function Engine:Destroy()
 	end
 	self.fields, self.candidates, self.screens = {}, {}, {}
 	self.trackedScreens, self.screenSet = {}, {}
-	self.active = nil
+	self.active, self.effect = nil, nil
 end
 
 return Engine

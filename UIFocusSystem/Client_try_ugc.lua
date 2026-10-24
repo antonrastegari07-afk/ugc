@@ -16,10 +16,7 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 -- Référence au ScreenGui UGCShop
 local ugcShopGui = button:FindFirstAncestorOfClass("ScreenGui")
 
--- 🆕 Variables pour les effets de caméra
 local camera = workspace.CurrentCamera
-local originalFOV = camera.FieldOfView
-local blurEffect = nil
 
 -- 🆕 Variables pour le responsive
 local BASE_WIDTH = 700
@@ -42,54 +39,16 @@ end
 -- Attendre le RemoteEvent
 local equipAccessoryEvent = ReplicatedStorage:WaitForChild("EquipAccessoryEvent", 10)
 
--- 🆕 Créer l'effet de flou
-local function createBlurEffect()
-	if not blurEffect then
-		blurEffect = Instance.new("BlurEffect")
-		blurEffect.Size = 0
-		blurEffect.Parent = camera
-	end
-	return blurEffect
-end
-
--- 🆕 Appliquer les effets de caméra (zoom + flou)
+-- 🎥 Zoom + flou : gérés par UIFocusSystem (menu « UGCTry » dans UI_FOCUS_CONFIG).
+--    Ces deux fonctions restent (elles sont appelées plus bas) mais ne touchent
+--    plus à la caméra : deux scripts qui écrivent le FOV finissaient par le
+--    laisser plus haut que la normale après la fermeture.
 local function applyCameraEffects()
-	local blur = createBlurEffect()
-
-	local zoomTween = TweenService:Create(
-		camera,
-		TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-		{FieldOfView = originalFOV - 10}
-	)
-
-	local blurTween = TweenService:Create(
-		blur,
-		TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-		{Size = 24}
-	)
-
-	zoomTween:Play()
-	blurTween:Play()
+	-- Géré par UIFocusSystem.
 end
 
--- 🆕 Retirer les effets de caméra
 local function removeCameraEffects()
-	local zoomTween = TweenService:Create(
-		camera,
-		TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-		{FieldOfView = originalFOV}
-	)
-
-	if blurEffect then
-		local blurTween = TweenService:Create(
-			blurEffect,
-			TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-			{Size = 0}
-		)
-		blurTween:Play()
-	end
-
-	zoomTween:Play()
+	-- Géré par UIFocusSystem.
 end
 
 -- ========================================
