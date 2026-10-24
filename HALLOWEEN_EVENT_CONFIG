@@ -224,15 +224,16 @@ C.Rules = {
 
 -- ════════════════════════════════════════════════════════════════
 -- 🎃 ZONES DE COINS
---    Workspace ▸ dossier « HalloweenCoinZones » : chaque Part dedans = une zone (rends-la invisible,
---    CanCollide off). Les coins apparaissent au sol à l'intérieur, CHEZ CHAQUE JOUEUR (chacun les siennes :
+--    Workspace ▸ dossier « HalloweenCoinZones » : chaque enfant direct = une zone (rends les Parts
+--    invisibles, CanCollide off). Plusieurs Parts pour UNE même zone ? Mets-les dans un Model / Folder. Les coins apparaissent au sol à l'intérieur, CHEZ CHAQUE JOUEUR (chacun les siennes :
 --    pas de vol, pas de bagarre), et le serveur vérifie chaque ramassage.
 -- ════════════════════════════════════════════════════════════════
 C.Zones = {
 	Folder = "HalloweenCoinZones",
 	ValuePerCoin = 25,             -- coins donnés par ramassage
-	MaxAlive = 10,                 -- coins visibles en même temps par joueur (toutes zones)
-	RespawnEvery = { 8, 16 },     -- s entre deux apparitions
+	MaxAlive = 10,                 -- coins visibles en même temps par joueur, PAR ZONE (chaque zone se remplit à part)
+	MaxAliveTotal = 0,            -- plafond global toutes zones confondues (0 = aucun ; ex. 40 si tu as beaucoup de zones)
+	RespawnEvery = { 8, 16 },     -- s entre deux apparitions, PAR ZONE
 	DailyCap = 2500,               -- coins max par jour venant des zones (50 ramassages)
 	PickupRadius = 9,             -- distance max (studs) côté serveur
 	AutoPickupDistance = 5,       -- le client ramasse en passant dessus (pas de touche à appuyer)

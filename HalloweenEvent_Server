@@ -1139,12 +1139,26 @@ _G.HalloweenEventProducts = PRODUCTS
 -- 🎃 ZONES DE COINS (chaque joueur a les siennes ; le serveur garde la vraie position)
 -- ════════════════════════════════════════════════════════════════
 local zoneParts = {}
+--  🗂️ Chaque enfant DIRECT du dossier = UNE zone, avec son propre compteur de coins.
+--     (une Part seule, ou un Model / Folder qui regroupe plusieurs Parts = une seule zone)
+local zones = {}   -- { { key = Instance, parts = { BasePart… }, area = number } }
 local function scanZones()
 	table.clear(zoneParts)
+	table.clear(zones)
 	local f = workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones")
 	if not f then return end
-	for _, d in ipairs(f:GetDescendants()) do
-		if d:IsA("BasePart") then table.insert(zoneParts, d) end
+	for _, child in ipairs(f:GetChildren()) do
+		local zone = { key = child, parts = {}, area = 0 }
+		local list = child:GetDescendants()
+		table.insert(list, 1, child)
+		for _, d in ipairs(list) do
+			if d:IsA("BasePart") then
+				table.insert(zone.parts, d)
+				table.insert(zoneParts, d)
+				zone.area += d.Size.X * d.Size.Z
+			end
+		end
+		if #zone.parts > 0 then table.insert(zones, zone) end
 	end
 end
 
@@ -1152,16 +1166,16 @@ local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 pcall(function() rayParams.RespectCanCollide = true end)
 
-local function randomSpot()
-	if #zoneParts == 0 then return nil end
-	local total = 0
-	for _, p in ipairs(zoneParts) do total += p.Size.X * p.Size.Z end
-	local r = rng:NextNumber() * total
-	local part = zoneParts[#zoneParts]
-	for _, p in ipairs(zoneParts) do
+local function randomSpot(zone)
+	local parts = zone.parts
+	if #parts == 0 then return nil end
+	local r = rng:NextNumber() * zone.area
+	local part = parts[#parts]
+	for _, p in ipairs(parts) do
 		r -= p.Size.X * p.Size.Z
 		if r <= 0 then part = p break end
 	end
+	if not part.Parent then return nil end
 	local s = part.Size
 	local lx, lz = (rng:NextNumber() - 0.5) * s.X * 0.9, (rng:NextNumber() - 0.5) * s.Z * 0.9
 	local top = part.CFrame:PointToWorldSpace(Vector3.new(lx, s.Y / 2, lz))
@@ -1214,16 +1228,46 @@ end
 
 local coinSeq = 0
 local function coinsOf(st)
-	st.coins = st.coins or { list = {}, n = 0, nextT = os.clock() + 2 }
+	st.coins = st.coins or { list = {}, n = 0, nextT = os.clock() + 2, zn = {} }
 	return st.coins
+end
+
+-- état d'UNE zone pour un joueur : ses coins vivants + son propre minuteur
+local function zoneState(cs, key, t)
+	local zs = cs.zn[key]
+	if not zs then
+		-- 1re apparition légèrement décalée d'une zone à l'autre (pas tout d'un coup)
+		zs = { n = 0, nextT = t + 2 + rng:NextNumber() * 4 }
+		cs.zn[key] = zs
+	end
+	return zs
+end
+
+local function dropCoin(cs, id)
+	local c = cs.list[id]
+	if not c then return end
+	cs.list[id] = nil
+	cs.n -= 1
+	local zs = c.zone and cs.zn[c.zone]
+	if zs then zs.n = math.max(0, zs.n - 1) end
 end
 
 local function clearCoins(player, st)
 	local cs = coinsOf(st)
 	if cs.n == 0 then return end
 	table.clear(cs.list)
+	table.clear(cs.zn)
 	cs.n = 0
 	push(player, "coinClear", {})
+end
+
+local function addCoin(pl, cs, pos, zoneKey)
+	coinSeq += 1
+	local id = ("%x%04x"):format(coinSeq, rng:NextInteger(0, 0xffff))
+	cs.list[id] = { pos = pos, zone = zoneKey }
+	cs.n += 1
+	if zoneKey then zoneState(cs, zoneKey, os.clock()).n += 1 end
+	push(pl, "coinAdd", { Id = id, P = { pos.X, pos.Y, pos.Z } })
 end
 
 task.spawn(function()
@@ -1258,24 +1302,34 @@ task.spawn(function()
 						if hrp then
 							for id, c in pairs(cs.list) do
 								if (c.pos - hrp.Position).Magnitude > far then
-									cs.list[id] = nil
-									cs.n -= 1
+									dropCoin(cs, id)
 									push(pl, "coinNo", { Id = id, Gone = true })
 								end
 							end
 						end
 					end
 				end
-				if open and not capped and cs.n < (Z.MaxAlive or 6) and t >= cs.nextT then
-					local pos = AROUND and spotNear(pl) or (not AROUND and randomSpot()) or nil
-					local rs = Z.RespawnEvery or { 8, 16 }
-					cs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)     -- pas de sol ici : on réessaie vite
-					if pos then
-						coinSeq += 1
-						local id = ("%x%04x"):format(coinSeq, rng:NextInteger(0, 0xffff))
-						cs.list[id] = { pos = pos }
-						cs.n += 1
-						push(pl, "coinAdd", { Id = id, P = { pos.X, pos.Y, pos.Z } })
+				local rs = Z.RespawnEvery or { 8, 16 }
+				local perZone = Z.MaxAlive or 6
+				local total = tonumber(Z.MaxAliveTotal) or 0      -- 0 = pas de plafond global
+				if open and not capped and AROUND then
+					-- (AroundPlayer) une seule grande zone autour de toi : compteur unique
+					if cs.n < perZone and t >= cs.nextT then
+						local pos = spotNear(pl)
+						cs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)  -- pas de sol ici : on réessaie vite
+						if pos then addCoin(pl, cs, pos, nil) end
+					end
+				elseif open and not capped then
+					-- 🗂️ Chaque zone a SON plafond et SON minuteur : des coins laissés dans une
+					--    zone n'empêchent plus les autres de se remplir.
+					for _, zone in ipairs(zones) do
+						if total > 0 and cs.n >= total then break end
+						local zs = zoneState(cs, zone.key, t)
+						if zs.n < perZone and t >= zs.nextT then
+							local pos = randomSpot(zone)
+							zs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)
+							if pos then addCoin(pl, cs, pos, zone.key) end
+						end
 					end
 				end
 			end
@@ -1292,16 +1346,14 @@ local function actionPick(player, id)
 	if not c then return push(player, "coinNo", { Id = id, Gone = true }) end
 	local cap = Z.DailyCap or 0
 	if not activeFor(uid) or st.d.zone.got >= cap then
-		cs.list[id] = nil
-		cs.n -= 1
+		dropCoin(cs, id)
 		return push(player, "coinNo", { Id = id, Gone = true })
 	end
 	if not reachable(player, c.pos, Z.PickupRadius or 9) then
 		refuse(player, "coin_far")
 		return push(player, "coinNo", { Id = id })
 	end
-	cs.list[id] = nil
-	cs.n -= 1
+	dropCoin(cs, id)
 	local d = st.d
 	local value = math.min(Z.ValuePerCoin or 5, cap - d.zone.got)
 	d.zone.got += value
