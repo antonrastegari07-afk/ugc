@@ -1,0 +1,273 @@
+--[[
+	🎃 JackScythe_Client — la faux de Jack côté joueur
+	📍 StarterPlayer ▸ StarterPlayerScripts ▸ JackScythe_Client   (LocalScript, placé par l'installeur)
+
+	• TA faux : animation de sortie (moulinet), garde à deux mains, dash (clic / tap / gâchette / Q / ButtonX).
+	• Les faux des AUTRES joueurs : mêmes effets, créés chez toi (rien n'est répliqué par le serveur).
+	• La recharge se lit sur la lame : elle s'éteint après un dash et se rallume quand c'est prêt.
+--]]
+
+local Players               = game:GetService("Players")
+local ReplicatedStorage     = game:GetService("ReplicatedStorage")
+local RunService            = game:GetService("RunService")
+local ContextActionService  = game:GetService("ContextActionService")
+local TweenService          = game:GetService("TweenService")
+local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
+
+local RS = ReplicatedStorage:WaitForChild("JackScythe")
+local Config = require(RS:WaitForChild("SCYTHE_CONFIG"))
+local FX = require(RS:WaitForChild("ScytheFX"))
+local remote = RS:WaitForChild("ScytheEvent")
+local player = Players.LocalPlayer
+local D = Config.Dash or {}
+
+local function isScythe(t) return t and t:IsA("Tool") and t:GetAttribute("JackScythe") == true end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎬 animations (IDs de la config, sinon KeyframeSequences en Studio)
+-- ════════════════════════════════════════════════════════════════
+local temp = {}
+local function animId(key)
+	local id = Config.Animations and Config.Animations[key]
+	if type(id) == "number" then id = tostring(id) end
+	if type(id) == "string" and id ~= "" then return id:find("rbxassetid://") and id or ("rbxassetid://" .. id) end
+	if not RunService:IsStudio() then return nil end
+	if temp[key] ~= nil then return temp[key] or nil end
+	local f = ReplicatedStorage:FindFirstChild("NpcAnimations")
+	f = f and f:FindFirstChild("JackScythe")
+	local kfs = f and f:FindFirstChild("Scythe_" .. key)
+	local ok, res = false, nil
+	if kfs then ok, res = pcall(function() return KeyframeSequenceProvider:RegisterKeyframeSequence(kfs) end) end
+	temp[key] = ok and res or false
+	if not ok then warn("🎬 [Scythe] animation « " .. key .. " » introuvable (colle son ID dans SCYTHE_CONFIG ▸ Animations)") end
+	return ok and res or nil
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🧍 MA FAUX
+-- ════════════════════════════════════════════════════════════════
+local cur = { tool = nil, tracks = {}, conns = {} }
+local lastDash = -99
+local airLeft = D.AirDashes or 1
+local dashing = false
+
+local function humanoidOf(c) return c and c:FindFirstChildOfClass("Humanoid") end
+
+local function loadTracks(char)
+	local hum = humanoidOf(char)
+	local an = hum and (hum:FindFirstChildOfClass("Animator") or hum:WaitForChild("Animator", 3))
+	if not an then return {} end
+	local out = {}
+	for _, k in ipairs({ "Hold", "Equip", "Dash" }) do
+		local id = animId(k)
+		if id then
+			local a = Instance.new("Animation")
+			a.AnimationId = id
+			local ok, tr = pcall(function() return an:LoadAnimation(a) end)
+			if ok and tr then
+				tr.Priority = ({ Hold = Enum.AnimationPriority.Action, Equip = Enum.AnimationPriority.Action2,
+					Dash = Enum.AnimationPriority.Action4 })[k]
+				tr.Looped = (k == "Hold")
+				out[k] = tr
+			end
+		end
+	end
+	return out
+end
+
+local function dirFromCamera(hrp)
+	local cam = workspace.CurrentCamera
+	local look = cam and cam.CFrame.LookVector or hrp.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.05 then flat = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z) end
+	flat = flat.Unit
+	local pitch = math.deg(math.asin(math.clamp(look.Y, -1, 1)))
+	local hum = humanoidOf(player.Character)
+	local grounded = hum and hum.FloorMaterial ~= Enum.Material.Air
+	pitch = math.clamp(pitch, grounded and 0 or -(D.MaxDownAngle or 18), D.MaxUpAngle or 28)
+	local r = math.rad(pitch)
+	return (flat * math.cos(r) + Vector3.new(0, math.sin(r), 0)).Unit, flat
+end
+
+local function kickCamera()
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	if (D.FovKick or 0) > 0 then
+		local base = cam.FieldOfView
+		local tw = TweenService:Create(cam, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { FieldOfView = base + D.FovKick })
+		tw:Play()
+		task.delay(0.12 + (D.Duration or 0.2), function()
+			TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = base }):Play()
+		end)
+	end
+	if (D.Shake or 0) > 0 then
+		local t0 = os.clock()
+		RunService:BindToRenderStep("JackScytheShake", Enum.RenderPriority.Camera.Value + 1, function()
+			local t = os.clock() - t0
+			local a = D.Shake * math.exp(-t * 9)
+			if t > 0.4 then RunService:UnbindFromRenderStep("JackScytheShake") return end
+			cam.CFrame = cam.CFrame * CFrame.Angles(math.noise(t * 30, 1) * a * 0.02, math.noise(t * 30, 5) * a * 0.02, 0)
+		end)
+	end
+end
+
+local function canDash(char)
+	if Config.Enabled == false or not cur.tool or dashing then return false end
+	if os.clock() - lastDash < (D.Cooldown or 3) then return false end
+	local hum = humanoidOf(char)
+	if not hum or hum.Health <= 0 or hum.Sit or hum.PlatformStand then return false end
+	local st = hum:GetState()
+	if st == Enum.HumanoidStateType.Climbing or st == Enum.HumanoidStateType.Swimming
+		or st == Enum.HumanoidStateType.Seated or st == Enum.HumanoidStateType.Dead then return false end
+	for _, a in ipairs(D.BlockedAttributes or {}) do
+		if player:GetAttribute(a) == true or char:GetAttribute(a) == true then return false end
+	end
+	if hum.FloorMaterial == Enum.Material.Air and airLeft <= 0 then return false end
+	return true
+end
+
+local function tryDash()
+	local char = player.Character
+	if not canDash(char) then return end
+	local hum = humanoidOf(char)
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	if hum.FloorMaterial == Enum.Material.Air then airLeft -= 1 end
+	local dir, flat = dirFromCamera(hrp)
+	lastDash = os.clock()
+	dashing = true
+	remote:FireServer("Dash", dir)
+	local tr = cur.tracks.Dash
+	if tr then tr:Play(0.05) end
+	FX.Dash(cur.tool, char, dir, true)
+	local launched = false
+	local function launch()
+		if launched then return end
+		launched = true
+		if not hrp.Parent then dashing = false return end
+		hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flat)
+		local a = Instance.new("Attachment")
+		a.Name = "JackScytheDash"
+		a.Parent = hrp
+		local lv = Instance.new("LinearVelocity")
+		lv.Name = "JackScytheDash"
+		lv.Attachment0 = a
+		lv.RelativeTo = Enum.ActuatorRelativeTo.World
+		lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+		lv.MaxForce = math.huge
+		lv.VectorVelocity = dir * (D.Speed or 92)
+		lv.Parent = hrp
+		kickCamera()
+		task.delay(D.Duration or 0.2, function()
+			lv:Destroy() ; a:Destroy()
+			if hrp.Parent then
+				local v = dir * (D.Speed or 92) * (D.CarryOver or 0.35)
+				hrp.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, hrp.AssemblyLinearVelocity.Y * 0.3), v.Z)
+			end
+			dashing = false
+		end)
+	end
+	if tr then
+		local c
+		c = tr:GetMarkerReachedSignal("Launch"):Connect(function() c:Disconnect() launch() end)
+	end
+	task.delay(D.WindUp or 0.13, launch)
+end
+
+local function onDashAction(_, state)
+	if state == Enum.UserInputState.Begin then tryDash() end
+	return Enum.ContextActionResult.Pass
+end
+
+local function unequip()
+	for _, c in ipairs(cur.conns) do c:Disconnect() end
+	cur.conns = {}
+	for _, tr in pairs(cur.tracks) do pcall(function() tr:Stop(0.15) end) end
+	cur.tracks = {}
+	cur.tool = nil
+	pcall(function() ContextActionService:UnbindAction("JackScytheDash") end)
+end
+
+local function equip(tool, char)
+	unequip()
+	cur.tool = tool
+	-- on attend le moteur du serveur (sinon l'animation ne bouge pas la faux)
+	local torso = char:FindFirstChild("Torso")
+	local t0 = os.clock()
+	while os.clock() - t0 < 1.5 and cur.tool == tool do
+		local m = torso and torso:FindFirstChild("ScytheGrip")
+		if m and m.Part1 == tool:FindFirstChild("Handle") then break end
+		task.wait()
+	end
+	if cur.tool ~= tool then return end
+	cur.tracks = loadTracks(char)
+	if cur.tracks.Hold then cur.tracks.Hold:Play(0.1) end
+	if cur.tracks.Equip then cur.tracks.Equip:Play(0.05) end
+	FX.Equip(tool, true)
+	table.insert(cur.conns, tool.Activated:Connect(tryDash))
+	local keys = D.Keys or {}
+	if #keys > 0 or D.MobileButton then
+		ContextActionService:BindAction("JackScytheDash", onDashAction, D.MobileButton == true, table.unpack(keys))
+		pcall(function()
+			ContextActionService:SetTitle("JackScytheDash", "DASH")
+			ContextActionService:SetPosition("JackScytheDash", UDim2.new(1, -170, 1, -150))
+		end)
+	end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 👀 TOUTES LES FAUX (effets chez moi pour chaque joueur)
+-- ════════════════════════════════════════════════════════════════
+local function watchCharacter(plr, char)
+	local mine = (plr == player)
+	char.ChildAdded:Connect(function(t)
+		if not isScythe(t) then return end
+		FX.Attach(t, mine)
+		if mine then task.spawn(equip, t, char) else FX.Equip(t, false) end
+	end)
+	char.ChildRemoved:Connect(function(t)
+		if not isScythe(t) then return end
+		FX.Detach(t)
+		if mine and cur.tool == t then unequip() end
+	end)
+	for _, t in ipairs(char:GetChildren()) do
+		if isScythe(t) then
+			FX.Attach(t, mine)
+			if mine then task.spawn(equip, t, char) end
+		end
+	end
+	if mine then
+		local hum = char:WaitForChild("Humanoid", 10)
+		if hum then
+			hum.StateChanged:Connect(function(_, new)
+				if new == Enum.HumanoidStateType.Landed or new == Enum.HumanoidStateType.Running then airLeft = D.AirDashes or 1 end
+			end)
+		end
+	end
+end
+
+local function watchPlayer(plr)
+	plr.CharacterAdded:Connect(function(c) watchCharacter(plr, c) end)
+	if plr.Character then watchCharacter(plr, plr.Character) end
+end
+Players.PlayerAdded:Connect(watchPlayer)
+for _, p in ipairs(Players:GetPlayers()) do task.spawn(watchPlayer, p) end
+
+-- effets du dash des autres joueurs (le serveur relaie seulement un « il a dashé »)
+remote.OnClientEvent:Connect(function(kind, who, dir)
+	if kind == "FX" and typeof(who) == "Instance" and who:IsA("Player") and who ~= player then
+		local c = who.Character
+		if not c then return end
+		for _, t in ipairs(c:GetChildren()) do
+			if isScythe(t) then
+				FX.Dash(t, c, dir, false)
+				break
+			end
+		end
+	end
+end)
+
+-- recharge lisible sur la lame
+RunService.Heartbeat:Connect(function()
+	if cur.tool then FX.SetCooldown(cur.tool, (os.clock() - lastDash) / (D.Cooldown or 3)) end
+end)
