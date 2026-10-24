@@ -89,15 +89,29 @@ local function dirFromCamera(hrp)
 	return (flat * math.cos(r) + Vector3.new(0, math.sin(r), 0)).Unit, flat
 end
 
+-- 🎥 FOV du dash : le FOV « normal » est mémorisé UNE fois par coup de FOV, jamais pendant
+--    qu'un coup est en cours (sinon un dash pendant le retour gardait 78° comme « normal »).
+--    Si un autre script change le FOV pendant le coup (dialogue, cinématique), on ne l'écrase pas.
+local fovKick = { id = 0, base = nil, peak = nil }
 local function kickCamera()
 	local cam = workspace.CurrentCamera
 	if not cam then return end
 	if (D.FovKick or 0) > 0 then
-		local base = cam.FieldOfView
-		local tw = TweenService:Create(cam, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { FieldOfView = base + D.FovKick })
-		tw:Play()
+		fovKick.id += 1
+		local id = fovKick.id
+		if not fovKick.base then fovKick.base = cam.FieldOfView end
+		local base = fovKick.base
+		fovKick.peak = base + D.FovKick
+		TweenService:Create(cam, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { FieldOfView = fovKick.peak }):Play()
 		task.delay(0.12 + (D.Duration or 0.2), function()
-			TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = base }):Play()
+			if fovKick.id ~= id then return end
+			-- quelqu'un d'autre a pris la main sur le FOV : on le laisse faire
+			if math.abs(cam.FieldOfView - fovKick.peak) > 1 then fovKick.base = nil return end
+			local tw = TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = base })
+			tw.Completed:Connect(function()
+				if fovKick.id == id then fovKick.base = nil end
+			end)
+			tw:Play()
 		end)
 	end
 	if (D.Shake or 0) > 0 then
