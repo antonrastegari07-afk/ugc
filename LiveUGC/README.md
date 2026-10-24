@@ -86,7 +86,7 @@ Le titre flottant est créé automatiquement au-dessus de la Part, sans rien à 
 | Réglage | Rôle |
 |---|---|
 | `title`, `verb`, `emptyText`, `footerText` | les textes |
-| `billboard` | le titre flottant : taille, écart au-dessus du panneau, couleurs du dégradé, contour |
+| `billboard` | le titre flottant : taille (`widthScale`, `heightRatio`), hauteur au-dessus du panneau (`gap`), police (`font`), vitesse du point rouge (`blinkSpeed`), dégradé, contour |
 | `boardNames` | les noms des Parts |
 | `maxShown` | nombre de lignes affichées |
 | `entryHeight` | hauteur d'une ligne |

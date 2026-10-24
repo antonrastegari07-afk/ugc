@@ -33,10 +33,16 @@ local CFG = {
 
 	-- 🪧 Titre flottant au-dessus du panneau (style « LIVE NOW! » du shop)
 	billboard = {
-		widthScale  = 0.85,   -- largeur = 85 % de la largeur du panneau
-		heightRatio = 0.16,   -- hauteur = 16 % de la largeur
-		gap         = 0.6,    -- studs entre le haut du panneau et le titre
-		maxDistance = 200,
+		widthScale  = 1.15,   -- largeur max du titre = 115 % de la largeur du panneau
+		heightRatio = 0.22,   -- hauteur max = 22 % de cette largeur
+		gap         = 2.5,    -- studs entre le haut du panneau et le titre
+		maxDistance = 250,
+		blinkSpeed  = 3.5,    -- vitesse de clignotement du point rouge
+		-- Police : même rendu que « LIVE NOW! » (très gras, penché).
+		-- Pour copier EXACTEMENT celle de ton shop : sélectionne son TextLabel
+		-- et recopie ici sa propriété FontFace (Family / Weight / Style).
+		font        = Font.new("rbxasset://fonts/families/GothamSSm.json",
+			Enum.FontWeight.Heavy, Enum.FontStyle.Italic),
 		gradient    = {       -- haut → bas
 			Color3.fromRGB(255, 190, 50),
 			Color3.fromRGB(255, 85, 150),
@@ -601,34 +607,33 @@ local function buildBillboard(part, src)
 	bb.ZIndexBehavior        = Enum.ZIndexBehavior.Sibling
 	bb.Parent                = LocalPlayer:WaitForChild("PlayerGui")
 
-	local title = Instance.new("TextLabel")
-	title.AnchorPoint            = Vector2.new(0.5, 0.5)
-	title.Position               = UDim2.fromScale(0.5, 0.5)
-	title.Size                   = UDim2.fromScale(0.88, 1)
-	title.BackgroundTransparency = 1
-	title.Text                   = CFG.title
-	title.TextColor3             = Color3.new(1, 1, 1)   -- le dégradé fait la couleur
-	title.TextScaled             = true
-	title.Font                   = Enum.Font.FredokaOne
-	title.ZIndex                 = 2
-	title.Parent                 = bb
-	local tGrad = Instance.new("UIGradient")
-	tGrad.Color    = ColorSequence.new(B.gradient[1], B.gradient[2])
-	tGrad.Rotation = 90
-	tGrad.Parent   = title
-	local tStroke = Instance.new("UIStroke")
-	tStroke.Color         = B.outline
-	tStroke.LineJoinMode  = Enum.LineJoinMode.Round
-	tStroke.Parent        = title
+	-- ⚠️ Pas de TextScaled : il plafonne à 100 px, le titre restait petit de près.
+	--    On dessine en taille fixe (TEXT px) et un UIScale agrandit le tout,
+	--    texte ET contours, sans plafond.
+	local TEXT = 160
+	local row = Instance.new("Frame")
+	row.AnchorPoint            = Vector2.new(0.5, 0.5)
+	row.Position               = UDim2.fromScale(0.5, 0.5)
+	row.AutomaticSize          = Enum.AutomaticSize.XY
+	row.Size                   = UDim2.new()
+	row.BackgroundTransparency = 1
+	row.Parent                 = bb
+	local scale = Instance.new("UIScale")
+	scale.Parent = row
+	local list = Instance.new("UIListLayout")
+	list.FillDirection     = Enum.FillDirection.Horizontal
+	list.VerticalAlignment = Enum.VerticalAlignment.Center
+	list.SortOrder         = Enum.SortOrder.LayoutOrder
+	list.Padding           = UDim.new(0, math.floor(TEXT * 0.22))
+	list.Parent            = row
 
 	-- ● point rouge juste à gauche de « LIVE »
+	local DOT = math.floor(TEXT * 0.42)
 	local dotHolder = Instance.new("Frame")
-	dotHolder.AnchorPoint            = Vector2.new(0.5, 0.5)
-	dotHolder.Size                   = UDim2.fromScale(0.36, 0.36)
-	dotHolder.SizeConstraint         = Enum.SizeConstraint.RelativeYY
+	dotHolder.LayoutOrder            = 1
+	dotHolder.Size                   = UDim2.fromOffset(DOT, DOT)
 	dotHolder.BackgroundTransparency = 1
-	dotHolder.ZIndex                 = 2
-	dotHolder.Parent                 = bb
+	dotHolder.Parent                 = row
 
 	local ring = Instance.new("Frame")
 	ring.AnchorPoint            = Vector2.new(0.5, 0.5)
@@ -637,7 +642,7 @@ local function buildBillboard(part, src)
 	ring.BackgroundColor3       = P.live
 	ring.BackgroundTransparency = 1
 	ring.BorderSizePixel        = 0
-	ring.ZIndex                 = 2
+	ring.ZIndex                 = 1
 	ring.Parent                 = dotHolder
 	Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
 
@@ -647,31 +652,57 @@ local function buildBillboard(part, src)
 	dot.Size             = UDim2.fromScale(1, 1)
 	dot.BackgroundColor3 = P.live
 	dot.BorderSizePixel  = 0
-	dot.ZIndex           = 3
+	dot.ZIndex           = 2
 	dot.Parent           = dotHolder
 	Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
 	local dStroke = Instance.new("UIStroke")
-	dStroke.Color  = B.outline
-	dStroke.Parent = dot
+	dStroke.Color     = B.outline
+	dStroke.Thickness = math.floor(TEXT * 0.05)
+	dStroke.Parent    = dot
+
+	-- 🔴 clignote franchement (point ET contour), avec des transitions douces
 	registerAnim(dot, {}, function(t, _, d)
-		d.BackgroundTransparency = 0.35 * (0.5 + 0.5 * math.sin(t * 3))
+		local k = math.clamp(math.sin(t * B.blinkSpeed) * 2.5, -1, 1)   -- -1 / +1, bords adoucis
+		local a = (0.5 - 0.5 * k) * 0.92
+		d.BackgroundTransparency = a
+		dStroke.Transparency     = a
 	end)
 
-	-- Le groupe « ● + texte » reste centré ; le contour suit la distance.
-	local function layout()
-		local H  = bb.AbsoluteSize.Y
-		local d  = dotHolder.AbsoluteSize.X
-		local gap = d * 0.5
-		local th = math.clamp(H * 0.07, 1, 8)
-		tStroke.Thickness = th
-		dStroke.Thickness = math.max(1, th * 0.7)
-		title.Position = UDim2.new(0.5, (d + gap) / 2, 0.5, 0)
-		local textLeft = bb.AbsoluteSize.X / 2 + (d + gap) / 2 - title.TextBounds.X / 2
-		dotHolder.Position = UDim2.new(0, textLeft - gap - d / 2, 0.5, 0)
+	local title = Instance.new("TextLabel")
+	title.LayoutOrder            = 2
+	title.AutomaticSize          = Enum.AutomaticSize.XY
+	title.Size                   = UDim2.new()
+	title.BackgroundTransparency = 1
+	title.Text                   = CFG.title
+	title.TextColor3             = Color3.new(1, 1, 1)   -- le dégradé fait la couleur
+	title.TextSize               = TEXT
+	title.FontFace               = B.font
+	title.Parent                 = row
+	local tPad = Instance.new("UIPadding")             -- marge pour la pente de l'italique
+	tPad.PaddingRight = UDim.new(0, math.floor(TEXT * 0.12))
+	tPad.Parent       = title
+	local tGrad = Instance.new("UIGradient")
+	tGrad.Color    = ColorSequence.new(B.gradient[1], B.gradient[2])
+	tGrad.Rotation = 90
+	tGrad.Parent   = title
+	local tStroke = Instance.new("UIStroke")
+	tStroke.Color        = B.outline
+	tStroke.Thickness    = math.floor(TEXT * 0.06)
+	tStroke.LineJoinMode = Enum.LineJoinMode.Round
+	tStroke.Parent       = title
+
+	-- le groupe « ● + texte » remplit le billboard (en gardant ses proportions)
+	local function fit()
+		local s = scale.Scale
+		if s <= 0 then return end
+		local rw, rh = row.AbsoluteSize.X / s, row.AbsoluteSize.Y / s
+		if rw <= 0 or rh <= 0 then return end
+		local want = math.min(bb.AbsoluteSize.X / rw, bb.AbsoluteSize.Y / rh)
+		if math.abs(want - s) > 1e-3 then scale.Scale = want end
 	end
-	bb:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
-	title:GetPropertyChangedSignal("TextBounds"):Connect(layout)
-	task.defer(layout)
+	bb:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	row:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+	task.defer(fit)
 
 	-- onde autour du point rouge à chaque nouveau redeem
 	local PING_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
