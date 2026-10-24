@@ -150,27 +150,48 @@ local function sfxId(name)
 	return id, s.Volume or 0.5
 end
 
+-- 🔇 Un audio que ton jeu n'a PAS le droit de lire (audio privé d'un autre compte,
+--    pas encore modéré, supprimé…) ne fait AUCUNE erreur : il reste muet.
+--    On le détecte au préchargement et on passe au son Roblox par défaut.
+local badId = {}
+local SOUND_NAMES = { "Dash", "Slash", "Equip", "Ready" }
+
 -- ⏳ précharge : sans ça, le tout premier dash est muet le temps que l'audio se télécharge
 task.spawn(function()
-	local list = {}
-	for _, n in ipairs({ "Dash", "Slash", "Equip", "Ready" }) do
+	local list, byId = {}, {}
+	for _, n in ipairs(SOUND_NAMES) do
 		local id = sfxId(n)
 		if id then
 			local snd = Instance.new("Sound")
 			snd.SoundId = id
 			table.insert(list, snd)
+			byId[id] = byId[id] or {}
+			table.insert(byId[id], n)
 		end
 	end
-	pcall(function() game:GetService("ContentProvider"):PreloadAsync(list) end)
+	pcall(function()
+		game:GetService("ContentProvider"):PreloadAsync(list, function(contentId, status)
+			if status ~= Enum.AssetFetchStatus.Success and byId[contentId] then
+				badId[contentId] = true
+				warn(("⚠️ [ScytheFX] son %s (%s) impossible à charger → son par défaut. "
+					.. "Vérifie que l'audio appartient au créateur du jeu (ou qu'il est public)."):format(
+					table.concat(byId[contentId], "/"), contentId))
+			end
+		end)
+	end)
 end)
 
 local function sfx(name, parent, volMul)
 	if not parent then return nil end
 	local id, vol = sfxId(name)
 	if not id then return nil end
+	if badId[id] then id = SFX_FALLBACK[name] or id end
 	local snd = new("Sound", { Name = "FX_" .. name, SoundId = id, Volume = vol * (volMul or 1),
 		PlaybackSpeed = Config.SoundPitch or 1, RollOffMaxDistance = 90, RollOffMinDistance = 8 }, parent)
 	snd:Play()
+	if Config.Debug then
+		print(("🔊 [ScytheFX] %s → %s | volume %.2f | chargé : %s"):format(name, id, snd.Volume, tostring(snd.IsLoaded)))
+	end
 	if not snd.Looped then
 		snd.Ended:Connect(function() snd:Destroy() end)
 		Debris:AddItem(snd, 6)

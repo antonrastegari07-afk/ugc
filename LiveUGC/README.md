@@ -1,7 +1,7 @@
 # 📡 LIVE UGC REDEEMS — Installation
 
 Board qui affiche en direct les derniers UGC récupérés :
-**qui** (avatar + nom, VIP doré, clic → fiche profil) et **quel UGC** (nom + image).
+**qui** (avatar + nom, VIP doré, clic → fiche profil) et **quel UGC** (nom + la même image que dans le UGC shop).
 Aucune heure ni temps de récupération n'est affiché.
 Le titre **● LIVE UGC REDEEMS** flotte au-dessus du panneau (BillboardGui), dans le même style que le « LIVE NOW! » du shop d'Halloween : texte épais et penché, dégradé lavande → mauve, contour sombre, et un point rouge qui clignote à côté de « LIVE ».
 Tout le board suit un seul thème mauve. Ce n'est pas un classement : pas de rang, et les redeems plus anciens deviennent de plus en plus discrets.
@@ -55,7 +55,7 @@ Fais exactement comme pour tes autres leaderboards :
    Tu peux copier la SurfaceGui d'un leaderboard existant.
 
 Le client remplace tout seul le contenu de la SurfaceGui, et la rend cliquable de la même manière que le Core.
-Le titre flottant est créé automatiquement au-dessus de la Part, sans rien à placer à la main. Il peut faire jusqu'à 160 % de la largeur du panneau.
+Le titre flottant est créé automatiquement au-dessus de la Part, sans rien à placer à la main. Il peut faire jusqu'à 210 % de la largeur du panneau.
 
 ## 6. Tester
 
@@ -79,7 +79,6 @@ Le titre flottant est créé automatiquement au-dessus de la Part, sans rien à 
 |---|---|---|
 | `MAX_FEED` | 25 | nombre de redeems gardés |
 | `HIDDEN_SOURCES` | `exploit`, `external` | voies jamais affichées (ajoute `admin` ou `free` si tu veux les cacher aussi) |
-| `USE_CONFIG_IMAGE` | `false` | `false` = miniature officielle du catalogue Roblox, `true` = `ImageId` de `UGC_CONFIG` |
 | `RESYNC_INTERVAL` | 180 | relecture du DataStore, au cas où un message live se perdrait |
 
 **`UGCLiveFeedClient`** (table `CFG`)

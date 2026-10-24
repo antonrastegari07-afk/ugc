@@ -21,7 +21,6 @@ local HttpService        = game:GetService("HttpService")
 -- 🔧 RÉGLAGES
 local MAX_FEED         = 25      -- nombre de redeems gardés / affichés
 local RESYNC_INTERVAL  = 180     -- s entre deux relectures du DataStore
-local USE_CONFIG_IMAGE = false   -- true = ImageId du UGC_CONFIG, false = miniature catalogue Roblox
 -- Voies qui n'apparaissent PAS sur le board public
 local HIDDEN_SOURCES = {
 	exploit  = true,   -- anti-exploit : jamais public
@@ -49,14 +48,13 @@ local seen = {}   -- [id] = true
 -- ════════════════════════════════════════════════════════════
 -- FORMAT
 -- ════════════════════════════════════════════════════════════
+-- 🖼️ EXACTEMENT la même image que dans le UGC SHOP (UGC SHOP GENERATOR) :
+--    "rbxassetid://" .. (ImageId ou, à défaut, AssetId)
 local function imageFor(assetId)
-	if USE_CONFIG_IMAGE then
-		local cfg = UGC_CONFIG.GetByAssetId(assetId)
-		local img = cfg and cfg.ImageId
-		if type(img) == "string" and img:find("://") then return img end
-		if tonumber(img) then return "rbxassetid://" .. tonumber(img) end
-	end
-	return string.format("rbxthumb://type=Asset&id=%d&w=150&h=150", assetId)
+	local cfg = UGC_CONFIG.GetByAssetId(assetId)
+	local img = (cfg and (cfg.ImageId or cfg.AssetId)) or assetId
+	if type(img) == "string" and img:find("://") then return img end
+	return "rbxassetid://" .. tostring(img)
 end
 
 -- Ce que le client reçoit : PAS d'heure, pas de prix, pas de source.

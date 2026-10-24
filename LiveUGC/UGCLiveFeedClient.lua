@@ -33,9 +33,9 @@ local CFG = {
 
 	-- 🪧 Titre flottant au-dessus du panneau (style « LIVE NOW! » du shop)
 	billboard = {
-		widthScale  = 1.6,    -- largeur max du titre = 160 % de la largeur du panneau
+		widthScale  = 2.1,    -- largeur max du titre = 210 % de la largeur du panneau
 		heightRatio = 0.2,    -- hauteur max = 20 % de cette largeur
-		gap         = 3,      -- studs entre le haut du panneau et le titre
+		gap         = 1.2,    -- studs entre le haut du panneau et le titre
 		maxDistance = 250,
 		blinkSpeed  = 3.5,    -- vitesse de clignotement du point rouge
 		-- Police : même rendu que « LIVE NOW! » (très gras, penché).
