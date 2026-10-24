@@ -1,0 +1,336 @@
+--[[
+	🎃 HALLOWEEN_EVENT_CONFIG — le « pass » Halloween (paliers, quêtes, coins)
+	📍 À placer dans : ReplicatedStorage   (ModuleScript, nom exact : HALLOWEEN_EVENT_CONFIG)
+
+	Le client lit ce module pour les textes et les images ; le SERVEUR décide de tout le reste
+	(coins, progression, achats). Rien ici ne permet de tricher : c'est juste l'affichage + les règles.
+
+	🕶️ INTERRUPTEUR
+	   Enabled = false → seuls les TestUserIds voient l'event (même en jeu publié), pour tout tester.
+	   Enabled = true  → tout le monde (le jour J).
+
+	⚠️ Ne change JAMAIS un Id (palier, quête) une fois l'event lancé : c'est la clé de sauvegarde.
+	   Tu peux changer les textes, les prix, les montants et les images quand tu veux.
+--]]
+
+local C = {}
+
+C.Enabled = true
+
+-- 🧪 Testeurs (voient tout même quand Enabled = false)
+C.TestUserIds = {
+	11017023724,
+	10420404767,
+}
+
+function C.IsTester(userId)
+	for _, id in ipairs(C.TestUserIds) do
+		if id == userId then return true end
+	end
+	return false
+end
+
+-- 🧪 MODE TESTEUR (pour les TestUserIds, et pour TOUT LE MONDE dans Studio)
+--    Le serveur vérifie l'UserId à chaque action : un joueur normal ne peut rien activer de tout ça.
+C.TestMode = {
+	Enabled = false,          -- false = les testeurs jouent exactement comme les autres
+	IgnoreDates = false,      -- les testeurs peuvent gagner / acheter / réclamer même AVANT ou APRÈS les dates
+	FreePurchases = false,    -- Skip Tier et changement de quête GRATUITS pour les testeurs quand :
+	                         --   le produit n'est pas encore créé (ProductId = 0), OU l'event n'a pas commencé, OU Studio.
+	                         --   Pendant l'event, avec un vrai ProductId, le testeur paie comme tout le monde (pour tester le vrai achat).
+	Tools = false,            -- barre « TESTER » sous la fenêtre : +1,000 coins · Finir mes quêtes · Remettre mon pass à zéro
+}
+-- ⚠️ Ce que tu gagnes en test est sauvegardé. Avant le jour J, clique « Reset my pass » dans la barre TESTER.
+
+-- ════════════════════════════════════════════════════════════════
+-- 📅 DATES (heure UTC). Montréal = UTC−4 en octobre : 00:00 UTC = 20:00 la veille chez toi.
+-- ════════════════════════════════════════════════════════════════
+C.StartUTC = { Year = 2026, Month = 10, Day = 22, Hour = 0 }
+C.EndUTC   = { Year = 2026, Month = 11, Day = 10,  Hour = 0 }
+-- Après la fin : plus rien ne se gagne ni ne s'achète. Les tools et la faux restent à vie.
+-- La fenêtre reste ouverte en lecture « Event ended » pendant … jours, puis le panneau disparaît.
+C.ShowAfterEndDays = 3
+
+-- 🔁 Remise à zéro des quêtes : tous les jours à ResetHourUTC, et les hebdo le lundi à cette heure
+C.ResetHourUTC = 4          -- 04:00 UTC = minuit à Montréal
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎃 COINS HALLOWEEN
+-- ════════════════════════════════════════════════════════════════
+C.Coin = {
+	Name = "Halloween Coins",
+	Short = "Coins",
+	-- 🖼️ L'icône de la pièce (ta c4b38dbd : la pièce vue de face). Colle l'ID après l'upload.
+	Icon = "139162200916048",
+	MaxBalance = 100000,       -- plafond de sécurité
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 🖼️ TES ICÔNES (utilisées par les cartes des paliers ci-dessous)
+-- ════════════════════════════════════════════════════════════════
+local ICONS = {
+	points  = "rbxassetid://100954340388528",
+	spins   = "rbxassetid://75101564139860",
+	vip     = "rbxassetid://126388892716858",
+	boost2  = "rbxassetid://77796745547590",
+	boost5  = "rbxassetid://76885721001015",
+	boost10 = "rbxassetid://111717758049355",
+	boost25 = "rbxassetid://123961835925963",
+	ak47    = "rbxassetid://102811377007208",
+	shotgun = "rbxassetid://83159459903636",
+	rpg     = "rbxassetid://86392492361829",
+	minigun = "rbxassetid://132199729083079",
+	scar    = "rbxassetid://77882865479257",
+}
+C.Icons = ICONS
+
+-- ════════════════════════════════════════════════════════════════
+-- 🏆 PALIERS (achetés DANS L'ORDRE avec les coins ; le dernier = la faux de Jack)
+--    Récompense à récupération unique : un palier acheté ne se rachète jamais.
+--
+--    Reward.Kind :
+--      "points" → Amount         tes points normaux (même chemin que le noob, anti-cheat prévenu)
+--      "spins"  → Amount         spins de ta roue
+--      "boost"  → Mult, Duration boost temporaire (_G.TempBoosts) ; Mult autorisés : 2, 3, 5, 10, 20
+--      "tool"   → Tool           Tool À VIE, cloné depuis ServerStorage ▸ HalloweenEventTools (ou ServerStorage)
+--                                (non lâchable, rendu à chaque réapparition, mis de côté en arène)
+--      "scythe"                  la faux de Jack (numéro de série, les premières dorées)
+--      "multi"  → List = { … }   plusieurs récompenses d'un coup
+--
+--    Image = image de la carte (ICONS.xxx ou "rbxassetid://…" ; vide = emoji Icon à la place)
+--    Background = (optionnel) fond de CETTE carte ; sinon celui de sa rareté (UI.CardBackgrounds)
+--    Rarity = couleur du fond de la carte : "common" | "rare" | "epic" | "legendary" | "mythic"
+-- ════════════════════════════════════════════════════════════════
+C.Tiers = {
+	{ Id = "t1",  Cost = 500,  Name = "5,000 Points",     Icon = "💎", Image = ICONS.points, Rarity = "common",
+	  Reward = { Kind = "points", Amount = 5000 } },
+	{ Id = "t2",  Cost = 800,  Name = "1 Free Spins",     Icon = "🎡", Image = ICONS.spins, Rarity = "common",
+	  Reward = { Kind = "spins", Amount = 1 } },
+	{ Id = "t3",  Cost = 1200, Name = "x2 Boost (30 min)", Icon = "⚡", Image = ICONS.boost2, Rarity = "rare",
+	  Reward = { Kind = "boost", Mult = 2, Duration = 30 * 60 } },
+	{ Id = "t4",  Cost = 1500, Name = "10,000 Points",     Icon = "💎", Image = ICONS.points, Rarity = "rare",
+	  Reward = { Kind = "points", Amount = 10000 } },
+	{ Id = "t5",  Cost = 1800, Name = "2 Free Spins",     Icon = "🎡", Image = ICONS.spins, Rarity = "epic",
+	  Reward = { Kind = "spins", Amount = 2 } },
+	{ Id = "t6",  Cost = 2000, Name = "x5 Boost (30 min)", Icon = "⚡", Image = ICONS.boost5, Rarity = "epic",
+	  Reward = { Kind = "boost", Mult = 5, Duration = 30 * 60 } },
+	{ Id = "t7",  Cost = 2300, Name = "20,000 Points",    Icon = "💎", Image = ICONS.points, Rarity = "epic",
+	  Reward = { Kind = "points", Amount = 20000 } },
+	{ Id = "t8",  Cost = 2600, Name = "4 Free Spins",    Icon = "🎡", Image = ICONS.spins, Rarity = "legendary",
+	  Reward = { Kind = "spins", Amount = 4 } },
+	{ Id = "t9",  Cost = 3000, Name = "x10 Boost (1 hour)", Icon = "⚡", Image = ICONS.boost10, Rarity = "legendary",
+	  Reward = { Kind = "boost", Mult = 10, Duration = 60 * 60 } },
+	-- 🎃 LE DERNIER PALIER : la faux
+	{ Id = "t10", Cost = 4300, Name = "Jack's Scythe",    Icon = "🎃", Image = "77882865479257", Rarity = "mythic",
+	  Reward = { Kind = "scythe" } },
+
+	-- Exemple de Tool (dans ServerStorage ▸ HalloweenEventTools ▸ « Candy Bucket ») :
+	-- { Id = "t11", Cost = 1500, Name = "Candy Bucket", Icon = "🍬", Image = "", Rarity = "rare",
+	--   Reward = { Kind = "tool", Tool = "Candy Bucket" } },
+}
+-- Total actuel : 20 000 coins. Un joueur qui fait ses dailies + hebdos + la zone presque chaque jour
+-- finit en ~8 à 9 jours ; un joueur plus tranquille arrive vers le palier 6-7.
+
+-- ════════════════════════════════════════════════════════════════
+-- 💸 ROBUX (Developer Products à créer : Creator Dashboard ▸ ton jeu ▸ Monetization ▸ Developer Products)
+--    ProductId = 0 → le bouton Robux est caché (sauf pour les testeurs : achat simulé gratuit, voir C.TestMode).
+--    ⚠️ Rien à mettre dans ProcessReceipt toi-même : ajoute juste le bloc fourni dans ton
+--       ProcessReceiptHandler (voir LISEZMOI), il renvoie l'achat ici.
+-- ════════════════════════════════════════════════════════════════
+C.Robux = {
+	-- ⏩ « SKIP TIER » : débloque les N prochains paliers (avec leurs récompenses)
+	--    Les boutons − / + choisissent parmi ces quantités. Price = le prix affiché (mets le même que sur Roblox).
+	SkipTier = {
+		{ Count = 1, ProductId = 3721719438, Price = 19 },
+		{ Count = 3, ProductId = 3721719691, Price = 54 },
+		{ Count = 5, ProductId = 3721719778, Price = 85 },
+	},
+	SkipCanBuyFinal = true,      -- false = la faux ne s'obtient jamais en Robux (seulement en coins)
+	--   💡 le prix affiché est lu directement sur Roblox (ton Developer Product) ; Price ne sert que s'il n'a pas pu être lu
+	-- 🎲 Changer une quête en Robux (quand le changement gratuit du jour est utilisé)
+	RerollQuest = { ProductId = 3721719937, Price = 19 },
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 📜 QUÊTES
+--    Free-to-play : 1 changement de quête GRATUIT par jour (daily ou hebdo), ensuite en Robux.
+--    La progression ne compte que ce que tu fais APRÈS avoir reçu la quête (jamais un état déjà acquis).
+--
+--    Kind (tout est détecté par le serveur) :
+--      "checkpoints" → monter N nouveaux checkpoints de l'obby (un à la fois : skip / téléport ne comptent pas)
+--      "nodeath"     → N checkpoints D'AFFILÉE sans mourir (une mort = la série repart à 0)
+--      "kills"       → N éliminations (victime au compte assez vieux, même victime limitée)
+--      "killstreak"  → une série de N éliminations sans mourir
+--      "roundwin"    → gagner N manches d'arène (le plus de kills à la fin du compte à rebours)
+--      "playtime"    → jouer N minutes (seulement quand tu bouges : l'AFK ne compte pas)
+--      "arenatime"   → jouer N minutes dans l'arène (en bougeant)
+--      "rebirth"     → faire N rebirths
+--      "coins"       → ramasser N citrouilles-coins dans les zones
+--
+--    Diff = "easy" | "medium" | "hard" : une quête de chaque par jour (et par semaine).
+--    Text : {N} = l'objectif.
+-- ════════════════════════════════════════════════════════════════
+C.Quests = {
+	DailyPerDiff  = { easy = 1, medium = 1, hard = 1 },   -- 3 quêtes par jour
+	WeeklyPerDiff = { easy = 1, medium = 1, hard = 1 },   -- 3 quêtes par semaine
+	FreeRerollsPerDay = 1,
+
+	Daily = {
+		-- 🟢 faciles
+		{ Id = "d_cp10",   Diff = "easy",   Kind = "checkpoints", Goal = 10, Reward = 150, Text = "Reach {N} new checkpoints" },
+		{ Id = "d_play15", Diff = "easy",   Kind = "playtime",    Goal = 15, Reward = 150, Text = "Play for {N} minutes" },
+		{ Id = "d_kill5",  Diff = "easy",   Kind = "kills",       Goal = 5,  Reward = 150, Text = "Get {N} kills" },
+		{ Id = "d_coin15", Diff = "easy",   Kind = "coins",       Goal = 15, Reward = 150, Text = "Collect {N} pumpkin coins" },
+		-- 🟠 moyennes
+		{ Id = "d_cp25",   Diff = "medium", Kind = "checkpoints", Goal = 25, Reward = 250, Text = "Reach {N} new checkpoints" },
+		{ Id = "d_nd8",    Diff = "medium", Kind = "nodeath",     Goal = 8,  Reward = 250, Text = "Reach {N} checkpoints in a row without dying" },
+		{ Id = "d_kill12", Diff = "medium", Kind = "kills",       Goal = 12, Reward = 250, Text = "Get {N} kills" },
+		{ Id = "d_arena10",Diff = "medium", Kind = "arenatime",   Goal = 10, Reward = 250, Text = "Fight in the arena for {N} minutes" },
+		{ Id = "d_play30", Diff = "medium", Kind = "playtime",    Goal = 30, Reward = 250, Text = "Play for {N} minutes" },
+		-- 🔴 difficiles
+		{ Id = "d_nd15",   Diff = "hard",   Kind = "nodeath",     Goal = 15, Reward = 400, Text = "Reach {N} checkpoints in a row without dying" },
+		{ Id = "d_ks4",    Diff = "hard",   Kind = "killstreak",  Goal = 4,  Reward = 400, Text = "Get a {N} kill streak" },
+		{ Id = "d_win1",   Diff = "hard",   Kind = "roundwin",    Goal = 1,  Reward = 400, Text = "Win an arena round" },
+		{ Id = "d_cp50",   Diff = "hard",   Kind = "checkpoints", Goal = 50, Reward = 400, Text = "Reach {N} new checkpoints" },
+		{ Id = "d_kill25", Diff = "hard",   Kind = "kills",       Goal = 25, Reward = 400, Text = "Get {N} kills" },
+	},
+
+	Weekly = {
+		-- plus grosses et plus longues
+		{ Id = "w_cp150",  Diff = "easy",   Kind = "checkpoints", Goal = 150, Reward = 1200, Text = "Reach {N} new checkpoints" },
+		{ Id = "w_play120",Diff = "easy",   Kind = "playtime",    Goal = 120, Reward = 1200, Text = "Play for {N} minutes" },
+		{ Id = "w_coin100",Diff = "easy",   Kind = "coins",       Goal = 100, Reward = 1200, Text = "Collect {N} pumpkin coins" },
+		{ Id = "w_kill60", Diff = "medium", Kind = "kills",       Goal = 60,  Reward = 1800, Text = "Get {N} kills" },
+		{ Id = "w_nd25",   Diff = "medium", Kind = "nodeath",     Goal = 25,  Reward = 1800, Text = "Reach {N} checkpoints in a row without dying" },
+		{ Id = "w_reb1",   Diff = "medium", Kind = "rebirth",     Goal = 1,   Reward = 1800, Text = "Rebirth {N} time" },
+		{ Id = "w_arena45",Diff = "medium", Kind = "arenatime",   Goal = 45,  Reward = 1800, Text = "Fight in the arena for {N} minutes" },
+		{ Id = "w_win3",   Diff = "hard",   Kind = "roundwin",    Goal = 3,   Reward = 2600, Text = "Win {N} arena rounds" },
+		{ Id = "w_ks7",    Diff = "hard",   Kind = "killstreak",  Goal = 7,   Reward = 2600, Text = "Get a {N} kill streak" },
+		{ Id = "w_cp300",  Diff = "hard",   Kind = "checkpoints", Goal = 300, Reward = 2600, Text = "Reach {N} new checkpoints" },
+	},
+}
+
+-- 🛡️ Règles des détections (serveur)
+C.Rules = {
+	KillMinAccountAge = 7,        -- jours : une victime plus jeune ne compte pas (anti farm d'alts)
+	SameVictimMax     = 50,        -- une même victime compte au plus … fois par jour
+	CheckpointMinGap  = 0.8,      -- s mini entre deux checkpoints comptés
+	ActiveMoveStuds   = 10,       -- playtime : il faut avoir bougé d'au moins … studs par tranche de 15 s
+	ActiveInputShare  = 0.3,      -- … et avoir appuyé pour avancer au moins 30 % du temps (l'AFK ne compte pas)
+	PlaytimeTick      = 15,       -- s : le temps de jeu avance par tranches de 15 s
+	MaxTravelSpeed    = 120,      -- studs/s : plus vite = téléportation → ramassage refusé quelques secondes (jetpack/dash compris)
+	SettleDelay       = 3,        -- s après le chargement de tes données (le Stage chargé n'est pas une montée)
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎃 ZONES DE COINS
+--    Workspace ▸ dossier « HalloweenCoinZones » : chaque Part dedans = une zone (rends-la invisible,
+--    CanCollide off). Les coins apparaissent au sol à l'intérieur, CHEZ CHAQUE JOUEUR (chacun les siennes :
+--    pas de vol, pas de bagarre), et le serveur vérifie chaque ramassage.
+-- ════════════════════════════════════════════════════════════════
+C.Zones = {
+	Folder = "HalloweenCoinZones",
+	ValuePerCoin = 25,             -- coins donnés par ramassage
+	MaxAlive = 10,                 -- coins visibles en même temps par joueur (toutes zones)
+	RespawnEvery = { 8, 16 },     -- s entre deux apparitions
+	DailyCap = 2500,               -- coins max par jour venant des zones (50 ramassages)
+	PickupRadius = 9,             -- distance max (studs) côté serveur
+	AutoPickupDistance = 5,       -- le client ramasse en passant dessus (pas de touche à appuyer)
+	HoverHeight = 2.4,            -- hauteur au-dessus du sol
+	CoinSize = 2.4,               -- diamètre de la pièce (studs) — le modèle importé est remis à cette taille
+	CoinGlow = 5,                 -- force de la lueur (visage + anneau) de la pièce importée
+	ShowRadius = 220,             -- au-delà, la lumière et les étincelles sont coupées (perf)
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 🗺️ OUVERTURE DE LA FENÊTRE
+--    1) ProximityPrompt sur chaque Part du dossier Workspace ▸ « HalloweenEventBoards » (ou un Model : sa PrimaryPart)
+--    2) Jack (« Tell me about the Halloween Pass! »)
+--    3) Ton propre bouton : ReplicatedStorage.HalloweenEvent.Open:Fire()   (dans un LocalScript)
+-- ════════════════════════════════════════════════════════════════
+C.Prompt = {
+	Folder = "HalloweenEventBoards",
+	ActionText = "Open",
+	ObjectText = "Halloween Event",
+	HoldDuration = 0,
+	MaxDistance = 12,
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎨 INTERFACE (presque la même que la référence ; boutons = ceux de ton panneau Settings)
+-- ════════════════════════════════════════════════════════════════
+-- ════════════════════════════════════════════════════════════════
+-- 📦 LA FAUX EN STOCK LIMITÉ (dernier palier)
+--    Stock = nombre TOTAL de faux qui existeront (numéros #1 à #Stock, Jack compris). 0 = illimité.
+--    Vérifié par le serveur au moment de l'achat (atomique, même avec plusieurs serveurs) :
+--    épuisé → l'achat est refusé AVANT que les coins soient retirés. Les faux « DEV » ne comptent pas.
+--    ⚠️ nécessite le nouveau JackScytheService (fourni).
+-- ════════════════════════════════════════════════════════════════
+C.Scythe = {
+	Stock = 20000,
+	ShowStock = true,                          -- « 123 / 500 LEFT » sous la carte de la faux
+	SoldOutText = "Jack's Scythe is sold out!",
+}
+
+C.UI = {
+	Title = "HALLOWEEN PASS",
+	EndsIn = "Event Ends In: ",
+	StartsIn = "Event Starts In: ",
+	Ended = "The event has ended!",
+	Logo = "130443092583457",                    -- la citrouille au chapeau de sorcière (en haut à gauche) ; vide = 🎃
+	-- 🌙 Fond : dégradé « nuit » fait en jeu (BgTop → BgBottom) + liseré orange. Aucune image nécessaire.
+	BgTop = Color3.fromRGB(38, 24, 54),
+	BgBottom = Color3.fromRGB(13, 9, 20),
+	-- 🖼️ ═══ TES IMAGES (upload le PNG → colle l'ID, ex. "rbxassetid://123456"). Vide = version sans image. ═══
+	PanelImage = "77715050669539",              -- ⭐ HalloweenPanelNight.png : le fond de la fenêtre (noir déchiré + nuit + liseré orange)
+	Backdrop = "",                -- (seulement si PanelImage est vide) HalloweenBackdrop.png : décor nuit sur le dégradé
+	CardBackgrounds = {           -- fond des cartes selon leur rareté (Card_common.png, Card_rare.png, …)
+		common = "103059887902017",
+		rare = "92167944626498",
+		epic = "86284979195109",
+		legendary = "121296279535690",
+		mythic = "121296279535690",
+	},                            -- (une carte précise : mets Background = "rbxassetid://…" dans son palier, plus bas)
+	CardBack = "",                -- (ancien réglage : un seul fond pour toutes les cartes)
+	Hourglass = "105356510097569",               -- petit sablier des timers (vide = emoji ⌛)
+	RobuxIcon = "",               -- vide = l'icône Robux officielle de Roblox
+	Width = 1060, Height = 600,   -- taille de base du panneau
+	MaxScale = 1,                 -- jamais plus grand que sa taille de base (avant : 1.25 = trop grand)
+	MaxScreenWidth = 0.94,
+	Sounds = { Open = "6586979979", Buy = "10066947742", Claim = "99927446005550", Coin = "99927446005550", Error = "127645399844758" },   -- vides = sons de Jack / Roblox par défaut
+	HudCorner = "BottomRight",    -- où s'affiche le petit compteur quand tu gagnes des coins
+	-- ✨ effets
+	ScytheSparkles = true,        -- petites étoiles + reflet sur la carte de la faux
+	ScytheHint = true,            -- petite flèche « la faux est au bout » (une seule fois par joueur)
+	-- 🌫️ quand la fenêtre est ouverte : fond flou + tes autres UI cachées (tout revient à la fermeture)
+	BlurSize = 18,                -- 0 = pas de flou
+	HideOtherUI = true,
+	KeepGuis = {},                -- noms de ScreenGui à NE PAS cacher, ex. { "Chat", "MobileControls" }
+}
+
+C.RarityColors = {
+	common    = { Color3.fromRGB(120, 130, 150), Color3.fromRGB(60, 64, 80) },
+	rare      = { Color3.fromRGB(70, 150, 255),  Color3.fromRGB(40, 50, 140) },
+	epic      = { Color3.fromRGB(190, 90, 255),  Color3.fromRGB(70, 30, 140) },
+	legendary = { Color3.fromRGB(255, 160, 40),  Color3.fromRGB(150, 50, 160) },
+	mythic    = { Color3.fromRGB(255, 120, 30),  Color3.fromRGB(110, 20, 60) },
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎃 JACK
+--    Les quêtes de Jack s'affichent dans l'onglet Quests (section « Jack's Quests »).
+--    Leurs coins se règlent dans JACK_CONFIG (Reward = { Points = …, Coins = … }).
+-- ════════════════════════════════════════════════════════════════
+C.Jack = {
+	ShowInQuests = true,
+	Hint = "Talk to Jack Lantern",
+}
+
+C.Debug = true                    -- messages 🎃 [HalloweenEvent] dans l'Output
+
+-- 🧪 Studio : chaque Play repart de zéro (le vrai DataStore n'est jamais touché). false = garder entre deux Play.
+C.StudioFreshStart = true
+C.UI.HideOtherUI = false
+C.UI.BlurSize = 0
+
+return C

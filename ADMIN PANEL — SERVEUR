@@ -1,0 +1,1395 @@
+--════════════════════════════════════════════════════════════════════════════
+-- ⚡ ADMIN PANEL — SERVEUR  (version complète, escrow UGC intégré)
+-- À placer dans ServerScriptService — REMPLACE ton fichier actuel
+--
+-- 🔐 SEULES MODIFICATIONS par rapport à ta version :
+--     1. champ `escrow = nil,` ajouté dans la table `profile`
+--     2. `pendingReads` passé de 9 à 10
+--     3. nouveau bloc « 10) 🔐 Escrow UGC » après le bloc 9
+--   Tout le reste est identique à ton fichier.
+--════════════════════════════════════════════════════════════════════════════
+
+local Players            = game:GetService("Players")
+local ReplicatedStorage  = game:GetService("ReplicatedStorage")
+local DataStoreService   = game:GetService("DataStoreService")
+local ServerStorage      = game:GetService("ServerStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local ADMIN_IDS = {
+	3203521470, 11017023724, 8456613930, 8142402169, 10420404767
+}
+
+-- ── Remotes ──────────────────────────────────────────────────────────────
+local adminEvent = ReplicatedStorage:FindFirstChild("AdminAction") or Instance.new("RemoteEvent")
+adminEvent.Name = "AdminAction"
+adminEvent.Parent = ReplicatedStorage
+
+local getToolsEvent = ReplicatedStorage:FindFirstChild("AdminGetTools") or Instance.new("RemoteFunction")
+getToolsEvent.Name = "AdminGetTools"
+getToolsEvent.Parent = ReplicatedStorage
+
+local getProfileEvent = ReplicatedStorage:FindFirstChild("AdminGetProfile") or Instance.new("RemoteFunction")
+getProfileEvent.Name = "AdminGetProfile"
+getProfileEvent.Parent = ReplicatedStorage
+
+local getPlayersEvent = ReplicatedStorage:FindFirstChild("AdminGetPlayers") or Instance.new("RemoteFunction")
+getPlayersEvent.Name = "AdminGetPlayers"
+getPlayersEvent.Parent = ReplicatedStorage
+
+local resolveNamesEvent = ReplicatedStorage:FindFirstChild("AdminResolveUsernames") or Instance.new("RemoteFunction")
+resolveNamesEvent.Name = "AdminResolveUsernames"
+resolveNamesEvent.Parent = ReplicatedStorage
+
+local getACBoard = ReplicatedStorage:FindFirstChild("AdminGetACBoard") or Instance.new("RemoteFunction")
+getACBoard.Name = "AdminGetACBoard"
+getACBoard.Parent = ReplicatedStorage
+
+local getPointsEvent = ReplicatedStorage:FindFirstChild("AdminGetPoints") or Instance.new("RemoteFunction")
+getPointsEvent.Name = "AdminGetPoints"
+getPointsEvent.Parent = ReplicatedStorage
+
+local getGameBoard = ReplicatedStorage:FindFirstChild("AdminGetGameBoard") or Instance.new("RemoteFunction")
+getGameBoard.Name = "AdminGetGameBoard"
+getGameBoard.Parent = ReplicatedStorage
+
+-- ⚠️ ces noms doivent matcher ton LeaderboardManager
+local GAME_BOARD_STORES = {
+	Points     = "GlobalLeaderboard_Points_v3",
+	Rebirths   = "GlobalLeaderboard_Rebirths_v1",
+	Streak     = "GlobalLeaderboard_Streak_v1",
+	Kills      = "GlobalLeaderboard_Kills_v1",
+	Playtime   = "GlobalLeaderboard_Playtime_v1",
+	Efficiency = "GlobalLeaderboard_Efficiency_v1",
+}
+local gameBoardHandles = {}
+local function gameStore(id)
+	local name = GAME_BOARD_STORES[id]
+	if not name then return nil end
+	gameBoardHandles[id] = gameBoardHandles[id] or DataStoreService:GetOrderedDataStore(name)
+	return gameBoardHandles[id]
+end
+
+local getPosFn = ReplicatedStorage:FindFirstChild("AdminGetPos") or Instance.new("RemoteFunction")
+getPosFn.Name = "AdminGetPos"
+getPosFn.Parent = ReplicatedStorage
+
+-- ── DataStores ───────────────────────────────────────────────────────────
+local banStore          = DataStoreService:GetDataStore("BannedPlayers")
+local PLAYER_DATA_STORE = DataStoreService:GetDataStore("PlayerData_v2")
+local CAP_STORE         = DataStoreService:GetDataStore("PlayerCapData_v5")
+local TOTAL_KILL_STORE  = DataStoreService:GetOrderedDataStore("TotalKills_v1")
+local WARNINGS_STORE    = DataStoreService:GetDataStore("PlayerWarnings_v2")
+local FLAME_STORE       = DataStoreService:GetDataStore("FlameData_v4")
+local ANTIFLY_STORE     = DataStoreService:GetDataStore("AntiFlyTP_Warnings_v1")
+local ANTIFLY_STATS_STORE = DataStoreService:GetDataStore("AntiFlyTP_Stats_v1")
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- 🚨 CLASSEMENTS ANTI-CHEAT / ANTI-EXPLOIT (index event-driven, ultra-léger)
+-- ══════════════════════════════════════════════════════════════════════════
+local AC_INDEX_ENABLED = true
+local SMART_RANK   = DataStoreService:GetOrderedDataStore("AntiCheat_SmartRank_v1")
+local SMART_SUSP   = DataStoreService:GetOrderedDataStore("AntiCheat_SmartSusp_v1")
+local SMART_DANG   = DataStoreService:GetOrderedDataStore("AntiCheat_SmartDang_v1")
+local EXPLOIT_RANK = DataStoreService:GetOrderedDataStore("AntiCheat_ExploitRank_v1")
+
+local function acSetOrRemove(store, userId, value)
+	value = math.floor(tonumber(value) or 0)
+	task.spawn(function()
+		if value > 0 then
+			pcall(function() store:SetAsync(tostring(userId), value) end)
+		else
+			pcall(function() store:RemoveAsync(tostring(userId)) end)
+		end
+	end)
+end
+
+_G.updateWarningsRegistry = function(userId)
+	if not AC_INDEX_ENABLED then return end
+	userId = tonumber(userId)
+	if not userId then return end
+	local ae = (_G.AntiExploit and _G.AntiExploit.infractions and _G.AntiExploit.infractions[userId]) or 0
+	acSetOrRemove(EXPLOIT_RANK, userId, ae)
+	local sd = _G.SmartAntiCheat and _G.SmartAntiCheat.playerData and _G.SmartAntiCheat.playerData[userId]
+	if sd and sd.infractions then
+		acSetOrRemove(SMART_RANK, userId, sd.infractions.totalInfractions or 0)
+		acSetOrRemove(SMART_SUSP, userId, sd.infractions.suspiciousCount or 0)
+		acSetOrRemove(SMART_DANG, userId, sd.infractions.dangerousCount or 0)
+	end
+end
+
+local frozenPlayers = {}
+
+-- ========================================
+-- 🔒 RATE LIMITING + VALIDATION
+-- ========================================
+local rateLimits = { profile = {}, action = {}, specpos = {}, points = {}, board = {}, gboard = {} }
+
+local function checkRateLimit(adminUserId, kind, cooldown)
+	-- ⚡ os.clock (précis) au lieu de os.time (à la seconde) : avant, deux clics
+	--    dans la même seconde étaient bloqués même avec un cooldown de 0,2 s.
+	local now = os.clock()
+	local last = rateLimits[kind][adminUserId] or -math.huge
+	if now - last < cooldown then return false end
+	rateLimits[kind][adminUserId] = now
+	return true
+end
+
+local function validateString(s, maxLen)
+	if type(s) ~= "string" then return nil end
+	if #s == 0 or #s > (maxLen or 50) then return nil end
+	if not s:match("^[%w_]+$") then return nil end
+	return s
+end
+
+local function validateInt(n, minV, maxV)
+	local num = tonumber(n)
+	if not num then return nil end
+	num = math.floor(num)
+	if num < minV or num > maxV then return nil end
+	return num
+end
+
+local function isAdmin(userId)
+	for _, id in ipairs(ADMIN_IDS) do
+		if id == userId then return true end
+	end
+	return false
+end
+
+local function getPlayerByName(name)
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Name:lower() == name:lower() then return p end
+	end
+	return nil
+end
+
+local function resolveUserId(targetName)
+	if tonumber(targetName) then return tonumber(targetName) end
+	local found = getPlayerByName(targetName)
+	if found then return found.UserId end
+	local success, result = pcall(function()
+		return Players:GetUserIdFromNameAsync(targetName)
+	end)
+	if success then return result end
+	return nil
+end
+
+local function resolveName(userId, fallback)
+	local pl = Players:GetPlayerByUserId(userId)
+	if pl then return pl.Name end
+	local ok, name = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	if ok and name then return name end
+	return fallback or ("UserID_" .. userId)
+end
+
+getPosFn.OnServerInvoke = function(player, targetUserId)
+	if not isAdmin(player.UserId) then return nil end
+	if not checkRateLimit(player.UserId, "specpos", 0) then return nil end
+	local t = Players:GetPlayerByUserId(tonumber(targetUserId) or 0)
+	if not t then return nil end
+	local char = t.Character
+	local hrp = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head"))
+	if hrp then return hrp.Position end
+	return nil
+end
+
+-- ========================================
+-- 📋 LISTE DES JOUEURS EN LIGNE
+-- ========================================
+getPlayersEvent.OnServerInvoke = function(player)
+	if not isAdmin(player.UserId) then return {} end
+	local list = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		table.insert(list, {
+			userId      = p.UserId,
+			username    = p.Name,
+			displayName = p.DisplayName,
+			isSelf      = (p == player),
+		})
+	end
+	return list
+end
+
+-- Lecture d'un OrderedDataStore (top N, paginé jusqu'à 200)
+-- ⚡ Cache 45 s partagé par tous les admins + une seule lecture à la fois par classement
+local orderedCache = {}
+local ORDERED_TTL = 45
+local function sortedBudget()
+	local ok, b = pcall(function()
+		return DataStoreService:GetRequestBudgetForRequestType(Enum.DataStoreRequestType.GetSortedAsync)
+	end)
+	return ok and b or 1
+end
+local function readOrdered(store, n)
+	n = math.clamp(tonumber(n) or 50, 1, 200)
+	local c = orderedCache[store]
+	if not c then c = {}; orderedCache[store] = c end
+	local function fromCache()
+		return table.move(c.out, 1, math.min(n, #c.out), 1, {})
+	end
+	-- une lecture du même classement est déjà en cours → on l'attend
+	local t0 = os.clock()
+	while c.busy and os.clock() - t0 < 8 do task.wait(0.05) end
+	local usable = c.out and (c.n >= n or c.complete)
+	if usable and os.clock() - c.at < ORDERED_TTL then return fromCache() end
+	-- budget GetSortedAsync épuisé : un classement d'une minute vaut mieux qu'une longue attente
+	if usable and sortedBudget() < 1 then return fromCache() end
+	c.busy = true
+	local ok, out, complete = pcall(function()
+		local pages = store:GetSortedAsync(false, math.min(n, 100))
+		local res, guard = {}, 0
+		while true do
+			guard = guard + 1
+			for _, e in ipairs(pages:GetCurrentPage()) do
+				local uid = tonumber(e.key)
+				if uid then res[#res + 1] = { userId = uid, value = e.value } end
+				if #res >= n then return res, false end
+			end
+			if pages.IsFinished then return res, true end
+			if guard >= 3 then return res, false end
+			local okAdv = pcall(function() pages:AdvanceToNextPageAsync() end)
+			if not okAdv then return res, false end
+		end
+	end)
+	c.busy = false
+	if not ok or type(out) ~= "table" then
+		if c.out then return fromCache() end
+		return nil
+	end
+	c.out, c.n, c.at, c.complete = out, n, os.clock(), complete == true
+	return fromCache()
+end
+
+getACBoard.OnServerInvoke = function(player, boardId, n)
+	if not isAdmin(player.UserId) then return { error = "not admin" } end
+	if not checkRateLimit(player.UserId, "board", 0.25) then return { error = "rate", throttled = true } end
+	boardId = tostring(boardId or "")
+
+	if boardId:sub(1, 4) == "fly_" then
+		local kind = boardId:sub(5)
+		local test = true
+		if _G.AntiFlyTP and _G.AntiFlyTP.IsTestMode then
+			local okM, m = pcall(function() return _G.AntiFlyTP.IsTestMode() end)
+			if okM then test = (m == true) end
+		end
+		local entries = {}
+		if test then
+			local map = { strikes = "detections", warnings = "warnings", kicks = "kicks", bans = "bans" }
+			if _G.AntiFlyTP and _G.AntiFlyTP.GetShadowRank then
+				local ok, res = pcall(function() return _G.AntiFlyTP.GetShadowRank(map[kind] or "detections", n) end)
+				if ok and type(res) == "table" then entries = res end
+			end
+		else
+			if (kind == "warnings" or kind == "bans") and _G.AntiFlyTP and _G.AntiFlyTP.GetRealRank then
+				local ok, res = pcall(function() return _G.AntiFlyTP.GetRealRank(kind, n) end)
+				if ok and type(res) == "table" then entries = res end
+			end
+		end
+		return { entries = entries, testMode = test, flyKind = kind }
+	elseif boardId == "smart_infractions"   then return { entries = readOrdered(SMART_RANK, n) or {} }
+	elseif boardId == "smart_suspicious"    then return { entries = readOrdered(SMART_SUSP, n) or {} }
+	elseif boardId == "smart_dangerous"     then return { entries = readOrdered(SMART_DANG, n) or {} }
+	elseif boardId == "exploit_infractions" then return { entries = readOrdered(EXPLOIT_RANK, n) or {} }
+	end
+	return { entries = {} }
+end
+
+getGameBoard.OnServerInvoke = function(player, boardId, n)
+	if not isAdmin(player.UserId) then return { entries = {} } end
+	if not checkRateLimit(player.UserId, "gboard", 0.25) then return { throttled = true } end
+	local store = gameStore(tostring(boardId or ""))
+	if not store then return { entries = {} } end
+	return { entries = readOrdered(store, n) or {} }
+end
+
+-- 💎 Points + 🚫 statut ban
+-- ⚡ Lectures EN PARALLÈLE (8 à la fois), dans la limite du budget DataStore.
+--    Un 2e appel du même admin ATTEND le premier au lieu de répondre vide.
+local pointsCacheS = {}
+local POINTS_TTL = 300
+local pointsBusy = {}
+
+local function getBudget()
+	local ok, b = pcall(function()
+		return DataStoreService:GetRequestBudgetForRequestType(Enum.DataStoreRequestType.GetAsync)
+	end)
+	return ok and b or 60
+end
+
+getPointsEvent.OnServerInvoke = function(player, ids)
+	if not isAdmin(player.UserId) then return {} end
+	if type(ids) ~= "table" then return {} end
+	local waited = os.clock()
+	while pointsBusy[player.UserId] and os.clock() - waited < 10 do task.wait(0.05) end
+	pointsBusy[player.UserId] = true
+
+	local out, need, seen = {}, {}, {}
+	local now = os.time()
+	for i = 1, math.min(#ids, 200) do
+		local id = tonumber(ids[i])
+		if id and id > 0 and not seen[id] then
+			seen[id] = true
+			local pl = Players:GetPlayerByUserId(id)
+			if pl then
+				local live = pl:GetAttribute("Points")
+				out[tostring(id)] = { points = (type(live) == "number") and live or nil, banned = false }
+			else
+				local c = pointsCacheS[id]
+				if c and (now - c.t) < POINTS_TTL then
+					out[tostring(id)] = { points = c.v, banned = c.banned }
+				elseif #need < 60 then
+					need[#need + 1] = id
+				end
+			end
+		end
+	end
+
+	local idx, pending = 0, #need
+	local function worker()
+		while true do
+			idx = idx + 1
+			local id = need[idx]
+			if not id then break end
+			-- on laisse toujours de la marge au jeu (sauvegardes des joueurs)
+			local guardT = os.clock()
+			while getBudget() < 6 and os.clock() - guardT < 8 do task.wait(0.25) end
+			local okP, data, okB, banInfo
+			local banDone = false
+			task.spawn(function()
+				okB, banInfo = pcall(function() return banStore:GetAsync(tostring(id)) end)
+				banDone = true
+			end)
+			okP, data = pcall(function() return PLAYER_DATA_STORE:GetAsync("p_" .. id) end)
+			local t1 = os.clock()
+			while not banDone and os.clock() - t1 < 8 do task.wait(0.03) end
+			if okP and okB then
+				local pts = (type(data) == "table" and tonumber(data.points)) or 0
+				local isBanned = banInfo ~= nil
+				pointsCacheS[id] = { v = pts, banned = isBanned, t = os.time() }
+				out[tostring(id)] = { points = pts, banned = isBanned }
+			end -- lecture ratée : pas de cache, le client redemandera
+			pending = pending - 1
+		end
+	end
+	for _ = 1, math.min(8, #need) do task.spawn(worker) end
+	local t0 = os.clock()
+	while pending > 0 and os.clock() - t0 < 15 do task.wait(0.05) end
+	pointsBusy[player.UserId] = nil
+	return out
+end
+
+local unameCache = {}
+local UserService = game:GetService("UserService")
+-- ⚡ Pseudos : UN SEUL appel web pour tout le lot (avant : un appel par joueur, l'un après l'autre)
+resolveNamesEvent.OnServerInvoke = function(player, ids)
+	if not isAdmin(player.UserId) then return {} end
+	if type(ids) ~= "table" then return {} end
+	local out, need, seen = {}, {}, {}
+	for i = 1, math.min(#ids, 200) do
+		local id = tonumber(ids[i])
+		if id and id > 0 and not seen[id] then
+			seen[id] = true
+			local pl = Players:GetPlayerByUserId(id)
+			if pl then unameCache[id] = pl.Name end
+			if unameCache[id] then
+				out[tostring(id)] = unameCache[id]
+			else
+				need[#need + 1] = id
+			end
+		end
+	end
+	if #need == 0 then return out end
+
+	for start = 1, #need, 100 do
+		local chunk = table.move(need, start, math.min(start + 99, #need), 1, {})
+		local ok, infos = pcall(function() return UserService:GetUserInfosByUserIdsAsync(chunk) end)
+		if ok and type(infos) == "table" then
+			for _, info in ipairs(infos) do
+				local id = type(info) == "table" and tonumber(info.Id)
+				if id and type(info.Username) == "string" then
+					unameCache[id] = info.Username
+					out[tostring(id)] = info.Username
+				end
+			end
+		end
+	end
+
+	-- Repli : ceux que le lot n'a pas rendus, 8 à la fois
+	local left = {}
+	for _, id in ipairs(need) do
+		if not unameCache[id] then left[#left + 1] = id end
+	end
+	if #left > 0 then
+		local idx, pending = 0, #left
+		for _ = 1, math.min(8, #left) do
+			task.spawn(function()
+				while true do
+					idx = idx + 1
+					local id = left[idx]
+					if not id then break end
+					local ok, nm = pcall(function() return Players:GetNameFromUserIdAsync(id) end)
+					if ok and nm then unameCache[id] = nm; out[tostring(id)] = nm end
+					pending = pending - 1
+				end
+			end)
+		end
+		local t0 = os.clock()
+		while pending > 0 and os.clock() - t0 < 8 do task.wait(0.05) end
+	end
+	return out
+end
+
+
+--════════════════════════════════════════════════════════════════════════
+-- 🔧 OUTILS À DONNER  +  ⏱️ PRÊTS TEMPORAIRES (gardés après la mort)
+--
+--  • Liste : ServerStorage ET tous ses dossiers.
+--  • Don « une fois » : l'outil va dans le Backpack, perdu à la mort (comme avant).
+--  • Prêt 5 min → 1 h : une copie va AUSSI dans StarterGear, que Roblox recopie
+--    à chaque réapparition. À l'échéance, toutes les copies du prêt sont retirées
+--    (Backpack, personnage équipé, StarterGear, au sol). Les outils que le joueur
+--    possédait déjà (gamepass, boutique…) ne sont JAMAIS retirés : seules les
+--    copies marquées par le prêt le sont.
+--  • Redonner un outil déjà prêté PROLONGE le prêt au lieu de créer un doublon.
+--  • Prêts valables pour CE serveur (en mémoire) : un joueur qui revient avant
+--    la fin les récupère.
+--════════════════════════════════════════════════════════════════════════
+local findTools, AdminToolGive, AdminToolCancel
+do
+	local toolIndexCache = { at = -math.huge, list = {}, byName = {} }
+	findTools = function()
+		if os.clock() - toolIndexCache.at < 10 then
+			return toolIndexCache.list, toolIndexCache.byName
+		end
+		local list, byName = {}, {}
+		for _, item in ipairs(ServerStorage:GetDescendants()) do
+			if item:IsA("Tool") and not byName[item.Name] then
+				-- un Tool rangé À L'INTÉRIEUR d'un autre Tool n'est pas un outil à donner
+				local parent, nested = item.Parent, false
+				while parent and parent ~= ServerStorage do
+					if parent:IsA("Tool") then nested = true; break end
+					parent = parent.Parent
+				end
+				if not nested then
+					byName[item.Name] = item
+					list[#list + 1] = item.Name
+				end
+			end
+		end
+		table.sort(list)
+		toolIndexCache.at, toolIndexCache.list, toolIndexCache.byName = os.clock(), list, byName
+		return list, byName
+	end
+
+	local DURATIONS = { [0] = true, [300] = true, [600] = true, [900] = true, [1800] = true, [3600] = true }
+	local MAX_LOANS = 25
+	local ATTR = "AdminLoanId"
+	local loans, seq = {}, 0
+
+	local function sendResult(adminPlayer, data)
+		pcall(function() adminEvent:FireClient(adminPlayer, "givetools_result", data) end)
+	end
+	local function notifyAdmins(action, data)
+		for _, pl in ipairs(Players:GetPlayers()) do
+			if isAdmin(pl.UserId) then pcall(function() adminEvent:FireClient(pl, action, data) end) end
+		end
+	end
+	local function covers(loan, uid)
+		return loan.all or loan.targets[uid] == true
+	end
+	local function loanCopy(src, loan)
+		local c = src:Clone()
+		c:SetAttribute(ATTR, loan.id)
+		c:SetAttribute("AdminLoanExpiresAt", loan.expiresAt)
+		pcall(function() c.CanBeDropped = false end) -- personne ne récupère l'arme au sol
+		return c
+	end
+
+	-- Donne ou prolonge les outils d'un prêt chez UN joueur.
+	-- sgOnly = le personnage n'est pas encore apparu : StarterGear suffit.
+	local function applyLoan(pl, loan, toolIndex, sgOnly)
+		local bp = pl:FindFirstChild("Backpack")
+		local sg = pl:FindFirstChild("StarterGear")
+		if not bp then return 0, 0, 0 end
+		local char = pl.Character
+		local given, extended, skipped = 0, 0, 0
+		for _, name in ipairs(loan.tools) do
+			local src = toolIndex[name]
+			if src then
+				local inSg, inHand, permanent = false, false, false
+				for _, cont in ipairs({ bp, char, sg }) do
+					if cont then
+						for _, ch in ipairs(cont:GetChildren()) do
+							if ch:IsA("Tool") and ch.Name == name then
+								local lid = ch:GetAttribute(ATTR)
+								if lid then
+									if cont == sg then inSg = true else inHand = true end
+									local other = loans[lid]
+									if lid ~= loan.id and (not other or other.expiresAt < loan.expiresAt) then
+										ch:SetAttribute(ATTR, loan.id)
+										ch:SetAttribute("AdminLoanExpiresAt", loan.expiresAt)
+									end
+								else
+									permanent = true
+								end
+							end
+						end
+					end
+				end
+				if permanent and loan.skipDup and not inSg and not inHand then
+					skipped = skipped + 1
+				else
+					local added = false
+					if sg and not inSg then loanCopy(src, loan).Parent = sg; added = true end
+					if not inHand and not sgOnly then loanCopy(src, loan).Parent = bp; added = true end
+					if inSg or inHand then extended = extended + 1
+					elseif added then given = given + 1 end
+				end
+			end
+		end
+		return given, extended, skipped
+	end
+
+	local function applyAllFor(pl, sgOnly)
+		local now = os.time()
+		local _, toolIndex = findTools()
+		for _, loan in pairs(loans) do
+			if now < loan.expiresAt and covers(loan, pl.UserId) then
+				applyLoan(pl, loan, toolIndex, sgOnly)
+			end
+		end
+	end
+
+	local function removeLoanItems(id)
+		local removed = 0
+		local function sweep(cont)
+			if not cont then return end
+			for _, ch in ipairs(cont:GetChildren()) do
+				if ch:IsA("Tool") and ch:GetAttribute(ATTR) == id then
+					ch:Destroy()
+					removed = removed + 1
+				end
+			end
+		end
+		for _, pl in ipairs(Players:GetPlayers()) do
+			sweep(pl:FindFirstChild("Backpack"))
+			sweep(pl:FindFirstChild("StarterGear"))
+			sweep(pl.Character)
+		end
+		sweep(workspace) -- outils posés au sol
+		-- un autre prêt encore actif peut couvrir le même outil : on le redonne
+		for _, pl in ipairs(Players:GetPlayers()) do applyAllFor(pl, false) end
+		return removed
+	end
+
+	-- Échéances
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			local now = os.time()
+			for id, loan in pairs(loans) do
+				if now >= loan.expiresAt then
+					loans[id] = nil
+					local removed = removeLoanItems(id)
+					print(string.format("[ADMIN] ⏱️ Prêt #%d terminé (%s) : %d copie(s) retirée(s)",
+						id, table.concat(loan.tools, ", "), removed))
+					notifyAdmins("loan_ended", { id = id, tools = loan.tools, removed = removed })
+				end
+			end
+		end
+	end)
+
+	-- Réapparition / arrivée : on vérifie que les prêts sont bien là
+	local function hook(pl)
+		pl.CharacterAdded:Connect(function()
+			task.wait(1.5) -- laisse Roblox recopier StarterGear d'abord
+			if pl.Parent and next(loans) then applyAllFor(pl, false) end
+		end)
+	end
+	Players.PlayerAdded:Connect(function(pl)
+		hook(pl)
+		if not next(loans) then return end
+		task.spawn(function()
+			if pl:WaitForChild("Backpack", 15) and pl.Parent then
+				applyAllFor(pl, pl.Character == nil)
+			end
+		end)
+	end)
+	for _, pl in ipairs(Players:GetPlayers()) do hook(pl) end
+
+	AdminToolGive = function(adminPlayer, extraData)
+		if type(extraData) ~= "table" or type(extraData.tools) ~= "table" then return end
+		local duration = math.floor(tonumber(extraData.duration) or 0)
+		if not DURATIONS[duration] then return end
+		local all = duration > 0 and extraData.allServer == true
+		local ids = extraData.targets
+		if not all and type(ids) ~= "table" then return end
+
+		local _, toolIndex = findTools()
+		local toolNames, seenT = {}, {}
+		for i = 1, math.min(#extraData.tools, 40) do
+			local n = extraData.tools[i]
+			if type(n) == "string" and toolIndex[n] and not seenT[n] then
+				seenT[n] = true
+				toolNames[#toolNames + 1] = n
+			end
+		end
+		if #toolNames == 0 then
+			sendResult(adminPlayer, { given = 0, error = "Aucun des outils choisis n'existe encore dans ServerStorage." })
+			return
+		end
+		local skipDup = extraData.skipDuplicates ~= false
+
+		local targets = {}
+		if all then
+			for _, pl in ipairs(Players:GetPlayers()) do targets[pl.UserId] = true end
+		else
+			for i = 1, math.min(#ids, 60) do
+				local uid = tonumber(ids[i])
+				if uid then targets[uid] = true end
+			end
+		end
+
+		local given, extended, skipped, offline = 0, 0, 0, 0
+		if duration == 0 then
+			-- 🎁 une fois : Backpack seulement, perdu à la mort
+			for uid in pairs(targets) do
+				local pl = Players:GetPlayerByUserId(uid)
+				local bp = pl and pl:FindFirstChild("Backpack")
+				if not bp then
+					offline = offline + 1
+				else
+					for _, name in ipairs(toolNames) do
+						local inBp = bp:FindFirstChild(name)
+						local inChar = pl.Character and pl.Character:FindFirstChild(name)
+						local has = (inBp and inBp:IsA("Tool")) or (inChar and inChar:IsA("Tool"))
+						if skipDup and has then
+							skipped = skipped + 1
+						else
+							toolIndex[name]:Clone().Parent = bp
+							given = given + 1
+						end
+					end
+				end
+			end
+		else
+			-- ⏱️ prêt
+			local count = 0
+			for _ in pairs(loans) do count = count + 1 end
+			if count >= MAX_LOANS then
+				sendResult(adminPlayer, { given = 0, error = "Trop de prêts en cours (" .. MAX_LOANS .. "). Arrêtes-en un." })
+				return
+			end
+			seq = seq + 1
+			local loan = { id = seq, tools = toolNames, targets = targets, all = all, skipDup = skipDup,
+				duration = duration, expiresAt = os.time() + duration, by = adminPlayer.Name }
+			loans[loan.id] = loan
+			for uid in pairs(targets) do
+				local pl = Players:GetPlayerByUserId(uid)
+				if not pl or not pl:FindFirstChild("Backpack") then
+					offline = offline + 1
+				else
+					local g, e, s = applyLoan(pl, loan, toolIndex, false)
+					given, extended, skipped = given + g, extended + e, skipped + s
+				end
+			end
+		end
+
+		print(string.format("[ADMIN] %s → givetools (%s) : %d donné(s), %d prolongé(s), %d déjà possédé(s), %d absent(s)",
+			adminPlayer.Name, duration == 0 and "une fois" or (duration // 60 .. " min" .. (all and ", tout le serveur" or "")),
+			given, extended, skipped, offline))
+		sendResult(adminPlayer, { given = given, extended = extended, skipped = skipped, offline = offline,
+			tools = #toolNames, duration = duration, all = all })
+	end
+
+	AdminToolCancel = function(adminPlayer, extraData)
+		local list = {}
+		if extraData == "all" then
+			for id in pairs(loans) do list[#list + 1] = id end
+		else
+			local id = tonumber(extraData)
+			if id and loans[id] then list[1] = id end
+		end
+		local removed = 0
+		for _, id in ipairs(list) do loans[id] = nil end
+		for _, id in ipairs(list) do removed = removed + removeLoanItems(id) end
+		print(string.format("[ADMIN] %s a arrêté %d prêt(s) : %d copie(s) retirée(s)", adminPlayer.Name, #list, removed))
+		notifyAdmins("loan_ended", { cancelled = #list, removed = removed, by = adminPlayer.Name })
+	end
+
+	local function listLoans()
+		local now, out = os.time(), {}
+		for id, l in pairs(loans) do
+			local n, names = 0, {}
+			for uid in pairs(l.targets) do
+				n = n + 1
+				local pl = Players:GetPlayerByUserId(uid)
+				if pl and #names < 3 then names[#names + 1] = pl.Name end
+			end
+			out[#out + 1] = { id = id, tools = table.clone(l.tools), remaining = math.max(0, l.expiresAt - now),
+				duration = l.duration, all = l.all, players = n, names = names, by = l.by }
+		end
+		table.sort(out, function(a, b) return a.remaining < b.remaining end)
+		return out
+	end
+
+	getToolsEvent.OnServerInvoke = function(player, what)
+		if not isAdmin(player.UserId) then return {} end
+		if what == "loans" then return { loans = listLoans() } end
+		local ok, list = pcall(findTools)
+		if not ok then
+			warn("[ADMIN] Liste des outils impossible : " .. tostring(list))
+			return {}
+		end
+		return table.move(list, 1, #list, 1, {})
+	end
+end
+
+-- ========================================
+-- 👤 GET PLAYER PROFILE
+-- ========================================
+getProfileEvent.OnServerInvoke = function(player, targetName)
+	if not isAdmin(player.UserId) then return nil end
+	if not checkRateLimit(player.UserId, "profile", 2) then
+		return { error = "Rate limited, wait 2s" }
+	end
+
+	local cleanName = validateString(targetName, 50)
+	if not cleanName then
+		return { error = "Invalid name (alphanumeric only, max 50 chars)" }
+	end
+
+	local userId = resolveUserId(cleanName)
+	if not userId then
+		return { error = "Player not found" }
+	end
+
+	local resolvedName = resolveName(userId, cleanName)
+	local onlinePlayer = Players:GetPlayerByUserId(userId)
+	local isOnline = onlinePlayer ~= nil
+
+	local profile = {
+		userId = userId,
+		name = resolvedName,
+		displayName = isOnline and onlinePlayer.DisplayName or resolvedName,
+		username = resolvedName,
+		isOnline = isOnline,
+		banned = false,
+		banReason = nil,
+		banTimestamp = nil,
+		points = 0,
+		rebirths = 0,
+		totalKills = 0,
+		sessionKills = 0,
+		checkpointProgress = 0,
+		playtimeSeconds = 0,
+		flameStreak = 0,
+		flameHighScore = 0,
+		firstJoin = nil,
+		daysSinceFirstJoin = nil,
+		spent = 0,
+		boxGains = 0,
+		devProductBonus = 0,
+		warnings = 0,
+		smartAntiCheatTotal = 0,
+		redeemedCodesCount = 0,
+		rebirthRight = false,
+		lastSavedAt = nil,
+		currentMultiplier = nil,
+		friendCount = nil,
+		flyTpWarnings = 0,
+		flyTpLastAt = nil,
+		flyTpHistory = {},
+		flyTpTestMode = false,
+		tTotal = 0,
+		tByType = {},
+		tSimWarnings = 0,
+		tWouldKick = 0,
+		tWouldBan = false,
+		tWouldBanAt = nil,
+		tLastType = nil,
+		tFirstSeen = nil,
+		tLastSeen = nil,
+		tRecent = {},
+		aeHistory = {},
+		aeLastViolationType = nil,
+		aeLastViolationDetails = nil,
+		smartSuspicious = 0,
+		smartDangerous = 0,
+		smartBurst = 0,
+		smartLastInfractionAt = nil,
+		killCooldownEnd = 0,
+		killQuestProgress = 0,
+		killQuestCooldownEnd = 0,
+		checkpointCooldownEnd = 0,
+		earnedPointLevelsCount = 0,
+		-- 🎽 UGC redeem
+		ugcCount = 0,
+		ugcSpent = 0,
+		ugcFree = 0,
+		ugcLastAt = nil,
+		ugcItems = {},
+		-- 🔐 MODIF 1/3 : escrow UGC
+		escrow = nil,
+	}
+
+	-- 🔐 MODIF 2/3 : 10 lectures parallèles (était 9)
+	local pendingReads = 10
+	local function decrement() pendingReads = pendingReads - 1 end
+
+	-- 1) PlayerData_v2
+	task.spawn(function()
+		local ok, data = pcall(function() return PLAYER_DATA_STORE:GetAsync("p_" .. userId) end)
+		if ok and type(data) == "table" then
+			profile.points = tonumber(data.points) or 0
+			profile.rebirths = tonumber(data.rebirthCount) or 0
+			profile.sessionKills = tonumber(data.killCount) or 0
+			profile.checkpointProgress = tonumber(data.checkpoints) or 0
+			profile.playtimeSeconds = tonumber(data.playtimeSeconds) or 0
+			profile.warnings = tonumber(data.warningInfractions) or 0
+			profile.rebirthRight = data.rebirthRight == true
+			profile.lastSavedAt = tonumber(data.lastSavedAt)
+			if type(data.smartAntiCheatInfractions) == "table" then
+				profile.smartAntiCheatTotal = tonumber(data.smartAntiCheatInfractions.totalInfractions) or 0
+				profile.smartSuspicious = tonumber(data.smartAntiCheatInfractions.suspiciousCount) or 0
+				profile.smartDangerous  = tonumber(data.smartAntiCheatInfractions.dangerousCount) or 0
+				profile.smartBurst      = tonumber(data.smartAntiCheatInfractions.burstCount) or 0
+				profile.smartLastInfractionAt = tonumber(data.smartAntiCheatInfractions.lastInfractionTime)
+			end
+			if type(data.redeemedCodes) == "table" then
+				local count = 0
+				for _ in pairs(data.redeemedCodes) do count = count + 1 end
+				profile.redeemedCodesCount = count
+			end
+			profile.killCooldownEnd       = tonumber(data.killCooldown) or 0
+			profile.killQuestProgress     = tonumber(data.killQuestProgress) or 0
+			profile.killQuestCooldownEnd  = tonumber(data.killQuestCooldown) or 0
+			profile.checkpointCooldownEnd = tonumber(data.checkpointCooldownEnd) or 0
+			if type(data.earnedPointLevels) == "table" then
+				local c = 0
+				for _ in pairs(data.earnedPointLevels) do c = c + 1 end
+				profile.earnedPointLevelsCount = c
+			end
+		end
+		decrement()
+	end)
+
+	-- 2) Cap
+	task.spawn(function()
+		local ok, capData = pcall(function() return CAP_STORE:GetAsync("cap_" .. userId) end)
+		if ok and type(capData) == "table" then
+			if type(capData.firstJoin) == "number" and capData.firstJoin > 0 then
+				profile.firstJoin = capData.firstJoin
+				profile.daysSinceFirstJoin = (os.time() - capData.firstJoin) / 86400
+			end
+			profile.spent = tonumber(capData.totalSpent) or 0
+			profile.boxGains = tonumber(capData.totalGains) or 0
+			profile.devProductBonus = tonumber(capData.devProductBonus) or 0
+		end
+		decrement()
+	end)
+
+	-- 3) Total kills lifetime
+	task.spawn(function()
+		local ok, totalKills = pcall(function() return TOTAL_KILL_STORE:GetAsync(tostring(userId)) end)
+		if ok and type(totalKills) == "number" then
+			profile.totalKills = totalKills
+		end
+		decrement()
+	end)
+
+	-- 4) Ban status
+	task.spawn(function()
+		local ok, banInfo = pcall(function() return banStore:GetAsync(tostring(userId)) end)
+		if ok and banInfo then
+			profile.banned = true
+			if type(banInfo) == "table" then
+				profile.banReason = banInfo.reason or banInfo.details or "No reason"
+				profile.banTimestamp = banInfo.timestamp
+			else
+				profile.banReason = "Banned"
+			end
+		end
+		decrement()
+	end)
+
+	-- 5) Flame streak
+	task.spawn(function()
+		local ok, flameData = pcall(function() return FLAME_STORE:GetAsync("flame:" .. userId) end)
+		if ok and type(flameData) == "table" then
+			profile.flameStreak    = tonumber(flameData.streak)    or 0
+			profile.flameHighScore = tonumber(flameData.highScore) or 0
+		end
+		decrement()
+	end)
+
+	-- 6) Anti-Fly / Anti-TP warnings + historique
+	task.spawn(function()
+		local ok, data = pcall(function() return ANTIFLY_STORE:GetAsync("aft_" .. userId) end)
+		if ok and type(data) == "table" then
+			profile.flyTpWarnings = tonumber(data.count) or 0
+			profile.flyTpLastAt = tonumber(data.lastWarningAt)
+			if type(data.history) == "table" then
+				local h = {}
+				for _, e in ipairs(data.history) do
+					if type(e) == "table" then
+						table.insert(h, {
+							t = tonumber(e.t),
+							type = tostring(e.type or "?"),
+							details = tostring(e.details or ""),
+						})
+					end
+				end
+				profile.flyTpHistory = h
+			end
+		end
+		decrement()
+	end)
+
+	-- 7) PlayerWarnings_v2
+	task.spawn(function()
+		local ok, data = pcall(function() return WARNINGS_STORE:GetAsync("warnings_" .. userId) end)
+		if ok and type(data) == "table" then
+			profile.aeLastViolationType = data.lastViolationType
+			profile.aeLastViolationDetails = data.lastViolationDetails
+			if type(data.history) == "table" then
+				local h = {}
+				for _, e in ipairs(data.history) do
+					if type(e) == "table" then
+						table.insert(h, {
+							t = tonumber(e.timestamp),
+							type = tostring(e.type or "?"),
+							details = tostring(e.quest or e.details or ""),
+						})
+					end
+				end
+				profile.aeHistory = h
+			end
+			if type(data.smartAntiCheat) == "table" then
+				profile.smartSuspicious = tonumber(data.smartAntiCheat.suspiciousCount) or profile.smartSuspicious
+				profile.smartDangerous  = tonumber(data.smartAntiCheat.dangerousCount) or profile.smartDangerous
+				profile.smartBurst      = tonumber(data.smartAntiCheat.burstCount) or profile.smartBurst
+				profile.smartLastInfractionAt = tonumber(data.smartAntiCheat.lastInfractionTime) or profile.smartLastInfractionAt
+			end
+		end
+		decrement()
+	end)
+
+	-- 8) SHADOW : fiche persistée AntiFlyTP_Stats_v1
+	task.spawn(function()
+		local ok, data = pcall(function() return ANTIFLY_STATS_STORE:GetAsync("player_" .. userId) end)
+		if ok and type(data) == "table" then
+			profile.tTotal = tonumber(data.total) or 0
+			if type(data.detByType) == "table" then
+				local bt = {}
+				for k, v in pairs(data.detByType) do bt[tostring(k)] = tonumber(v) or 0 end
+				profile.tByType = bt
+			end
+			profile.tSimWarnings = tonumber(data.warnEvents) or 0
+			profile.tWouldKick = tonumber(data.kickEvents) or 0
+			profile.tWouldBan = data.wouldBan == true
+			profile.tWouldBanAt = tonumber(data.wouldBanAt)
+			profile.tFirstSeen = tonumber(data.firstSeen)
+			profile.tLastSeen = tonumber(data.lastSeen)
+		end
+		decrement()
+	end)
+
+	-- 9) 🎽 UGC récupérés (UGCRedeemLog_Server)
+	task.spawn(function()
+		if type(_G.UGCRedeem_GetPlayer) == "function" then
+			local ok, rec = pcall(function() return _G.UGCRedeem_GetPlayer(userId) end)
+			if ok and type(rec) == "table" then
+				profile.ugcCount  = tonumber(rec.c)  or 0
+				profile.ugcSpent  = tonumber(rec.sp) or 0
+				profile.ugcFree   = tonumber(rec.fr) or 0
+				profile.ugcLastAt = tonumber(rec.lt)
+				if type(rec.it) == "table" then
+					local list = {}
+					for i = #rec.it, 1, -1 do
+						local it = rec.it[i]
+						if type(it) == "table" then
+							table.insert(list, {
+								a = it.a, an = it.an, ai = it.ai,
+								p = it.p, f = it.f, s = it.s, t = it.t, rbx = it.rbx,
+							})
+						end
+						if #list >= 25 then break end
+					end
+					profile.ugcItems = list
+				end
+			end
+		end
+		decrement()
+	end)
+
+	-- 🔐 MODIF 3/3 — 10) Escrow UGC (créance, dette, suspicion, compteurs)
+	task.spawn(function()
+		if type(_G.UGCEscrow_GetPlayer) == "function" then
+			local ok, e = pcall(function() return _G.UGCEscrow_GetPlayer(userId) end)
+			if ok and type(e) == "table" then profile.escrow = e end
+		end
+		decrement()
+	end)
+
+	-- Attendre toutes les lectures (max 8s)
+	local waited = 0
+	while pendingReads > 0 and waited < 80 do
+		task.wait(0.1)
+		waited = waited + 1
+	end
+
+	if _G.AntiFlyTP and _G.AntiFlyTP.IsTestMode then
+		local okT, v = pcall(function() return _G.AntiFlyTP.IsTestMode() end)
+		if okT then profile.flyTpTestMode = (v == true) end
+	end
+
+	-- Live data si online
+	if isOnline then
+		if _G.tempsJoueurs and _G.tempsJoueurs[userId] then
+			local d = _G.tempsJoueurs[userId]
+			if type(d) == "table" and type(d.base) == "number" and type(d.future) == "number" then
+				profile.points = d.base + d.future
+			end
+		end
+		if _G.getCurrentPlaytime then
+			local pt = _G.getCurrentPlaytime(userId)
+			if type(pt) == "number" and pt > 0 then profile.playtimeSeconds = pt end
+		end
+		if _G.AntiExploit and _G.AntiExploit.infractions then
+			profile.warnings = _G.AntiExploit.infractions[userId] or profile.warnings
+		end
+		if _G.SmartAntiCheat and _G.SmartAntiCheat.playerData and _G.SmartAntiCheat.playerData[userId] then
+			local sd = _G.SmartAntiCheat.playerData[userId]
+			if sd.infractions then
+				profile.smartAntiCheatTotal = sd.infractions.totalInfractions or profile.smartAntiCheatTotal
+				profile.smartSuspicious = sd.infractions.suspiciousCount or profile.smartSuspicious
+				profile.smartDangerous  = sd.infractions.dangerousCount or profile.smartDangerous
+				profile.smartBurst      = sd.infractions.burstCount or profile.smartBurst
+				profile.smartLastInfractionAt = sd.infractions.lastInfractionTime or profile.smartLastInfractionAt
+			end
+		end
+		if _G.AntiExploit and _G.AntiExploit.playerTracking and _G.AntiExploit.playerTracking[userId] then
+			local pt = _G.AntiExploit.playerTracking[userId]
+			profile.aeLastViolationType = pt.lastViolationType or profile.aeLastViolationType
+			profile.aeLastViolationDetails = pt.lastViolationDetails or profile.aeLastViolationDetails
+			if type(pt.violationHistory) == "table" and #pt.violationHistory > 0 then
+				local h = {}
+				for _, e in ipairs(pt.violationHistory) do
+					if type(e) == "table" then
+						table.insert(h, { t = e.timestamp, type = tostring(e.type or "?"), details = tostring(e.details or "") })
+					end
+				end
+				profile.aeHistory = h
+			end
+		end
+		if _G.AntiFlyTP and _G.AntiFlyTP.GetTestPlayer then
+			local ok, r = pcall(function() return _G.AntiFlyTP.GetTestPlayer(userId) end)
+			if ok and type(r) == "table" then
+				profile.tTotal = r.total or profile.tTotal
+				if type(r.detections) == "table" then
+					local bt = {}
+					for k, v in pairs(r.detections) do bt[tostring(k)] = tonumber(v) or 0 end
+					profile.tByType = bt
+				end
+				profile.tSimWarnings = r.simWarnings or profile.tSimWarnings
+				profile.tWouldKick = r.wouldKick or profile.tWouldKick
+				if r.wouldBan == true then profile.tWouldBan = true end
+				profile.tWouldBanAt = r.wouldBanAt or profile.tWouldBanAt
+				profile.tLastType = r.lastType
+				profile.tFirstSeen = r.firstSeen or profile.tFirstSeen
+				profile.tLastSeen = r.lastSeen or profile.tLastSeen
+				if type(r.recent) == "table" then
+					local rec = {}
+					for _, e in ipairs(r.recent) do
+						table.insert(rec, { t = e.t, kind = e.kind, vType = e.vType, details = e.details, count = e.count, action = e.action })
+					end
+					profile.tRecent = rec
+				end
+			end
+		end
+		profile.currentMultiplier = onlinePlayer:GetAttribute("PointsMultiplier")
+		profile.friendCount = onlinePlayer:GetAttribute("FriendCount")
+		local liveStreak = onlinePlayer:GetAttribute("FlameStreak")
+		if type(liveStreak) == "number" then profile.flameStreak = liveStreak end
+		local liveHigh = onlinePlayer:GetAttribute("FlameHighScore")
+		if type(liveHigh) == "number" then profile.flameHighScore = liveHigh end
+	end
+
+	return profile
+end
+
+-- ========================================
+-- ACTIONS ADMIN
+-- ========================================
+adminEvent.OnServerEvent:Connect(function(adminPlayer, action, targetName, extraData)
+	if not isAdmin(adminPlayer.UserId) then
+		warn("🚫 Accès non autorisé: " .. adminPlayer.Name)
+		return
+	end
+	if not checkRateLimit(adminPlayer.UserId, "action", 0.2) then return end
+	if type(action) ~= "string" or #action > 30 then return end
+
+	local cleanTarget = nil
+	if targetName ~= nil then
+		cleanTarget = validateString(targetName, 50)
+		if not cleanTarget then return end
+	end
+
+	print(string.format("[ADMIN] %s → %s on %s (extra=%s)",
+		adminPlayer.Name, action, tostring(cleanTarget), tostring(extraData)))
+
+	local target = cleanTarget and getPlayerByName(cleanTarget) or nil
+	
+	-- ⚡ une action qui modifie un classement vide le cache des classements
+	if action == "resetpoints" or action == "removefromlb" or action == "resetwarnings"
+		or action == "clearflywarn" or action == "wipeflytest" or action == "wipeflyreal" then
+		table.clear(orderedCache)
+	end
+
+	if action == "ban" then
+		local userId = resolveUserId(targetName)
+		if userId then
+			-- 🚫 On passe par BanManager : ban réel + journal + fiche
+			if _G.BanManager and _G.BanManager.Ban then
+				pcall(function()
+					_G.BanManager.Ban({
+						userId     = userId,
+						reason     = "admin",
+						details    = "Ban via admin panel",
+						duration   = -1,
+						by         = adminPlayer.Name,
+						displayMsg = "🚫 You got banned by an administrator.",
+					})
+				end)
+			else
+				-- Repli si BanManager n'est pas chargé
+				pcall(function()
+					banStore:SetAsync(tostring(userId), {
+						reason = "Admin ban",
+						bannedBy = adminPlayer.Name,
+						timestamp = os.time()
+					})
+				end)
+				if _G.AntiExploit and _G.AntiExploit.bannedPlayers then
+					_G.AntiExploit.bannedPlayers[userId] = true
+				end
+				if target then target:Kick("🚫 You got banned by an administrator.") end
+			end
+		end
+
+	elseif action == "unban" then
+		local userId = resolveUserId(cleanTarget)
+		if userId then
+			if _G.BanManager and _G.BanManager.Unban then
+				pcall(function() _G.BanManager.Unban(userId, adminPlayer.Name) end)
+			else
+				pcall(function() banStore:RemoveAsync(tostring(userId)) end)
+				if _G.AntiExploit and _G.AntiExploit.bannedPlayers then
+					_G.AntiExploit.bannedPlayers[userId] = nil
+				end
+				if _G.AntiFlyTP and _G.AntiFlyTP.Unban then
+					pcall(function() _G.AntiFlyTP.Unban(userId) end)
+				end
+			end
+		end
+
+	elseif action == "kick" then
+		if target then target:Kick("👟 You got kicked by an administrator.") end
+
+	elseif action == "freeze" then
+		if target and target.Character then
+			local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				if frozenPlayers[target.UserId] then
+					frozenPlayers[target.UserId]:Destroy()
+					frozenPlayers[target.UserId] = nil
+				else
+					local bv = Instance.new("BodyVelocity")
+					bv.Velocity = Vector3.zero
+					bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+					bv.Parent = hrp
+					frozenPlayers[target.UserId] = bv
+				end
+			end
+		end
+
+	elseif action == "teleport" then
+		if target and target.Character then
+			local adminChar = adminPlayer.Character
+			local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+			if adminChar and targetHRP then
+				local adminHRP = adminChar:FindFirstChild("HumanoidRootPart")
+				if adminHRP then
+					adminHRP.CFrame = targetHRP.CFrame * CFrame.new(3, 0, 0)
+				end
+			end
+		end
+
+	elseif action == "bring" then
+		if target and target.Character and adminPlayer.Character then
+			local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+			local adminHRP = adminPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if targetHRP and adminHRP then
+				targetHRP.CFrame = adminHRP.CFrame * CFrame.new(0, 0, -4)
+			end
+		end
+
+	elseif action == "reset" then
+		if target and target.Character then
+			local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid then humanoid.Health = 0 end
+		end
+
+	elseif action == "fly" then
+		if target then
+			target:SetAttribute("AdminFly", not target:GetAttribute("AdminFly"))
+			adminEvent:FireClient(target, "fly_toggle", adminPlayer.Name)
+		end
+
+	elseif action == "givetool" then
+		local cleanTool = validateString(extraData, 50)
+		if not cleanTool then return end
+		if target then
+			local tool = ServerStorage:FindFirstChild(cleanTool)
+			if tool and tool:IsA("Tool") then
+				local bp = target:FindFirstChild("Backpack")
+				if bp then tool:Clone().Parent = bp end
+			else
+				warn("⚠️ Tool introuvable: " .. cleanTool)
+			end
+		end
+
+
+
+
+	elseif action == "givetools" then
+		-- 🎁 Don groupé : plusieurs outils × plusieurs joueurs, une fois ou en prêt
+		if AdminToolGive then AdminToolGive(adminPlayer, extraData) end
+
+	elseif action == "cancelloan" then
+		-- ⏱️ Arrêt d'un prêt (extraData = numéro du prêt, ou "all")
+		if AdminToolCancel then AdminToolCancel(adminPlayer, extraData) end
+	elseif action == "tpcheckpoint" then
+		local cpNum = validateInt(extraData, 1, 125)
+		if not cpNum then return end
+		if target and target.Character then
+			local checkpoint = workspace:FindFirstChild("Checkpoint" .. cpNum)
+			if checkpoint then
+				local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+				if hrp then hrp.CFrame = checkpoint.CFrame * CFrame.new(0, 3, 0) end
+			else
+				warn("⚠️ Checkpoint introuvable: Checkpoint" .. cpNum)
+			end
+		end
+
+	elseif action == "clearflywarn" then
+		local userId = resolveUserId(cleanTarget)
+		if userId and _G.AntiFlyTP and _G.AntiFlyTP.ResetWarnings then
+			pcall(function() _G.AntiFlyTP.ResetWarnings(userId) end)
+		elseif userId then
+			task.spawn(function()
+				pcall(function() ANTIFLY_STORE:RemoveAsync("aft_" .. userId) end)
+			end)
+		end
+
+	elseif action == "resetwarnings" then
+		local userId = resolveUserId(cleanTarget)
+		if userId and _G.ResetWarnings then
+			pcall(function() _G.ResetWarnings(userId) end)
+		end
+
+	elseif action == "toggletestlog" then
+		if _G.AntiFlyTP and _G.AntiFlyTP.SetTestMode and _G.AntiFlyTP.IsTestMode then
+			local cur = false
+			pcall(function() cur = _G.AntiFlyTP.IsTestMode() == true end)
+			pcall(function() _G.AntiFlyTP.SetTestMode(not cur) end)
+			print(string.format("[ADMIN] %s a basculé le mode test AntiFlyTP → %s", adminPlayer.Name, tostring(not cur)))
+		else
+			warn("⚠️ AntiFlyTP.SetTestMode indisponible (moteur pas chargé ?)")
+		end
+
+	elseif action == "clearflytestlog" then
+		local userId = resolveUserId(cleanTarget)
+		if userId and _G.AntiFlyTP and _G.AntiFlyTP.ClearTestPlayer then
+			pcall(function() _G.AntiFlyTP.ClearTestPlayer(userId) end)
+		end
+
+	elseif action == "wipeflytest" then
+		if _G.AntiFlyTP and _G.AntiFlyTP.WipeTestAll then
+			pcall(function() _G.AntiFlyTP.WipeTestAll("OUI") end)
+			print(string.format("[ADMIN] %s a lancé WIPE TEST fly/tp", adminPlayer.Name))
+		end
+
+	elseif action == "wipeflyreal" then
+		if _G.AntiFlyTP and _G.AntiFlyTP.WipeRealWarnings then
+			pcall(function() _G.AntiFlyTP.WipeRealWarnings("OUI") end)
+			print(string.format("[ADMIN] %s a lancé WIPE REAL warnings fly/tp", adminPlayer.Name))
+		end
+
+	elseif action == "resetpoints" then
+		local userId = resolveUserId(cleanTarget)
+		if not userId then return end
+		local tgt = Players:GetPlayerByUserId(userId)
+		if tgt then
+			if _G.tempsJoueurs then
+				_G.tempsJoueurs[userId] = { base = 0, future = 0, lastSaved = 0 }
+			end
+			local ls = tgt:FindFirstChild("leaderstats")
+			local pts = ls and ls:FindFirstChild("Points")
+			if pts then pts.Value = 0 end
+			tgt:SetAttribute("Points", 0)
+			if _G.LossGuard and _G.LossGuard.setLastSaved then
+				pcall(function() _G.LossGuard.setLastSaved(userId, 0) end)
+			end
+			if _G.secureSave then
+				task.spawn(function() pcall(function() _G.secureSave(userId, 0) end) end)
+			end
+		else
+			task.spawn(function()
+				pcall(function()
+					PLAYER_DATA_STORE:UpdateAsync("p_" .. userId, function(old)
+						if type(old) == "table" then old.points = 0 end
+						return old
+					end)
+				end)
+			end)
+		end
+		task.spawn(function()
+			pcall(function()
+				DataStoreService:GetOrderedDataStore("GlobalLeaderboard_Points_v3"):RemoveAsync(tostring(userId))
+			end)
+			if _G.DeletePlayerEntry == nil and _G.ForceRefresh then pcall(_G.ForceRefresh) end
+		end)
+		print(string.format("[ADMIN] %s a reset les points de %d", adminPlayer.Name, userId))
+
+	elseif action == "removefromlb" then
+		local userId = resolveUserId(cleanTarget)
+		if userId and _G.DeletePlayerEntry then
+			pcall(function() _G.DeletePlayerEntry(userId) end)
+		elseif userId then
+			for _, storeName in ipairs({
+				"GlobalLeaderboard_Points_v3", "GlobalLeaderboard_Rebirths_v1",
+				"GlobalLeaderboard_Streak_v1", "GlobalLeaderboard_Kills_v1",
+				}) do
+				task.spawn(function()
+					pcall(function()
+						DataStoreService:GetOrderedDataStore(storeName):RemoveAsync(tostring(userId))
+					end)
+				end)
+			end
+		end
+	end
+end)
+
+-- 🔒 Cleanup rate limits
+Players.PlayerRemoving:Connect(function(p)
+	for _, bucket in pairs(rateLimits) do bucket[p.UserId] = nil end
+	frozenPlayers[p.UserId] = nil
+	pointsCacheS[p.UserId] = nil
+	unameCache[p.UserId]   = nil
+end)
+
+print("✅ ADMIN SERVER chargé (Profile + Anti-Fly/TP + 🔐 Escrow UGC)")

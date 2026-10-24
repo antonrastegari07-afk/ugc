@@ -1,0 +1,2215 @@
+--[[
+	🎃 HalloweenEvent_Client — la fenêtre du pass Halloween + les coins des zones
+	📍 À placer dans : StarterPlayer ▸ StarterPlayerScripts   (LocalScript, nom : HalloweenEvent_Client)
+	⚙️ Réglages : ReplicatedStorage ▸ HALLOWEEN_EVENT_CONFIG
+
+	Ouvrir la fenêtre :
+	  • le ProximityPrompt des panneaux (Workspace ▸ HalloweenEventBoards)
+	  • Jack (« Tell me about the Halloween Pass! »)
+	  • TON bouton (LocalScript) :  game.ReplicatedStorage.HalloweenEvent.Open:Fire()          -- onglet Rewards
+	                                 game.ReplicatedStorage.HalloweenEvent.Open:Fire("Quests")  -- onglet Quests
+	Manette : B ferme, LB / RB changent d'onglet.
+
+	🔒 Ce script n'envoie que des DEMANDES (« achète le palier 3 », « je ramasse le coin x7f2 ») :
+	   le serveur vérifie tout et décide des montants.
+--]]
+
+local Players              = game:GetService("Players")
+local ReplicatedStorage    = game:GetService("ReplicatedStorage")
+local TweenService         = game:GetService("TweenService")
+local UserInputService     = game:GetService("UserInputService")
+local GuiService           = game:GetService("GuiService")
+local RunService           = game:GetService("RunService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local SoundService         = game:GetService("SoundService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local C = require(ReplicatedStorage:WaitForChild("HALLOWEEN_EVENT_CONFIG"))
+local folder = ReplicatedStorage:WaitForChild("HalloweenEvent", 60)
+if not folder then return end
+local StateRF  = folder:WaitForChild("State")
+local ActionRE = folder:WaitForChild("Action")
+local PushRE   = folder:WaitForChild("Push")
+local OpenBE   = folder:WaitForChild("Open")
+
+local UI = C.UI or {}
+local Z  = C.Zones or {}
+local TIERS = C.Tiers or {}
+local QDEF = {}
+for _, list in ipairs({ (C.Quests or {}).Daily or {}, (C.Quests or {}).Weekly or {} }) do
+	for _, q in ipairs(list) do QDEF[q.Id] = q end
+end
+local TIME_KINDS = { playtime = true, arenatime = true }
+
+-- effets de Jack (étoiles, éclats, sons) si son client est là ; sinon des effets simples
+local FX
+task.spawn(function()
+	local jq = playerGui:WaitForChild("JackQuestClient", 20)
+	local m = jq and jq:WaitForChild("JackCinematics", 10)
+	if m then pcall(function() FX = require(m) end) end
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎨 STYLE (boutons = ceux de ton panneau Settings)
+-- ════════════════════════════════════════════════════════════════
+local FRED = Font.new("rbxasset://fonts/families/FredokaOne.json")
+local F = { Black = FRED, BlackI = FRED, Bold = FRED, BoldI = FRED, Semi = FRED }   -- ✅ tout en FredokaOne
+local OUTLINE = Color3.fromRGB(20, 20, 30)
+local WHITE = Color3.new(1, 1, 1)
+local ORANGE = Color3.fromRGB(255, 150, 40)
+local PINK = Color3.fromRGB(255, 105, 180)
+local PURPLE = Color3.fromRGB(150, 85, 255)
+local COL = {   -- dessus, dessous, socle (même recette que la roue / Settings)
+	green  = { Color3.fromRGB(40, 185, 80),  Color3.fromRGB(12, 115, 42), Color3.fromRGB(8, 65, 25) },
+	red    = { Color3.fromRGB(245, 70, 65),  Color3.fromRGB(180, 25, 35), Color3.fromRGB(105, 12, 22) },
+	blue   = { Color3.fromRGB(55, 145, 240), Color3.fromRGB(20, 85, 180), Color3.fromRGB(12, 48, 110) },
+	grey   = { Color3.fromRGB(150, 154, 166), Color3.fromRGB(88, 92, 106), Color3.fromRGB(44, 46, 56) },
+	dark   = { Color3.fromRGB(88, 94, 112),  Color3.fromRGB(50, 54, 68),  Color3.fromRGB(28, 30, 40) },
+	purple = { Color3.fromRGB(160, 95, 240), Color3.fromRGB(105, 45, 190), Color3.fromRGB(60, 22, 115) },
+	orange = { Color3.fromRGB(255, 196, 60), Color3.fromRGB(245, 140, 20), Color3.fromRGB(150, 72, 8) },
+}
+
+local function new(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
+end
+local function corner(o, r) return new("UICorner", { CornerRadius = UDim.new(0, r) }, o) end
+local function stroke(o, col, th, tr)
+	return new("UIStroke", { Color = col, Thickness = th or 1, Transparency = tr or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o)
+end
+local function tstroke(o, th, col)    -- contour du TEXTE
+	return new("UIStroke", { Color = col or OUTLINE, Thickness = th or 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual }, o)
+end
+local function tween(o, t, props, style, dir)
+	local tw = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), props)
+	tw:Play()
+	return tw
+end
+local function label(parent, props)
+	local l = new("TextLabel", { BackgroundTransparency = 1, FontFace = F.Bold, TextColor3 = WHITE, TextSize = 18,
+		TextXAlignment = Enum.TextXAlignment.Left }, parent)
+	for k, v in pairs(props) do l[k] = v end
+	return l
+end
+local function smooth(u) u = math.clamp(u, 0, 1) return u * u * (3 - 2 * u) end
+
+-- Bouton 3D de ton panneau Settings : socle fixe + face brillante qui s'enfonce
+local function button3D(parent, text, col, size, textSize, order)
+	local depth, radius = 4, 10
+	local slot = new("Frame", { Size = size, BackgroundTransparency = 1, LayoutOrder = order or 0 }, parent)
+	local edge = new("Frame", { Size = UDim2.new(1, 0, 1, -depth), Position = UDim2.fromOffset(0, depth),
+		BackgroundColor3 = col[3], BorderSizePixel = 0 }, slot)
+	corner(edge, radius)
+	local btn = new("TextButton", { Size = UDim2.new(1, 0, 1, -depth), BackgroundColor3 = WHITE,
+		BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 2 }, slot)
+	corner(btn, radius)
+	local grad = new("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
+	local lbl = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = text,
+		FontFace = FRED, TextSize = textSize or 18, TextColor3 = WHITE, ZIndex = 4 }, btn)
+	tstroke(lbl, 1.6)
+	local function press(down) btn.Position = UDim2.fromOffset(0, down and depth or 0) end
+	btn.MouseButton1Down:Connect(function() press(true) end)
+	btn.MouseButton1Up:Connect(function() press(false) end)
+	btn.MouseLeave:Connect(function() press(false) end)
+	btn.Activated:Connect(function() task.delay(0.08, function() press(false) end) end)
+	return btn, lbl, slot, grad, edge
+end
+local function recolor(grad, edge, col)
+	grad.Color = ColorSequence.new(col[1], col[2])
+	edge.BackgroundColor3 = col[3]
+end
+
+-- 🔢 nombres
+local function commas(n)
+	local s = tostring(math.floor(n))
+	local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
+	return (out:gsub("^,", ""))
+end
+-- largeur d'un texte en FredokaOne (pour centrer « icône + nombre » ensemble dans un bouton)
+local function textW(t, size)
+	local ok, v = pcall(function()
+		return game:GetService("TextService"):GetTextSize(t, size, Enum.Font.FredokaOne, Vector2.new(2000, 200)).X
+	end)
+	if ok and type(v) == "number" and v > 0 then return v end
+	return #t * size * 0.62
+end
+-- place l'icône et le nombre CÔTE À CÔTE, le groupe centré dans son parent
+local function centerRow(icon, lbl, text, size, iconW, gap)
+	lbl.Text = text
+	local tw = textW(text, size)
+	local withIcon = icon ~= nil and icon.Visible
+	local total = (withIcon and (iconW + gap) or 0) + tw
+	local x = -total / 2
+	if withIcon then
+		icon.AnchorPoint = Vector2.new(0, 0.5)
+		icon.Position = UDim2.new(0.5, x, 0.5, 0)
+		x += iconW + gap
+	end
+	lbl.AnchorPoint = Vector2.new(0, 0.5)
+	lbl.Position = UDim2.new(0.5, x - 2, 0.5, 0)
+	lbl.Size = UDim2.fromOffset(tw + 8, size + 8)
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+end
+local function clock(sec)
+	sec = math.max(0, math.floor(sec))
+	local d, h, m, s = sec // 86400, (sec % 86400) // 3600, (sec % 3600) // 60, sec % 60
+	return d, h, m, s
+end
+local function longTime(sec)        -- 9d 1h 11m 33s
+	local d, h, m, s = clock(sec)
+	if d > 0 then return ("%dd %dh %dm %ds"):format(d, h, m, s) end
+	return ("%dh %dm %ds"):format(h, m, s)
+end
+local function padTime(sec)         -- 3d 06h 00m 53s
+	local d, h, m, s = clock(sec)
+	if d > 0 then return ("%dd %02dh %02dm %02ds"):format(d, h, m, s) end
+	return ("%02dh %02dm %02ds"):format(h, m, s)
+end
+local function mmss(sec) return ("%d:%02d"):format(sec // 60, sec % 60) end
+
+local function serverNow() return workspace:GetServerTimeNow() end
+
+local function img(id)
+	if type(id) == "number" then id = tostring(id) end
+	if type(id) ~= "string" or id == "" then return nil end
+	if id:find("://") then return id end
+	return "rbxassetid://" .. id
+end
+
+-- petite icône de pièce (image de la config, sinon une citrouille)
+local function coinIcon(parent, size, pos, anchor, z)
+	local id = img(C.Coin and C.Coin.Icon)
+	if id then
+		return new("ImageLabel", { Size = size, Position = pos or UDim2.new(), AnchorPoint = anchor or Vector2.zero,
+			BackgroundTransparency = 1, Image = id, ScaleType = Enum.ScaleType.Fit, ZIndex = z or 5 }, parent)
+	end
+	return new("TextLabel", { Size = size, Position = pos or UDim2.new(), AnchorPoint = anchor or Vector2.zero,
+		BackgroundTransparency = 1, Text = "🎃", TextScaled = true, FontFace = FRED, ZIndex = z or 5 }, parent)
+end
+
+-- 💸 icône Robux (image officielle de Roblox ; si elle ne charge pas → le symbole Robux)
+local ROBUX_IMG = img(UI.RobuxIcon) or "rbxasset://textures/ui/common/robux.png"
+local robuxIcons, robuxBroken = {}, false
+local function robuxIcon(parent, size, pos, anchor, z)
+	local il = new("ImageLabel", { Name = "RobuxIcon", Size = size, Position = pos or UDim2.new(), AnchorPoint = anchor or Vector2.zero,
+		BackgroundTransparency = 1, Image = ROBUX_IMG, ScaleType = Enum.ScaleType.Fit, ZIndex = z or 6 }, parent)
+	new("TextLabel", { Name = "RobuxGlyph", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = utf8.char(0xE002),
+		TextScaled = true, TextColor3 = WHITE, Visible = robuxBroken, ZIndex = (z or 6) + 1,
+		FontFace = Font.new("rbxasset://fonts/families/BuilderSans.json", Enum.FontWeight.Heavy) }, il)
+	if robuxBroken then il.ImageTransparency = 1 end
+	table.insert(robuxIcons, il)
+	return il
+end
+task.spawn(function()
+	local ok, CP = pcall(function() return game:GetService("ContentProvider") end)
+	if not ok or not CP then return end
+	pcall(function()
+		CP:PreloadAsync({ ROBUX_IMG }, function(_, status)
+			if status ~= Enum.AssetFetchStatus.Success then
+				robuxBroken = true
+				for _, il in ipairs(robuxIcons) do
+					il.ImageTransparency = 1
+					local g = il:FindFirstChild("RobuxGlyph")
+					if g then g.Visible = true end
+				end
+			end
+		end)
+	end)
+end)
+
+local function sound(name, vol)
+	local id = UI.Sounds and img(UI.Sounds[name])
+	if id then
+		local s = new("Sound", { SoundId = id, Volume = vol or 0.6 }, SoundService)
+		s:Play()
+		s.Ended:Connect(function() s:Destroy() end)
+		return
+	end
+	if FX and FX.Sound then
+		local map = { Open = "PageFly", Buy = "PageGet", Claim = "PageGet", Coin = "PageGet", Error = nil }
+		if map[name] then pcall(FX.Sound, map[name], nil, vol or 0.45) end
+	end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🖼️ LA FENÊTRE
+-- ════════════════════════════════════════════════════════════════
+local view = nil              -- dernière vue du serveur
+local isOpen = false
+local tab = "Rewards"
+local skipIndex = 1
+local busyUntil = 0           -- anti double-clic
+
+local refresh, toast          -- (définies plus bas)
+local TABS_W, GAP = 200, 22
+local PW, PH = UI.Width or 1000, UI.Height or 600
+local W = TABS_W + GAP + PW
+
+local gui = new("ScreenGui", { Name = "HalloweenEventUI", ResetOnSpawn = false, IgnoreGuiInset = true,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 12, Enabled = false }, playerGui)
+pcall(function() gui.ScreenInsets = Enum.ScreenInsets.None end)
+local dim = new("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+	BackgroundTransparency = 0.45, Text = "", AutoButtonColor = false, Selectable = false }, gui)
+
+local root = new("Frame", { Name = "Root", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(W, PH),
+	BackgroundTransparency = 1 }, gui)
+local uiScale = new("UIScale", {}, root)
+
+-- le panneau (fond « déchiré » si tu as uploadé l'image, sinon noir arrondi)
+local panel
+if img(UI.PanelImage) then
+	-- 🖼️ ton image de fond (HalloweenPanelNight.png : noir déchiré + nuit + liseré orange) : étirée sur le panneau
+	panel = new("Frame", { Name = "Panel", Position = UDim2.fromOffset(TABS_W + GAP, 0), Size = UDim2.fromOffset(PW, PH),
+		BackgroundTransparency = 1, Active = true }, root)
+	-- l'image est un peu PLUS GRANDE que la fenêtre : ses bords déchirés dépassent autour, le contenu reste dedans
+	local grow = UI.PanelImageGrow or 40
+	new("ImageLabel", { Name = "PanelImage", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, grow, 1, grow), BackgroundTransparency = 1, Image = img(UI.PanelImage),
+		ScaleType = Enum.ScaleType.Stretch, ZIndex = 1 }, panel)
+else
+	-- 🌙 fond fait en jeu : dégradé « nuit » + liseré orange (aucune image nécessaire)
+	panel = new("Frame", { Name = "Panel", Position = UDim2.fromOffset(TABS_W + GAP, 0), Size = UDim2.fromOffset(PW, PH),
+		BackgroundColor3 = WHITE, BackgroundTransparency = 0.03, Active = true }, root)
+	corner(panel, 18)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(UI.BgTop or Color3.fromRGB(38, 24, 54),
+		UI.BgBottom or Color3.fromRGB(13, 9, 20)) }, panel)
+	if img(UI.Backdrop) then      -- décor optionnel (HalloweenBackdrop.png fourni : lune, chauves-souris, cimetière)
+		-- ✅ un peu plus petit que le panneau et arrondi : il ne déborde JAMAIS sur le liseré orange
+		local bd = new("ImageLabel", { Name = "Backdrop", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(1, -6, 1, -6), BackgroundTransparency = 1, Image = img(UI.Backdrop),
+			ScaleType = Enum.ScaleType.Stretch, ZIndex = 1 }, panel)
+		corner(bd, 15)
+	end
+	-- 🟧 le liseré orange est PAR-DESSUS le décor (rien ne passe devant)
+	local border = new("Frame", { Name = "Border", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 3 }, panel)
+	corner(border, 18)
+	stroke(border, ORANGE, 3, 0.15)
+end
+
+-- 🎃 en-tête
+if img(UI.Logo) then
+	new("ImageLabel", { Size = UDim2.fromOffset(150, 150), Position = UDim2.fromOffset(-28, -46), BackgroundTransparency = 1,
+		Image = img(UI.Logo), ZIndex = 6 }, panel)
+else
+	label(panel, { Text = "🎃", TextScaled = true, Size = UDim2.fromOffset(110, 110), Position = UDim2.fromOffset(-10, -26),
+		TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6 })
+end
+local titleL = label(panel, { Text = UI.Title or "HALLOWEEN", FontFace = F.Black, TextSize = 62, Position = UDim2.fromOffset(130, 16),
+	Size = UDim2.fromOffset(480, 70), ZIndex = 5 })
+new("UIGradient", { Rotation = 90, Color = ColorSequence.new(ORANGE, PINK) }, titleL)
+tstroke(titleL, 2.5, Color3.fromRGB(40, 10, 30))
+local timerL = label(panel, { Text = "", FontFace = F.Bold, TextSize = 30, Position = UDim2.fromOffset(132, 84),
+	Size = UDim2.fromOffset(560, 40), ZIndex = 5 })
+tstroke(timerL, 1.5)
+
+-- 🪙 solde
+local coinPill = new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -104, 0, 30), Size = UDim2.fromOffset(250, 64),
+	BackgroundColor3 = Color3.fromRGB(8, 6, 10), ZIndex = 5 }, panel)
+corner(coinPill, 16)
+stroke(coinPill, PURPLE, 3.5)
+coinIcon(coinPill, UDim2.fromOffset(40, 40), UDim2.new(0, 18, 0.5, 0), Vector2.new(0, 0.5), 6)
+local coinL = label(coinPill, { Text = "0", FontFace = F.Black, TextSize = 40, Position = UDim2.fromOffset(70, 10),
+	Size = UDim2.new(1, -82, 1, -20), TextScaled = true, ZIndex = 6 })
+new("UITextSizeConstraint", { MaxTextSize = 40 }, coinL)
+tstroke(coinL, 1.5)
+
+local closeBtn = button3D(panel, "X", COL.red, UDim2.fromOffset(66, 70), 40)
+closeBtn.Parent.AnchorPoint = Vector2.new(1, 0)
+closeBtn.Parent.Position = UDim2.new(1, -18, 0, 26)
+closeBtn.Parent.ZIndex = 6
+
+new("Frame", { Position = UDim2.fromOffset(24, 136), Size = UDim2.new(1, -48, 0, 2), BackgroundColor3 = WHITE,
+	BackgroundTransparency = 0.82, BorderSizePixel = 0, ZIndex = 5 }, panel)
+
+-- 🗂️ onglets (à gauche, comme la référence ; vert = ouvert, rouge = fermé)
+local tabBtns = {}
+for i, name in ipairs({ "Rewards", "Quests" }) do
+	local b, l, slot, grad, edge = button3D(root, name, COL.dark, UDim2.fromOffset(TABS_W, 76), 38)
+	slot.Position = UDim2.fromOffset(0, 150 + (i - 1) * 92)
+	tabBtns[name] = { b = b, grad = grad, edge = edge, slot = slot }
+	b.Activated:Connect(function() if tab ~= name then tab = name ; sound("Open", 0.3) ; refresh() end end)
+end
+
+-- 🧪 barre TESTEUR (sous la fenêtre, seulement pour C.TestUserIds — le serveur revérifie tout)
+local TESTBAR_H = 58
+local testBar = new("Frame", { Name = "TesterBar", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, (TABS_W + GAP) / 2, 1, 12),
+	Size = UDim2.fromOffset(640, 46), BackgroundColor3 = Color3.fromRGB(10, 6, 14), BackgroundTransparency = 0.15, Visible = false, ZIndex = 10 }, root)
+do
+	corner(testBar, 12)
+	stroke(testBar, Color3.fromRGB(255, 206, 84), 2, 0.2)
+	local tl = label(testBar, { Text = "TESTER", TextSize = 18, TextColor3 = Color3.fromRGB(255, 206, 84), Position = UDim2.fromOffset(16, 0),
+		Size = UDim2.fromOffset(90, 46), ZIndex = 11 })
+	tstroke(tl, 1.4)
+	local x = 104
+	for _, tb in ipairs({ { "coins", "+1,000 coins", 150 }, { "finish", "Finish my quests", 180 }, { "reset", "Reset my pass", 160 } }) do
+		local b, _, slot = button3D(testBar, tb[2], COL.blue, UDim2.fromOffset(tb[3], 38), 17)
+		slot.Position = UDim2.fromOffset(x, 4)
+		x += tb[3] + 10
+		b.Activated:Connect(function()
+			if not view or not view.tester or os.clock() < busyUntil then return end
+			busyUntil = os.clock() + 0.8
+			ActionRE:FireServer("test", tb[1])
+		end)
+	end
+end
+
+-- zone de contenu
+local content = new("Frame", { Position = UDim2.fromOffset(24, 150), Size = UDim2.new(1, -48, 1, -168),
+	BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 4 }, panel)
+
+local cover = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "Loading...",
+	FontFace = F.Bold, TextSize = 26, TextColor3 = Color3.fromRGB(200, 200, 210), ZIndex = 20, Visible = false }, content)
+
+-- ════════════════════════════════════════════════════════════════
+-- 🏆 ONGLET REWARDS
+-- ════════════════════════════════════════════════════════════════
+local rewardsPage = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 4 }, content)
+local CARD_W, IMG_H, PRICE_H = 196, 200, 64
+local strip = new("ScrollingFrame", { Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, 0, 0, IMG_H + PRICE_H + 46),
+	BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 5, ScrollBarImageColor3 = WHITE,
+	ScrollBarImageTransparency = 0.55, ScrollingDirection = Enum.ScrollingDirection.X, AutomaticCanvasSize = Enum.AutomaticSize.X,
+	CanvasSize = UDim2.new(), ZIndex = 4, ElasticBehavior = Enum.ElasticBehavior.Never }, rewardsPage)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 18),
+	SortOrder = Enum.SortOrder.LayoutOrder }, strip)
+new("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), PaddingTop = UDim.new(0, 6) }, strip)
+
+local cards = {}
+local function rewardHasScythe(r)
+	if type(r) ~= "table" then return false end
+	if r.Kind == "scythe" then return true end
+	if r.Kind == "multi" then
+		for _, x in ipairs(r.List or {}) do if rewardHasScythe(x) then return true end end
+	end
+	return false
+end
+local SCYTHE_I = nil            -- index du palier de la faux (effets brillants, stock, petite flèche)
+for i, tier in ipairs(TIERS) do if rewardHasScythe(tier.Reward) then SCYTHE_I = i end end
+local eff = { sparkles = {}, t = 0 }   -- effets animés (boucle plus bas)
+local scytheInfo = {}                   -- la page « Jack's Scythe » (construite plus bas)
+
+-- ✨ petit éclat à 4 branches (2 traits arrondis croisés + un point) ; la boucle d'effets l'anime
+local function sparkle(parent, z)
+	local f = new("Frame", { Name = "Sparkle", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(24, 24),
+		BackgroundTransparency = 1, ZIndex = z, Visible = false }, parent)
+	local sc = new("UIScale", { Scale = 0 }, f)
+	local parts = {}
+	for _, sz in ipairs({ UDim2.new(0, 4, 1, 0), UDim2.new(1, 0, 0, 4), UDim2.fromOffset(9, 9) }) do
+		local b = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = sz,
+			BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = z }, f)
+		corner(b, 3)
+		table.insert(parts, b)
+	end
+	return { f = f, sc = sc, parts = parts, t0 = -1, dur = 1 }
+end
+
+for i, tier in ipairs(TIERS) do
+	local rc = C.RarityColors and C.RarityColors[tier.Rarity or "common"] or { ORANGE, PURPLE }
+	local isScythe = i == SCYTHE_I
+	local card = new("Frame", { Name = "Card" .. i, Size = UDim2.fromOffset(CARD_W, IMG_H + PRICE_H + 40), BackgroundTransparency = 1,
+		LayoutOrder = i, ZIndex = 4 }, strip)
+	local box = new("Frame", { Name = "Box", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, IMG_H / 2),
+		Size = UDim2.fromOffset(CARD_W, IMG_H), BackgroundColor3 = WHITE, ZIndex = 4, ClipsDescendants = true }, card)
+	corner(box, 10)
+	local boxScale = new("UIScale", {}, box)
+	local boxStroke = stroke(box, Color3.fromRGB(150, 150, 160), 3.5)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(rc[1], rc[2]) }, box)
+	-- 🖼️ fond de la carte : celui du palier (Background), sinon celui de sa rareté (UI.CardBackgrounds), sinon le dégradé
+	local bgId = img(tier.Background) or img((UI.CardBackgrounds or {})[tier.Rarity or "common"]) or img(UI.CardBack)
+	if bgId then
+		local bi = new("ImageLabel", { Name = "CardBackground", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = bgId,
+			ScaleType = Enum.ScaleType.Stretch, ZIndex = 4 }, box)
+		corner(bi, 10)
+	end
+	local pic
+	if img(tier.Image) then
+		pic = new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.45, 0),
+			Size = UDim2.fromOffset(150, 150), BackgroundTransparency = 1, Image = img(tier.Image), ZIndex = 5 }, box)
+	else
+		pic = label(box, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.42, 0), Size = UDim2.fromOffset(120, 120),
+			Text = tier.Icon or "🎁", TextScaled = true, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 5 })
+	end
+	local nameBar = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 40),
+		BackgroundColor3 = Color3.fromRGB(10, 8, 14), BackgroundTransparency = 0.35, BorderSizePixel = 0, ZIndex = 6 }, box)
+	local nameL = label(nameBar, { Text = tier.Name or tier.Id, FontFace = F.Black, TextSize = 22, Size = UDim2.new(1, -10, 1, 0),
+		Position = UDim2.fromOffset(5, 0), TextXAlignment = Enum.TextXAlignment.Center, TextScaled = false, ZIndex = 7 })
+	nameL.TextScaled = true
+	new("UITextSizeConstraint", { MaxTextSize = 24 }, nameL)
+	tstroke(nameL, 2)
+	local num = label(box, { Text = tostring(i), FontFace = F.Black, TextSize = 22, Size = UDim2.fromOffset(34, 30),
+		Position = UDim2.fromOffset(8, 4), ZIndex = 7 })
+	tstroke(num, 2)
+	local lock = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45,
+		ZIndex = 8, Visible = false }, box)
+	local lockIcon = label(lock, { Text = "🔒", TextScaled = true, Size = UDim2.fromOffset(34, 34), AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 9 })
+	local owned = label(box, { Text = "✓", FontFace = F.Black, TextSize = 40, TextColor3 = Color3.fromRGB(120, 255, 150),
+		Size = UDim2.fromOffset(44, 44), AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -6, 0, 2),
+		TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 9, Visible = false })
+	tstroke(owned, 2.5)
+	-- 🎃 la faux : petites étoiles qui scintillent + reflet qui passe (seulement sur sa carte)
+	local shine, stockL
+	if isScythe and UI.ScytheSparkles ~= false then
+		for k = 1, 6 do table.insert(eff.sparkles, sparkle(box, 10)) end
+		shine = new("Frame", { Name = "Shine", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(-0.6, 0.5),
+			Size = UDim2.new(0, 46, 1.6, 0), Rotation = 20, BackgroundColor3 = WHITE, BackgroundTransparency = 1,
+			BorderSizePixel = 0, ZIndex = 10, Visible = false }, box)
+		new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.55),
+			NumberSequenceKeypoint.new(1, 1) }) }, shine)
+	end
+	if isScythe then
+		-- 🔧 « TOOL » : c'est un outil (dans ton sac, gardé à vie)
+		local tag = new("Frame", { Name = "ToolTag", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 7),
+			Size = UDim2.fromOffset(62, 24), BackgroundColor3 = Color3.fromRGB(20, 12, 4), BackgroundTransparency = 0.15, ZIndex = 11 }, box)
+		corner(tag, 12)
+		stroke(tag, Color3.fromRGB(255, 205, 90), 2)
+		local tl = label(tag, { Text = "TOOL", TextSize = 16, TextColor3 = Color3.fromRGB(255, 220, 130), Size = UDim2.fromScale(1, 1),
+			TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 12 })
+		tstroke(tl, 1.2)
+		-- 🔍 cliquer sur la carte → la page qui explique la faux
+		local open = new("TextButton", { Name = "InfoButton", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "",
+			AutoButtonColor = false, ZIndex = 13 }, box)
+		open.MouseEnter:Connect(function() tween(boxScale, 0.15, { Scale = 1.04 }, Enum.EasingStyle.Quad) end)
+		open.MouseLeave:Connect(function() tween(boxScale, 0.15, { Scale = 1 }, Enum.EasingStyle.Quad) end)
+		open.Activated:Connect(function() if scytheInfo.open then scytheInfo.open() end end)
+	end
+	-- bouton du prix (3D gris ; vert quand tu peux l'acheter) : icône + prix CENTRÉS ensemble
+	local b, bl, slot, grad, edge = button3D(card, "", COL.dark, UDim2.fromOffset(CARD_W, PRICE_H), 30)
+	slot.Position = UDim2.fromOffset(0, IMG_H + 12)
+	local priceRow = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 5 }, b)
+	local icon = coinIcon(priceRow, UDim2.fromOffset(34, 34), UDim2.new(0.5, -62, 0.5, 0), Vector2.new(0.5, 0.5), 6)
+	local priceL = label(priceRow, { Text = commas(tier.Cost or 0), FontFace = F.Black, TextSize = 30, Size = UDim2.new(1, -60, 1, 0),
+		Position = UDim2.fromOffset(52, 0), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6 })
+	tstroke(priceL, 2)
+	centerRow(icon, priceL, commas(tier.Cost or 0), 30, 34, 8)
+	if isScythe then
+		-- 📦 stock limité : « 123 / 500 LEFT » sous le prix, texte seul (réglé dans HALLOWEEN_EVENT_CONFIG ▸ Scythe)
+		local pill = new("Frame", { Name = "StockPill", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, IMG_H + PRICE_H + 12),
+			Size = UDim2.new(1, -6, 0, 26), BackgroundTransparency = 1, Visible = false, ZIndex = 6 }, card)
+		stockL = label(pill, { Name = "Stock", Text = "", FontFace = F.Black, TextSize = 20, Size = UDim2.new(1, -4, 1, 0),
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), TextScaled = true,
+			TextColor3 = Color3.fromRGB(255, 214, 90), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 7 })
+		new("UITextSizeConstraint", { MaxTextSize = 20 }, stockL)
+		tstroke(stockL, 2, Color3.fromRGB(40, 12, 2))
+		eff.stockPill, eff.stockText = pill, stockL
+		-- 👁️ VIEW : texte blanc seul, qui apparaît et disparaît lentement en fondu, tant que la faux n'est pas à toi
+		local vw = new("Frame", { Name = "ViewHint", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.47, 0),
+			Size = UDim2.fromOffset(110, 42), BackgroundTransparency = 1, Visible = false, ZIndex = 12 }, box)
+		local vl = label(vw, { Name = "ViewText", Text = "VIEW", FontFace = F.Black, TextSize = 30, TextColor3 = WHITE, Size = UDim2.fromScale(1, 1),
+			TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 1, ZIndex = 13 })
+		eff.viewText, eff.viewStroke = vl, tstroke(vl, 2, Color3.fromRGB(10, 6, 16))
+		eff.viewStroke.Transparency = 1
+		eff.viewHint = vw
+	end
+	-- survol : la carte se soulève un peu
+	local function lift(on) tween(boxScale, 0.15, { Scale = on and 1.04 or 1 }, Enum.EasingStyle.Quad) end
+	box.MouseEnter:Connect(function() lift(true) end)
+	box.MouseLeave:Connect(function() lift(false) end)
+	b.MouseEnter:Connect(function() lift(true) end)
+	b.MouseLeave:Connect(function() lift(false) end)
+	local function buy()
+		if not view or os.clock() < busyUntil then return end
+		if view.owned and view.owned[i] then return end
+		if not view.active then return toast("The event is not running.", nil, true) end
+		if view.nextTier ~= i then return toast("Unlock the previous tiers first!", nil, true) end
+		if isScythe and view.scythe and view.scythe.left == 0 and not view.scythe.mine then
+			return toast((C.Scythe and C.Scythe.SoldOutText) or "Jack's Scythe is sold out!", nil, true)
+		end
+		if (view.coins or 0) < (tier.Cost or 0) then return toast("Not enough Halloween Coins!", "Do quests and collect pumpkin coins.", true) end
+		busyUntil = os.clock() + 1.2
+		ActionRE:FireServer("buy", i)
+	end
+	b.Activated:Connect(buy)
+	cards[i] = { buy = buy, b = b, info = isScythe and box:FindFirstChild("InfoButton") or nil, card = card, box = box, boxStroke = boxStroke, lock = lock, owned = owned, nameL = nameL, pic = pic,
+		grad = grad, edge = edge, priceL = priceL, icon = icon, lockIcon = lockIcon, shine = shine, stockL = stockL }
+end
+
+-- 🎮 MANETTE (Xbox / PlayStation) : on place la sélection sur le bon bouton
+local function usingPad()
+	local ok, t = pcall(function() return UserInputService:GetLastInputType() end)
+	return ok and t and tostring(t):find("Gamepad") ~= nil
+end
+local function padSelect(obj)
+	if not obj or not usingPad() then return end
+	pcall(function() GuiService.SelectedObject = obj end)
+end
+scytheInfo.padSelect = padSelect
+
+-- 🪙 « GET COINS ▶ » : montre où gagner des coins (ouvre l'onglet Quests)
+local getCoinsB, getCoinsL, getCoinsSlot = button3D(rewardsPage, "GET COINS ▶", COL.purple, UDim2.fromOffset(236, 64), 24)
+do
+	local ic = coinIcon(getCoinsB, UDim2.fromOffset(32, 32), UDim2.new(0, 14, 0.5, 0), Vector2.new(0, 0.5), 5)
+	getCoinsL.Size = UDim2.fromOffset(160, 40)
+	centerRow(ic, getCoinsL, "GET COINS ▶", 24, 30, 8)
+end
+getCoinsSlot.AnchorPoint = Vector2.new(0, 1)
+getCoinsSlot.Position = UDim2.new(0, 4, 1, -6)
+getCoinsSlot.ZIndex = 6
+getCoinsB.Activated:Connect(function() tab = "Quests" sound("Open", 0.3) refresh() end)
+
+-- ❗ pastilles ROUGES qui battent : Quests = une quête à réclamer ; Rewards = un palier que tu peux t'offrir
+local function makeDot(slot, name)
+	local d = new("Frame", { Name = name, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, -8, 0, 8), Size = UDim2.fromOffset(32, 32),
+		BackgroundColor3 = Color3.fromRGB(232, 40, 52), ZIndex = 8, Visible = false }, slot)
+	corner(d, 16)
+	stroke(d, WHITE, 2.5)
+	label(d, { Text = "!", TextSize = 24, TextColor3 = WHITE, Size = UDim2.fromScale(1, 1), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 9 })
+	new("UIScale", {}, d)
+	return d
+end
+local questDot = makeDot(tabBtns.Quests.slot, "QuestsDot")
+local rewardsDot = makeDot(tabBtns.Rewards.slot, "RewardsDot")
+
+-- 👉 petite flèche vers la faux (une seule fois : disparaît dès que tu l'as vue)
+local hintB = new("TextButton", { Name = "ScytheHint", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0, 26 + 6 + IMG_H / 2),
+	Size = UDim2.fromOffset(54, 54), BackgroundColor3 = Color3.fromRGB(14, 10, 20), BackgroundTransparency = 0.1, Text = "",
+	AutoButtonColor = false, Visible = false, ZIndex = 12 }, rewardsPage)
+do
+	corner(hintB, 27)
+	stroke(hintB, ORANGE, 2.5)
+	local a = label(hintB, { Text = "▶", TextSize = 26, TextColor3 = Color3.fromRGB(255, 176, 60), Size = UDim2.fromScale(1, 1),
+		Position = UDim2.fromOffset(2, 0), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 13 })
+	tstroke(a, 1.5)
+	local cap = label(hintB, { Text = "SCYTHE", TextSize = 13, TextColor3 = Color3.fromRGB(255, 200, 120), AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 1, 2), Size = UDim2.fromOffset(80, 16), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 13 })
+	tstroke(cap, 1.4)
+end
+local hintDone = false
+local function scytheInView()
+	local c = SCYTHE_I and cards[SCYTHE_I]
+	if not c then return true end
+	local ok, res = pcall(function()
+		local cx = c.box.AbsolutePosition.X + c.box.AbsoluteSize.X * 0.6
+		local sx = strip.AbsolutePosition.X + strip.AbsoluteSize.X
+		return c.box.AbsoluteSize.X > 1 and cx <= sx
+	end)
+	return ok and res == true
+end
+local function hintSeen()
+	if hintDone then return end
+	hintDone = true
+	hintB.Visible = false
+	if view then view.hint = true end
+	pcall(function() ActionRE:FireServer("seen") end)
+end
+hintB.Activated:Connect(function()
+	sound("Open", 0.3)
+	pcall(function()
+		tween(strip, 0.6, { CanvasPosition = Vector2.new(math.max(strip.AbsoluteCanvasSize.X, 4000), 0) }, Enum.EasingStyle.Quad)
+	end)
+	hintSeen()
+end)
+strip:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+	if hintB.Visible and scytheInView() then hintSeen() end
+end)
+
+-- ⏩ SKIP TIER (Robux) — même rangée que − / + ; icône Robux + prix centrés dans le bouton
+-- quantités proposées : produit créé (ProductId), ou testeur (achat simulé, voir C.TestMode)
+local SKIPS = {}
+local function skipList()
+	local out = {}
+	for _, s in ipairs((C.Robux and C.Robux.SkipTier) or {}) do
+		if (tonumber(s.ProductId) or 0) > 0 or (view and view.testFree) then table.insert(out, s) end
+	end
+	return out
+end
+-- 💸 vrai prix Robux lu sur Roblox (Developer Product) ; sinon le Price de la config
+local robuxPrice = {}
+local function priceOf(s)
+	local pid = tonumber(s and s.ProductId) or 0
+	if pid > 0 and robuxPrice[pid] == nil then
+		robuxPrice[pid] = false
+		task.spawn(function()
+			local ok, info = pcall(function()
+				return game:GetService("MarketplaceService"):GetProductInfo(pid, Enum.InfoType.Product)
+			end)
+			if ok and type(info) == "table" and tonumber(info.PriceInRobux) then
+				robuxPrice[pid] = tonumber(info.PriceInRobux)
+				if isOpen and refresh then refresh() end
+			end
+		end)
+	end
+	return robuxPrice[pid] or tonumber(s and s.Price) or 0
+end
+SKIPS = skipList()
+local skipBar = new("Frame", { Name = "SkipBar", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -6),
+	Size = UDim2.fromOffset(384, 96), BackgroundTransparency = 1, ZIndex = 6, Visible = #SKIPS > 0 }, rewardsPage)
+local minusB = button3D(skipBar, "−", COL.dark, UDim2.fromOffset(64, 64), 40)
+minusB.Parent.AnchorPoint = Vector2.new(0, 1)
+minusB.Parent.Position = UDim2.new(0, 0, 1, 0)
+local plusB = button3D(skipBar, "+", COL.dark, UDim2.fromOffset(64, 64), 40)
+plusB.Parent.AnchorPoint = Vector2.new(1, 1)
+plusB.Parent.Position = UDim2.new(1, 0, 1, 0)
+local skipB, _, skipSlot = button3D(skipBar, "", COL.green, UDim2.fromOffset(228, 64), 36)
+skipSlot.AnchorPoint = Vector2.new(0.5, 1)
+skipSlot.Position = UDim2.new(0.5, 0, 1, 0)
+local skipPrice = label(skipB, { Text = "", FontFace = F.Black, TextSize = 36, ZIndex = 6 })
+tstroke(skipPrice, 2.2)
+local skipRobux = robuxIcon(skipB, UDim2.fromOffset(32, 32), UDim2.new(0.5, -40, 0.5, 0), Vector2.new(0, 0.5), 6)
+local skipCount = label(skipBar, { Text = "", FontFace = F.Black, TextSize = 24, AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.fromOffset(228, 28), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 8 })
+tstroke(skipCount, 2.2)
+minusB.Activated:Connect(function() skipIndex = math.max(1, skipIndex - 1) refresh() end)
+plusB.Activated:Connect(function() skipIndex = math.min(#SKIPS, skipIndex + 1) refresh() end)
+skipB.Activated:Connect(function()
+	local s = SKIPS[skipIndex]
+	if not s or not view or os.clock() < busyUntil then return end
+	busyUntil = os.clock() + 2
+	ActionRE:FireServer("skip", s.Count)
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 📜 ONGLET QUESTS
+-- ════════════════════════════════════════════════════════════════
+local questsPage = new("ScrollingFrame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
+	ScrollBarThickness = 5, ScrollBarImageColor3 = WHITE, ScrollBarImageTransparency = 0.55, CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y, Visible = false, ZIndex = 4 }, content)
+new("UIListLayout", { Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }, questsPage)
+new("UIPadding", { PaddingRight = UDim.new(0, 12), PaddingBottom = UDim.new(0, 16), PaddingTop = UDim.new(0, 4) }, questsPage)
+
+local DIFF_COL = { easy = Color3.fromRGB(70, 200, 100), medium = Color3.fromRGB(255, 160, 40), hard = Color3.fromRGB(165, 85, 245) }
+
+local REFRESH_W = 236
+local refreshBtns = {}       -- [which] = { b, slot, tagF, tagL, tagIcon, sc }
+local function sectionHeader(order, text, colA, colB, which)
+	local h = new("Frame", { Size = UDim2.new(1, 0, 0, 64), BackgroundColor3 = WHITE, BorderSizePixel = 0, LayoutOrder = order, ZIndex = 4 }, questsPage)
+	new("UIGradient", { Rotation = 0, Color = ColorSequence.new(colA, colB) }, h)
+	local rightPad = which and (REFRESH_W + 26) or 16
+	local t = label(h, { Text = text, FontFace = F.BlackI, TextSize = 40, Position = UDim2.fromOffset(18, 0), Size = UDim2.new(0.5, -20, 1, 0),
+		TextScaled = true, ZIndex = 5 })
+	new("UITextSizeConstraint", { MaxTextSize = 40 }, t)
+	new("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10) }, t)
+	tstroke(t, 3, Color3.new(0, 0, 0))
+	-- ⏳ temps restant (à droite, avant le bouton)
+	local right = label(h, { Text = "", FontFace = F.BoldI, TextSize = 28, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -rightPad, 0, 0),
+		Size = UDim2.new(0.5, -rightPad - 60, 1, 0), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5 })
+	tstroke(right, 2, Color3.new(0, 0, 0))
+	local glass
+	if img(UI.Hourglass) then
+		glass = new("ImageLabel", { Size = UDim2.fromOffset(40, 40), AnchorPoint = Vector2.new(1, 0.5), BackgroundTransparency = 1,
+			Image = img(UI.Hourglass), ZIndex = 6 }, h)
+	else
+		glass = label(h, { Text = "⌛", TextSize = 30, Size = UDim2.fromOffset(40, 40), AnchorPoint = Vector2.new(1, 0.5),
+			TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6 })
+	end
+	local function placeGlass()
+		glass.Position = UDim2.new(1, -rightPad - 8 - right.TextBounds.X, 0.5, 0)
+		glass.Visible = right.Text ~= ""
+	end
+	right:GetPropertyChangedSignal("Text"):Connect(placeGlass)
+	right:GetPropertyChangedSignal("TextBounds"):Connect(placeGlass)
+	-- 🔄 NOUVELLES QUÊTES : renouvelle TOUTE la section (gratuit 1× / jour, sinon Robux)
+	if which then
+		local b, bl, slot = button3D(h, "", COL.blue, UDim2.fromOffset(REFRESH_W, 50), 24)
+		slot.AnchorPoint = Vector2.new(1, 0.5)
+		slot.Position = UDim2.new(1, -12, 0.5, 2)
+		slot.ZIndex = 6
+		local ic = label(b, { Text = "🔄", TextScaled = true, Size = UDim2.fromOffset(28, 28), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6 })
+		bl.Size = UDim2.fromOffset(170, 34)
+		centerRow(ic, bl, "NEW QUESTS", 24, 28, 8)
+		-- petite étiquette du prix : FREE / x2 / TEST / ⏣ 25
+		local tagF = new("Frame", { Name = "RefreshTag", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 8, 0, 2),
+			Size = UDim2.fromOffset(70, 24), BackgroundColor3 = Color3.fromRGB(14, 10, 20), ZIndex = 9 }, slot)
+		corner(tagF, 12)
+		stroke(tagF, WHITE, 1.5, 0.3)
+		local tagL = label(tagF, { Text = "", TextSize = 16, Size = UDim2.fromScale(1, 1), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 10 })
+		local tagIcon = robuxIcon(tagF, UDim2.fromOffset(16, 16), UDim2.new(0.5, -20, 0.5, 0), Vector2.new(0, 0.5), 10)
+		local sc = new("UIScale", {}, slot)
+		refreshBtns[which] = { b = b, slot = slot, tagF = tagF, tagL = tagL, tagIcon = tagIcon, sc = sc }
+		b.Activated:Connect(function()
+			if not view or os.clock() < busyUntil then return end
+			local v = view
+			for _, e in ipairs((v[which] and v[which].list) or {}) do
+				local def = QDEF[e.id]
+				if def and not e.c and e.n >= ((TIME_KINDS[def.Kind] and def.Goal * 60) or def.Goal) then
+					return toast("Claim your finished quests first!", "Then refresh to get new ones.", true)
+				end
+			end
+			busyUntil = os.clock() + 1.2
+			if (v.free or 0) > 0 or (v.credits or 0) > 0 then
+				ActionRE:FireServer("reroll", which)
+			else
+				ActionRE:FireServer("rerollBuy", which)
+			end
+		end)
+	end
+	return h, right
+end
+
+local rerollInfo = label(questsPage, { Text = "", FontFace = F.Semi, TextSize = 20, TextColor3 = Color3.fromRGB(210, 205, 220),
+	Size = UDim2.new(1, 0, 0, 26), LayoutOrder = 1, ZIndex = 5 })
+local dailyH, dailyT = sectionHeader(10, "DAILY QUESTS", Color3.fromRGB(120, 28, 20), Color3.fromRGB(70, 14, 14), "daily")
+local weeklyH, weeklyT = sectionHeader(100, "WEEKLY QUESTS", Color3.fromRGB(110, 30, 70), Color3.fromRGB(60, 14, 40), "weekly")
+local jackH, jackT = sectionHeader(200, "JACK'S QUESTS", Color3.fromRGB(190, 90, 10), Color3.fromRGB(80, 30, 90))
+
+-- une ligne de quête (réutilisée)
+local function questRow(order)
+	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 116), BackgroundColor3 = Color3.fromRGB(0, 0, 0), BackgroundTransparency = 0.45,
+		LayoutOrder = order, ZIndex = 4 }, questsPage)
+	corner(row, 6)
+	local rs = stroke(row, Color3.fromRGB(95, 95, 105), 2.5)
+	local title = label(row, { Text = "", FontFace = F.Black, TextSize = 32, Position = UDim2.fromOffset(22, 14), Size = UDim2.new(1, -420, 0, 40),
+		TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5 })
+	local chip = new("TextLabel", { Size = UDim2.fromOffset(86, 22), Position = UDim2.fromOffset(22, 58), BackgroundColor3 = DIFF_COL.easy,
+		Text = "", FontFace = F.Black, TextSize = 14, TextColor3 = WHITE, ZIndex = 5 }, row)
+	corner(chip, 6)
+	local prog = label(row, { Text = "", FontFace = F.Semi, TextSize = 30, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -400, 0, 14),
+		Size = UDim2.fromOffset(200, 40), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 5 })
+	local barBack = new("Frame", { Position = UDim2.fromOffset(22, 92), Size = UDim2.new(1, -424, 0, 10), BackgroundColor3 = WHITE,
+		BackgroundTransparency = 0.85, BorderSizePixel = 0, ZIndex = 5 }, row)
+	local bar = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 6 }, barBack)
+	-- 🎲 changer la quête
+	local rb, rl, rslot, rgrad, redge = button3D(row, "↻", COL.purple, UDim2.fromOffset(62, 70), 36)
+	rslot.AnchorPoint = Vector2.new(1, 0.5)
+	rslot.Position = UDim2.new(1, -330, 0.5, 0)
+	local rtag = label(rslot, { Text = "", FontFace = F.Black, TextSize = 14, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, -2),
+		Size = UDim2.fromOffset(90, 18), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 7 })
+	tstroke(rtag, 1.5)
+	local rRobux = robuxIcon(rtag, UDim2.fromOffset(14, 14), UDim2.new(0.5, -4, 0.5, 0), Vector2.new(1, 0.5), 8)
+	-- 🪙 récompense (gris) → bouton CLAIM (vert) quand c'est fini
+	local pb, pl, pslot, pgrad, pedge = button3D(row, "", COL.dark, UDim2.fromOffset(300, 84), 30)
+	pslot.AnchorPoint = Vector2.new(1, 0.5)
+	pslot.Position = UDim2.new(1, -16, 0.5, 0)
+	local picon = coinIcon(pb, UDim2.fromOffset(40, 40), UDim2.new(0, 40, 0.5, 0), Vector2.new(0, 0.5), 6)
+	local pval = label(pb, { Text = "", FontFace = F.Black, TextSize = 40, Position = UDim2.fromOffset(92, 0), Size = UDim2.new(1, -100, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6 })
+	tstroke(pval, 2)
+	return { row = row, rs = rs, title = title, chip = chip, prog = prog, bar = bar, barBack = barBack,
+		rb = rb, rslot = rslot, rtag = rtag, rRobux = rRobux, pb = pb, pl = pl, pgrad = pgrad, pedge = pedge, picon = picon, pval = pval }
+end
+
+local rows = { daily = {}, weekly = {}, jack = {} }
+local function rowFor(which, i)
+	local r = rows[which][i]
+	if not r then
+		local base = which == "daily" and 10 or which == "weekly" and 100 or 200
+		r = questRow(base + i)
+		rows[which][i] = r
+		r.pb.Activated:Connect(function()
+			local e = r.entry
+			if not e or not view or which == "jack" or os.clock() < busyUntil then return end
+			if e.c then return end
+			local def = QDEF[e.id]
+			local goal = def and ((TIME_KINDS[def.Kind] and def.Goal * 60) or def.Goal) or 1
+			if e.n < goal then return toast("Not finished yet!", def and def.Text:gsub("{N}", tostring(def.Goal)), true) end
+			busyUntil = os.clock() + 1.2
+			ActionRE:FireServer("claim", which, i, e.id)
+		end)
+	end
+	return r
+end
+
+local function fillQuest(r, which, e)
+	r.entry = e
+	r.row.Visible = true
+	local def = QDEF[e.id]
+	if not def then r.row.Visible = false return end
+	local timeKind = TIME_KINDS[def.Kind]
+	local goal = timeKind and def.Goal * 60 or def.Goal
+	local done = e.n >= goal
+	r.title.Text = (def.Text or ""):gsub("{N}", commas(def.Goal))
+	r.chip.Visible = false                     -- (pas de difficulté affichée)
+	r.prog.Text = timeKind and (mmss(math.min(e.n, goal)) .. " / " .. mmss(goal)) or (commas(math.min(e.n, goal)) .. " / " .. commas(goal))
+	r.barBack.Visible = true
+	r.bar.Size = UDim2.fromScale(math.clamp(e.n / goal, 0, 1), 1)
+	r.bar.BackgroundColor3 = done and Color3.fromRGB(120, 255, 150) or WHITE
+	r.picon.Visible = true
+	if e.c then
+		recolor(r.pgrad, r.pedge, COL.dark)
+		r.pval.Text = "✓ DONE"
+		r.pval.Position = UDim2.fromOffset(0, 0)
+		r.pval.Size = UDim2.fromScale(1, 1)
+		r.pval.TextXAlignment = Enum.TextXAlignment.Center
+		r.picon.Visible = false
+		r.row.BackgroundTransparency = 0.7
+	elseif done then
+		recolor(r.pgrad, r.pedge, COL.green)
+		r.pval.Text = "CLAIM " .. commas(def.Reward)
+		r.pval.TextSize = 32
+		r.pval.Position = UDim2.fromOffset(86, 0)
+		r.pval.Size = UDim2.new(1, -92, 1, 0)
+		r.pval.TextXAlignment = Enum.TextXAlignment.Left
+		r.row.BackgroundTransparency = 0.45
+	else
+		recolor(r.pgrad, r.pedge, COL.dark)
+		r.pval.Text = commas(def.Reward)
+		r.pval.TextSize = 40
+		r.pval.Position = UDim2.fromOffset(92, 0)
+		r.pval.Size = UDim2.new(1, -100, 1, 0)
+		r.pval.TextXAlignment = Enum.TextXAlignment.Left
+		r.row.BackgroundTransparency = 0.45
+	end
+	r.rs.Color = done and not e.c and Color3.fromRGB(110, 230, 140) or Color3.fromRGB(95, 95, 105)
+	r.rslot.Visible = false          -- (les nouvelles quêtes se prennent pour TOUTE la section : bouton dans l'en-tête)
+end
+
+local function fillJack(r, j)
+	r.entry = nil
+	r.row.Visible = true
+	r.title.Text = j.Title or "Jack's quest"
+	r.chip.Visible = true
+	r.chip.Text = j.Done and "DONE" or j.Active and "ACTIVE" or j.Available and "NEW" or "LOCKED"
+	r.chip.BackgroundColor3 = j.Done and DIFF_COL.easy or j.Active and DIFF_COL.medium or j.Available and PURPLE or Color3.fromRGB(80, 80, 90)
+	local n, total = tonumber(j.Count), tonumber(j.Total)
+	if j.Done then r.prog.Text = "Completed"
+	elseif n and total then r.prog.Text = commas(n) .. " / " .. commas(total)
+	else r.prog.Text = (C.Jack and C.Jack.Hint) or "Talk to Jack" end
+	r.barBack.Visible = n ~= nil and total ~= nil and total > 0 and not j.Done
+	if r.barBack.Visible then r.bar.Size = UDim2.fromScale(math.clamp(n / total, 0, 1), 1) end
+	r.rslot.Visible = false
+	recolor(r.pgrad, r.pedge, j.Done and COL.dark or COL.orange)
+	r.picon.Visible = (j.Coins or 0) > 0 and not j.Done
+	r.pval.TextXAlignment = Enum.TextXAlignment.Left
+	r.pval.Position = UDim2.fromOffset(92, 0)
+	r.pval.Size = UDim2.new(1, -100, 1, 0)
+	r.pval.TextSize = 40
+	if j.Done then
+		r.pval.Text = "✓ DONE"
+		r.pval.Position = UDim2.fromOffset(0, 0)
+		r.pval.Size = UDim2.fromScale(1, 1)
+		r.pval.TextXAlignment = Enum.TextXAlignment.Center
+	elseif (j.Coins or 0) > 0 then
+		r.pval.Text = commas(j.Coins)
+	else
+		r.pval.Text = (j.Points and j.Points > 0) and (commas(j.Points) .. " pts") or "🎁"
+		r.pval.Position = UDim2.fromOffset(0, 0)
+		r.pval.Size = UDim2.fromScale(1, 1)
+		r.pval.TextXAlignment = Enum.TextXAlignment.Center
+	end
+	r.row.BackgroundTransparency = j.Done and 0.7 or 0.45
+	r.rs.Color = j.Active and ORANGE or Color3.fromRGB(95, 95, 105)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔔 TOAST (en haut de l'écran, visible même fenêtre fermée)
+-- ════════════════════════════════════════════════════════════════
+local coinTop                   -- (plus bas) compteur de coins du haut
+local toastGui = new("ScreenGui", { Name = "HalloweenEventToast", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 14 }, playerGui)
+local toastF = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, -120), Size = UDim2.fromOffset(460, 74),
+	BackgroundColor3 = Color3.fromRGB(14, 12, 18), BackgroundTransparency = 0.08 }, toastGui)
+-- 🖼️ fond : la plaque rectangulaire aux bords arrachés (même image que la plaque du seau de Jack)
+--    UI.ToastImage = "" → rectangle sombre arrondi + liseré orange (ancien look)
+local toastImgId = img(UI.ToastImage == nil and "97476386797648" or UI.ToastImage)
+local toastStroke
+if toastImgId then
+	toastF.BackgroundTransparency = 1
+	-- 9-slice : les bords arrachés gardent leur taille, seul le milieu s'étire (pas de bord écrasé)
+	new("ImageLabel", { Name = "ToastBg", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = toastImgId,
+		ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(48, 48, 976, 464), SliceScale = 0.32, ZIndex = 1 }, toastF)
+	toastStroke = { Color = ORANGE }                       -- (plus de contour : l'erreur se voit à la couleur du titre)
+else
+	corner(toastF, 14)
+	toastStroke = stroke(toastF, ORANGE, 3)
+end
+coinIcon(toastF, UDim2.fromOffset(44, 44), UDim2.new(0, 14, 0.5, 0), Vector2.new(0, 0.5), 3)
+local toastT = label(toastF, { Text = "", FontFace = F.Black, TextSize = 24, Position = UDim2.fromOffset(70, 8), Size = UDim2.new(1, -82, 0, 30), ZIndex = 3 })
+local toastS = label(toastF, { Text = "", FontFace = F.Semi, TextSize = 17, TextColor3 = Color3.fromRGB(215, 210, 225), Position = UDim2.fromOffset(70, 38),
+	Size = UDim2.new(1, -82, 0, 26), TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 3 })
+local toastScale = new("UIScale", {}, toastF)
+local toastId = 0
+local toastUntil = 0            -- (le compteur de coins se place sous le toast tant qu'il est là)
+toast = function(title, sub, isError)
+	toastId += 1
+	toastUntil = os.clock() + (isError and 2.4 or 3.6) + 0.3
+	local id = toastId
+	toastT.Text = title or ""
+	toastS.Text = sub or ""
+	toastStroke.Color = isError and Color3.fromRGB(255, 120, 60) or ORANGE
+	toastT.TextColor3 = isError and Color3.fromRGB(255, 130, 100) or WHITE
+	local cam = workspace.CurrentCamera
+	toastScale.Scale = math.clamp(((cam and cam.ViewportSize.X > 2) and cam.ViewportSize.X or gui.AbsoluteSize.X) / 1100, 0.65, 1)
+	if isError then sound("Error", 0.4) end
+	tween(toastF, 0.35, { Position = UDim2.new(0.5, 0, 0, math.max(GuiService:GetGuiInset().Y, 36) + 14) }, Enum.EasingStyle.Back)
+	task.delay(isError and 2.4 or 3.6, function()
+		if toastId == id then tween(toastF, 0.35, { Position = UDim2.new(0.5, 0, 0, -120) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In) end
+	end)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎁 PALIER DÉBLOQUÉ (par-dessus la fenêtre)
+-- ════════════════════════════════════════════════════════════════
+local modal = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, -28, 1, -28),
+	BackgroundColor3 = Color3.fromRGB(6, 4, 10), BackgroundTransparency = 0.08,
+	Visible = false, ZIndex = 40, Active = true }, panel)
+corner(modal, 16)
+local modalCard = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.47), Size = UDim2.fromOffset(240, 240),
+	BackgroundColor3 = WHITE, ZIndex = 41 }, modal)
+corner(modalCard, 14)
+local modalStroke = stroke(modalCard, Color3.fromRGB(255, 220, 120), 4)
+local modalGrad = new("UIGradient", { Rotation = 90 }, modalCard)
+local modalBg = new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Stretch,
+	ZIndex = 41, Visible = false }, modalCard)
+corner(modalBg, 14)
+local modalPic = new("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(180, 180),
+	BackgroundTransparency = 1, ZIndex = 42 }, modalCard)
+local modalEmoji = label(modalCard, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(150, 150),
+	TextScaled = true, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 42 })
+local modalTitle = label(modal, { Text = "TIER UNLOCKED!", FontFace = F.Black, TextSize = 48, AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 0.47, -135), Size = UDim2.fromOffset(700, 56), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 41 })
+new("UIGradient", { Rotation = 90, Color = ColorSequence.new(ORANGE, PINK) }, modalTitle)
+tstroke(modalTitle, 2.5, Color3.fromRGB(40, 10, 30))
+local modalName = label(modal, { Text = "", FontFace = F.Black, TextSize = 34, AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0.47, 134), Size = UDim2.fromOffset(700, 40), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 41 })
+tstroke(modalName, 2)
+local modalSub = label(modal, { Text = "", FontFace = F.Semi, TextSize = 22, TextColor3 = Color3.fromRGB(220, 215, 230), AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 0.47, 176), Size = UDim2.fromOffset(700, 28), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 41 })
+local okB, _, okSlot = button3D(modal, "AWESOME!", COL.green, UDim2.fromOffset(220, 66), 30)
+okSlot.AnchorPoint = Vector2.new(0.5, 1)
+okSlot.Position = UDim2.new(0.5, 0, 1, -18)
+okSlot.ZIndex = 45
+okB.ZIndex = 45
+local modalScale = new("UIScale", {}, modalCard)
+local modalQueue, modalShowing = {}, false
+local showNextModal
+okB.Activated:Connect(function() modal.Visible = false modalShowing = false showNextModal() end)
+
+local function givenText(g)
+	local out = {}
+	for _, x in ipairs(g or {}) do
+		if x.Kind == "points" then table.insert(out, "+" .. commas(x.Amount) .. " points")
+		elseif x.Kind == "spins" then table.insert(out, "+" .. x.Amount .. " spins")
+		elseif x.Kind == "boost" then table.insert(out, ("x%d boost for %d min"):format(x.Mult or 2, (x.Duration or 0) // 60))
+		elseif x.Kind == "tool" then table.insert(out, (x.Tool or "Tool") .. " (yours forever!)")
+		elseif x.Kind == "scythe" then
+			table.insert(out, x.Serial == "DEV" and "Jack's Scythe DEV" or x.Serial and ("Jack's Scythe #" .. tostring(x.Serial)) or "Jack's Scythe")
+		end
+	end
+	return table.concat(out, " · ")
+end
+
+showNextModal = function()
+	if modalShowing or #modalQueue == 0 then return end
+	local m = table.remove(modalQueue, 1)
+	local tier = TIERS[m.Tier]
+	if not tier then return showNextModal() end
+	modalShowing = true
+	local rc = C.RarityColors and C.RarityColors[tier.Rarity or "common"] or { ORANGE, PURPLE }
+	modalGrad.Color = ColorSequence.new(rc[1], rc[2])
+	local bgId = img(tier.Background) or img((UI.CardBackgrounds or {})[tier.Rarity or "common"]) or img(UI.CardBack)
+	modalBg.Image = bgId or ""
+	modalBg.Visible = bgId ~= nil
+	modalPic.Image = img(tier.Image) or ""
+	modalPic.Visible = img(tier.Image) ~= nil
+	modalEmoji.Text = img(tier.Image) and "" or (tier.Icon or "🎁")
+	modalName.Text = tier.Name or ""
+	modalSub.Text = givenText(m.Given)
+	modal.Visible = true
+	modalScale.Scale = 0.3
+	tween(modalScale, 0.5, { Scale = 1 }, Enum.EasingStyle.Back)
+	modalCard.Rotation = -8
+	tween(modalCard, 0.6, { Rotation = 0 }, Enum.EasingStyle.Elastic)
+	sound("Buy", 0.55)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎃 PAGE « JACK'S SCYTHE » (clic sur la carte de la faux)
+--    Ton propre perso (copie dans une vue 3D) tient la faux et joue SES animations : sortie + dash.
+--    Purement visuel : rien n'est envoyé au serveur (sauf si tu cliques sur le prix = achat normal).
+-- ════════════════════════════════════════════════════════════════
+do
+	local GOLD_HI, GOLD_LO = Color3.fromRGB(255, 232, 140), Color3.fromRGB(255, 150, 40)
+	local page = new("Frame", { Name = "ScythePage", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, -28, 1, -28), BackgroundColor3 = Color3.fromRGB(8, 5, 12), BackgroundTransparency = 0,
+		Visible = false, ZIndex = 50, Active = true }, panel)
+	corner(page, 16)
+	-- 🖼️ la vue 3D (fond doré de la carte de la faux si tu l'as mis)
+	local holder = new("Frame", { Name = "View", Position = UDim2.fromOffset(24, 24), Size = UDim2.fromOffset(380, 524),
+		BackgroundColor3 = WHITE, ZIndex = 51 }, page)
+	corner(holder, 14)
+	stroke(holder, Color3.fromRGB(255, 205, 90), 3)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(150, 96, 20), Color3.fromRGB(40, 20, 6)) }, holder)
+	local holderBg = new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Crop,
+		ZIndex = 51, Visible = false }, holder)
+	corner(holderBg, 14)
+	local vp = new("ViewportFrame", { Name = "Viewport", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 52,
+		Ambient = Color3.fromRGB(150, 130, 170), LightColor = Color3.fromRGB(255, 236, 205),
+		LightDirection = Vector3.new(-0.45, -0.9, -0.6) }, holder)
+	corner(vp, 14)
+	local cam3 = new("Camera", { FieldOfView = 30 }, vp)
+	vp.CurrentCamera = cam3
+	local noView = label(holder, { Text = "🎃", TextScaled = true, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.fromOffset(170, 170), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 53, Visible = false })
+	-- 📦 le stock, bien en évidence en haut de la vue 3D (texte seul sur un léger dégradé sombre pour qu'il se lise)
+	local topFade = new("Frame", { Name = "StockFade", Size = UDim2.new(1, 0, 0, 120), BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0, Visible = false, ZIndex = 53 }, holder)
+	corner(topFade, 14)
+	new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 1) }) }, topFade)
+	local stockTop = label(topFade, { Name = "LimitedLabel", Text = "LIMITED STOCK", FontFace = F.Black, TextSize = 20,
+		TextColor3 = Color3.fromRGB(255, 232, 140), Position = UDim2.fromOffset(0, 12), Size = UDim2.new(1, 0, 0, 24),
+		TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 54 })
+	tstroke(stockTop, 1.8, Color3.fromRGB(40, 12, 2))
+	eff.pageStock = label(topFade, { Name = "PageStock", Text = "", FontFace = F.Black, TextSize = 40, TextScaled = true,
+		TextColor3 = Color3.fromRGB(255, 214, 90), Position = UDim2.fromOffset(10, 38), Size = UDim2.new(1, -20, 0, 46),
+		TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 54 })
+	new("UITextSizeConstraint", { MaxTextSize = 40 }, eff.pageStock)
+	tstroke(eff.pageStock, 2.6, Color3.fromRGB(40, 12, 2))
+
+	-- 📝 à droite : titre, « TOOL », explications
+	local title = label(page, { Text = "JACK'S SCYTHE", FontFace = F.Black, TextSize = 54, Position = UDim2.fromOffset(432, 26),
+		Size = UDim2.fromOffset(560, 64), ZIndex = 52 })
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(GOLD_HI, GOLD_LO) }, title)
+	tstroke(title, 2.5, Color3.fromRGB(50, 22, 4))
+	local tag = new("Frame", { Position = UDim2.fromOffset(434, 96), Size = UDim2.fromOffset(76, 30), BackgroundColor3 = Color3.fromRGB(20, 12, 4),
+		ZIndex = 52 }, page)
+	corner(tag, 15)
+	stroke(tag, Color3.fromRGB(255, 205, 90), 2)
+	local tagL = label(tag, { Text = "TOOL", TextSize = 20, TextColor3 = Color3.fromRGB(255, 220, 130), Size = UDim2.fromScale(1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 53 })
+	tstroke(tagL, 1.4)
+	local sub = label(page, { Text = "Mythic · Tier " .. tostring(SCYTHE_I or "?") .. " of the Halloween Pass", FontFace = F.Semi, TextSize = 21,
+		TextColor3 = Color3.fromRGB(215, 205, 225), Position = UDim2.fromOffset(522, 96), Size = UDim2.fromOffset(470, 30), ZIndex = 52 })
+	local list = new("Frame", { Position = UDim2.fromOffset(432, 146), Size = UDim2.fromOffset(570, 300), BackgroundTransparency = 1, ZIndex = 52 }, page)
+	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+	local lines = {}
+	for k = 1, 4 do
+		local row = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, LayoutOrder = k, ZIndex = 52 }, list)
+		local dot = new("Frame", { Position = UDim2.fromOffset(2, 11), Size = UDim2.fromOffset(12, 12), Rotation = 45,
+			BackgroundColor3 = GOLD_LO, BorderSizePixel = 0, ZIndex = 53 }, row)
+		corner(dot, 3)
+		local l = label(row, { Text = "", FontFace = F.Semi, TextSize = 23, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+			Position = UDim2.fromOffset(26, 0), Size = UDim2.new(1, -26, 1, 0), ZIndex = 53 })
+		tstroke(l, 1.2)
+		lines[k] = { row = row, l = l }
+	end
+	local status = label(page, { Text = "", FontFace = F.Black, TextSize = 28, TextColor3 = GOLD_HI, Position = UDim2.fromOffset(432, 452),
+		Size = UDim2.fromOffset(570, 34), ZIndex = 52 })
+	tstroke(status, 2)
+	-- boutons : RETOUR (gris) + prix (vert quand tu peux l'acheter)
+	local backB, _, backSlot = button3D(page, "◀ BACK", COL.red, UDim2.fromOffset(170, 62), 28)
+	backSlot.AnchorPoint = Vector2.new(1, 1)
+	backSlot.Position = UDim2.new(1, -24, 1, -20)
+	backSlot.ZIndex = 54
+	backB.ZIndex = 54
+	local buyB, _, buySlot, buyGrad, buyEdge = button3D(page, "", COL.green, UDim2.fromOffset(230, 62), 30)
+	buySlot.AnchorPoint = Vector2.new(1, 1)
+	buySlot.Position = UDim2.new(1, -210, 1, -20)
+	buySlot.ZIndex = 54
+	buyB.ZIndex = 54
+	local buyIcon = coinIcon(buyB, UDim2.fromOffset(34, 34), UDim2.new(0.5, -60, 0.5, 0), Vector2.new(0, 0.5), 56)
+	local buyL = label(buyB, { Text = "", FontFace = F.Black, TextSize = 30, ZIndex = 56 })
+	tstroke(buyL, 2)
+
+	-- 🎬 animations de la faux : IDs de SCYTHE_CONFIG ▸ Animations (en Studio : les KeyframeSequences de l'installeur)
+	local animCache = {}
+	local function animId(key)
+		if animCache[key] ~= nil then return animCache[key] or nil end
+		local id
+		pcall(function()
+			local f = ReplicatedStorage:FindFirstChild("JackScythe")
+			local m = f and f:FindFirstChild("SCYTHE_CONFIG")
+			local SC = m and require(m)
+			local v = SC and SC.Animations and SC.Animations[key]
+			if type(v) == "number" then v = tostring(v) end
+			if type(v) == "string" and v ~= "" then id = v:find("://") and v or ("rbxassetid://" .. v) end
+		end)
+		if not id and select(2, pcall(function() return RunService:IsStudio() end)) == true then
+			pcall(function()
+				local f = ReplicatedStorage:FindFirstChild("NpcAnimations")
+				f = f and f:FindFirstChild("JackScythe")
+				local kfs = f and f:FindFirstChild("Scythe_" .. key)
+				if kfs then id = game:GetService("KeyframeSequenceProvider"):RegisterKeyframeSequence(kfs) end
+			end)
+		end
+		animCache[key] = id or false
+		return id
+	end
+
+	local live = nil
+	local function stopLive()
+		if not live then return end
+		live.alive = false
+		for _, t in pairs(live.tracks) do pcall(function() t:Stop(0) end) end
+		if live.wm then live.wm:Destroy() end
+		live = nil
+	end
+
+	-- 🧍 copie de TON perso + la faux dans sa main
+	local function buildView()
+		stopLive()
+		local L = { alive = true, tracks = {}, t = 0 }
+		live = L
+		L.wm = new("WorldModel", {}, vp)
+		local assets = ReplicatedStorage:FindFirstChild("HalloweenEventAssets")
+		local prev = assets and assets:FindFirstChild("ScythePreview")
+		local ch = player.Character
+		local clone
+		if ch then
+			local was = ch.Archivable
+			pcall(function()
+				ch.Archivable = true
+				clone = ch:Clone()
+			end)
+			pcall(function() ch.Archivable = was end)
+		end
+		local root = clone and (clone:FindFirstChild("HumanoidRootPart") or clone.PrimaryPart)
+		if not clone or not root then
+			if clone then clone:Destroy() end
+			clone = nil
+		end
+		if clone then
+			for _, d in ipairs(clone:GetDescendants()) do
+				if d:IsA("LuaSourceContainer") or d:IsA("Tool") or d:IsA("Sound") or d:IsA("ForceField")
+					or d:IsA("BillboardGui") or d:IsA("ParticleEmitter") or d.Name == "ScytheGrip" or d.Name == "RightGrip" then
+					pcall(function() d:Destroy() end)
+				end
+			end
+			for _, d in ipairs(clone:GetDescendants()) do
+				if d:IsA("BasePart") then d.Anchored = d == root d.CanCollide = false end
+			end
+			local hum = clone:FindFirstChildOfClass("Humanoid")
+			if hum then
+				pcall(function() hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end)
+				if not hum:FindFirstChildOfClass("Animator") then new("Animator", {}, hum) end
+			end
+			clone:PivotTo(CFrame.new(0, 3, 0))
+			clone.Parent = L.wm
+			-- la faux dans la main (même moteur que le vrai outil : « ScytheGrip » Torso → Handle)
+			if prev then
+				local s = prev:Clone()
+				local handle = s:FindFirstChild("Handle")
+				if handle then
+					for _, d in ipairs(s:GetDescendants()) do
+						if d:IsA("Motor6D") then d.Enabled = false end
+					end
+					for _, d in ipairs(s:GetDescendants()) do
+						if d:IsA("BasePart") then
+							d.Anchored, d.CanCollide, d.Massless = false, false, true
+							if d ~= handle then new("WeldConstraint", { Part0 = handle, Part1 = d }, handle) end
+						end
+					end
+					local torso = clone:FindFirstChild("Torso") or clone:FindFirstChild("UpperTorso")
+					local arm = clone:FindFirstChild("Right Arm") or clone:FindFirstChild("RightHand")
+					local c0, c1 = s:GetAttribute("GripC0"), s:GetAttribute("GripC1")
+					if torso and typeof(c0) == "CFrame" then
+						new("Motor6D", { Name = "ScytheGrip", Part0 = torso, Part1 = handle, C0 = c0,
+							C1 = typeof(c1) == "CFrame" and c1 or CFrame.new() }, torso)
+					elseif arm then
+						new("Motor6D", { Name = "ScytheGrip", Part0 = arm, Part1 = handle, C0 = CFrame.new(0, -1, 0) * CFrame.Angles(-math.pi / 2, 0, 0) }, arm)
+					end
+					s.Parent = clone
+				end
+			end
+			-- 🎬 sortie de la faux, puis elle la tient, et un dash toutes les ~3 s
+			local an = hum and hum:FindFirstChildOfClass("Animator")
+			if an then
+				for _, k in ipairs({ "Hold", "Equip", "Dash" }) do
+					local id = animId(k)
+					if id then
+						local ok, tr = pcall(function() return an:LoadAnimation(new("Animation", { AnimationId = id })) end)
+						if ok and tr then
+							tr.Priority = ({ Hold = Enum.AnimationPriority.Action, Equip = Enum.AnimationPriority.Action2,
+								Dash = Enum.AnimationPriority.Action4 })[k]
+							tr.Looped = k == "Hold"
+							L.tracks[k] = tr
+						end
+					end
+				end
+				task.spawn(function()
+					-- ordre en boucle : sortie, sortie, dash, sortie, dash…
+					local tr = L.tracks
+					local function play(t, fallback)
+						if not t or not L.alive then return end
+						t:Play(0.05)
+						task.wait(math.max(0.7, t.Length > 0 and t.Length or fallback))
+					end
+					if tr.Hold then tr.Hold:Play(0.1) end
+					local seq = { "Equip", "Equip", "Dash", "Equip", "Dash" }
+					local k = 0
+					while L.alive do
+						k = k % #seq + 1
+						play(tr[seq[k]], seq[k] == "Dash" and 0.8 or 1.2)
+						task.wait(0.9)
+					end
+				end)
+			end
+			L.center = Vector3.new(0, 3.1, 0)
+			L.dist = 21                      -- un peu plus loin : tout le perso + la faux
+		elseif prev then
+			-- pas de perso (mort / chargement) : la faux seule, qui tourne
+			local s = prev:Clone()
+			for _, d in ipairs(s:GetDescendants()) do if d:IsA("BasePart") then d.Anchored = true end end
+			s.Parent = L.wm
+			local ok, cf, size = pcall(function() return s:GetBoundingBox() end)
+			L.center = ok and cf.Position or Vector3.zero
+			L.dist = ok and math.max(size.X, size.Y, size.Z) * 2.4 or 10
+			L.spinModel = s
+		end
+		noView.Visible = L.center == nil
+	end
+
+	local function fill()
+		local v = view
+		local tier = SCYTHE_I and TIERS[SCYTHE_I]
+		local sy = v and v.scythe
+		local own = v and v.owned and SCYTHE_I and v.owned[SCYTHE_I]
+		local gold = 100
+		pcall(function()
+			local f = ReplicatedStorage:FindFirstChild("JackScythe")
+			local m = f and f:FindFirstChild("SCYTHE_CONFIG")
+			local SC = m and require(m)
+			if SC and tonumber(SC.GoldCount) then gold = tonumber(SC.GoldCount) end
+		end)
+		local txt = {
+			"It's a TOOL you keep forever: it stays in your backpack, even after you respawn.",
+			"Equip it and click (or press Q) to DASH forward in a burst of soul flames!",
+			"Every scythe has its own serial number engraved on it. The first " .. commas(gold) .. " are GOLDEN!",
+			(sy and sy.stock) and ("LIMITED: only " .. commas(sy.stock) .. " will ever exist."
+				.. (sy.left ~= nil and (" " .. commas(sy.left) .. " left!") or "")) or nil,
+		}
+		for k, ln in ipairs(lines) do
+			ln.row.Visible = txt[k] ~= nil
+			ln.l.Text = txt[k] or ""
+			if k == 4 then ln.l.TextColor3 = Color3.fromRGB(255, 170, 70) end      -- 📦 le stock limité ressort
+		end
+		local soldOut = sy ~= nil and sy.left == 0 and not sy.mine and not own
+		topFade.Visible = sy ~= nil and sy.stock ~= nil
+		if topFade.Visible then
+			eff.pageStock.Text = soldOut and "SOLD OUT" or (sy.left ~= nil and (commas(sy.left) .. " / " .. commas(sy.stock) .. " LEFT!"))
+				or ("ONLY " .. commas(sy.stock) .. " WILL EXIST")
+			eff.pageStock.TextColor3 = soldOut and Color3.fromRGB(255, 110, 100) or Color3.fromRGB(255, 214, 90)
+		end
+		status.Text = own and "✓ You own it!" or soldOut and "SOLD OUT" or
+			(v and v.nextTier == SCYTHE_I) and "Ready to unlock!" or ("Unlock tiers 1 to " .. tostring((SCYTHE_I or 1) - 1) .. " first!")
+		status.TextColor3 = own and Color3.fromRGB(120, 255, 150) or soldOut and Color3.fromRGB(255, 120, 110) or GOLD_HI
+		buySlot.Visible = tier ~= nil and not own and not soldOut
+		if buySlot.Visible then
+			local can = v and v.active and v.nextTier == SCYTHE_I and (v.coins or 0) >= (tier.Cost or 0)
+			recolor(buyGrad, buyEdge, can and COL.green or COL.dark)
+			centerRow(buyIcon, buyL, commas(tier.Cost or 0), 30, 34, 8)
+		end
+		local bgId = tier and (img(tier.Background) or img((UI.CardBackgrounds or {})[tier.Rarity or "mythic"]))
+		holderBg.Image = bgId or ""
+		holderBg.Visible = bgId ~= nil
+	end
+
+	function scytheInfo.open()
+		if not SCYTHE_I then return end
+		sound("Open", 0.35)
+		fill()
+		page.Visible = true
+		buildView()
+		if scytheInfo.padSelect then scytheInfo.padSelect(backB) end
+	end
+	function scytheInfo.close()
+		if not page.Visible then return end
+		page.Visible = false
+		stopLive()
+		local c = SCYTHE_I and cards[SCYTHE_I]
+		if isOpen and c and scytheInfo.padSelect then scytheInfo.padSelect(c.info) end
+	end
+	function scytheInfo.visible() return page.Visible end
+	function scytheInfo.refresh() if page.Visible then fill() end end
+	-- caméra qui tourne doucement autour de toi
+	function scytheInfo.step(dt)
+		local L = live
+		if not L or not page.Visible or not L.center then return end
+		L.t += dt
+		if L.spinModel then
+			local a = L.t * 0.8
+			cam3.CFrame = CFrame.lookAt(L.center + Vector3.new(math.sin(a) * L.dist, L.dist * 0.15, -math.cos(a) * L.dist), L.center)
+		else
+			local a = math.rad(28) + math.sin(L.t * 0.45) * math.rad(22)
+			cam3.CFrame = CFrame.lookAt(L.center + Vector3.new(math.sin(a) * L.dist, 1.2, -math.cos(a) * L.dist), L.center)
+		end
+	end
+	backB.Activated:Connect(function() sound("Open", 0.25) scytheInfo.close() end)
+	buyB.Activated:Connect(function()
+		local c = SCYTHE_I and cards[SCYTHE_I]
+		if c and c.buy then c.buy() end
+	end)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔄 MISE À JOUR DE LA FENÊTRE
+-- ════════════════════════════════════════════════════════════════
+local lastTab = nil
+local shownCoins, coinAnim = nil, 0
+-- solde : nombre complet, qui défile quand il change (fenêtre ouverte)
+local function setCoins(n)
+	n = math.floor(n)
+	if shownCoins == nil or not isOpen or shownCoins == n then
+		shownCoins = n
+		coinL.Text = commas(n)
+		return
+	end
+	coinAnim += 1
+	local id, from, t0 = coinAnim, shownCoins, os.clock()
+	shownCoins = n
+	task.spawn(function()
+		while coinAnim == id and os.clock() - t0 < 0.45 do
+			coinL.Text = commas(from + (n - from) * smooth((os.clock() - t0) / 0.45))
+			task.wait()
+		end
+		if coinAnim == id then coinL.Text = commas(n) end
+	end)
+end
+refresh = function()
+	for name, t in pairs(tabBtns) do recolor(t.grad, t.edge, name == tab and COL.green or COL.dark) end
+	rewardsPage.Visible = tab == "Rewards"
+	questsPage.Visible = tab == "Quests"
+	local v = view
+	cover.Visible = not v or v.loading == true
+	testBar.Visible = v ~= nil and v.tester == true
+	if not v or v.loading then return end
+	setCoins(v.coins or 0)
+	if tab ~= lastTab then
+		lastTab = tab
+		local page = tab == "Rewards" and rewardsPage or questsPage
+		page.Position = UDim2.fromOffset(0, 10)
+		tween(page, 0.22, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quad)
+	end
+
+	-- 🏆 cartes
+	for i, c in ipairs(cards) do
+		local tier = TIERS[i]
+		local own = v.owned and v.owned[i]
+		local isNext = v.nextTier == i
+		local afford = (v.coins or 0) >= (tier.Cost or 0)
+		c.lock.Visible = not own
+		c.lock.BackgroundTransparency = isNext and 0.62 or 0.45
+		c.lockIcon.Visible = not own and not isNext
+		c.owned.Visible = own
+		c.nameL.TextTransparency = own and 0 or (isNext and 0.1 or 0.45)
+		c.boxStroke.Color = own and Color3.fromRGB(110, 230, 140) or (isNext and afford and v.active) and Color3.fromRGB(80, 235, 110)
+			or isNext and ORANGE or Color3.fromRGB(150, 150, 160)
+		c.boxStroke.Thickness = isNext and 4.5 or 3.5
+		local sy = (i == SCYTHE_I) and v.scythe or nil
+		local soldOut = sy ~= nil and sy.left == 0 and not sy.mine and not own
+		c.icon.Visible = not own and not soldOut
+		if own then
+			recolor(c.grad, c.edge, COL.green)
+			centerRow(nil, c.priceL, "OWNED", 30, 0, 0)
+		elseif soldOut then
+			recolor(c.grad, c.edge, COL.dark)
+			centerRow(nil, c.priceL, "SOLD OUT", 30, 0, 0)
+		else
+			recolor(c.grad, c.edge, (isNext and afford and v.active) and COL.green or COL.dark)
+			centerRow(c.icon, c.priceL, commas(tier.Cost or 0), 30, 34, 8)
+		end
+		c.baseStroke = c.boxStroke.Color
+		-- 📦 stock de la faux
+		if c.stockL then
+			local pill = c.stockL.Parent
+			pill.Visible = sy ~= nil and sy.stock ~= nil and not own
+			if pill.Visible then
+				if sy.left == nil then c.stockL.Text = "LIMITED: " .. commas(sy.stock)
+				elseif soldOut then c.stockL.Text = "SOLD OUT"
+				else c.stockL.Text = commas(sy.left) .. " / " .. commas(sy.stock) .. " LEFT!" end
+				if soldOut then c.stockL.TextColor3 = Color3.fromRGB(255, 110, 100) end
+			end
+		end
+		if i == SCYTHE_I and eff.viewHint then eff.viewHint.Visible = not own end
+	end
+	-- 👉 petite flèche vers la faux : la 1re fois seulement, tant que la faux n'est pas à l'écran
+	local sc = SCYTHE_I and cards[SCYTHE_I]
+	hintB.Visible = UI.ScytheHint ~= false and not hintDone and v.hint ~= true and tab == "Rewards" and sc ~= nil
+		and not (v.owned and v.owned[SCYTHE_I]) and not scytheInView()
+	if hintB.Visible == false and v.hint == true then hintDone = true end
+	-- ⏩ skip
+	SKIPS = skipList()
+	local left = 0
+	for i, tier in ipairs(TIERS) do
+		if not (v.owned and v.owned[i]) and (C.Robux.SkipCanBuyFinal ~= false or i < #TIERS) then left += 1 end
+	end
+	local avail = {}
+	for _, s in ipairs(SKIPS) do if s.Count <= left then table.insert(avail, s) end end
+	skipBar.Visible = #avail > 0 and v.active
+	skipIndex = math.clamp(skipIndex, 1, math.max(1, #SKIPS))
+	while skipIndex > 1 and SKIPS[skipIndex].Count > left do skipIndex -= 1 end
+	local s = SKIPS[skipIndex]
+	if s then
+		-- testeur : « TEST » = gratuit (produit pas créé, avant l'event ou Studio) ; sinon icône Robux + prix
+		local free = v.testFree and ((tonumber(s.ProductId) or 0) <= 0 or v.testAllFree)
+		skipRobux.Visible = not free
+		centerRow(skipRobux, skipPrice, free and "TEST" or commas(priceOf(s)), 36, 32, 8)
+		skipCount.Text = "SKIP TIER: " .. s.Count
+	end
+
+	-- 📜 quêtes
+	local free = v.free or 0
+	rerollInfo.Text = free > 0 and ("🔄 NEW QUESTS: " .. free .. " free refresh today (replaces all quests of a section)") or
+		((v.credits or 0) > 0 and ("🔄 NEW QUESTS: " .. v.credits .. " refresh(es) left") or "🔄 Free refresh used today — back tomorrow!")
+	rerollInfo.Visible = v.active == true
+	-- 🔄 boutons NEW QUESTS (un par section) : prix + pulse quand toute la section est réclamée
+	local robuxOk = C.Robux and C.Robux.RerollQuest and (tonumber(C.Robux.RerollQuest.ProductId) or 0) > 0
+	for which, rb in pairs(refreshBtns) do
+		local list = (v[which] and v[which].list) or {}
+		rb.slot.Visible = v.active == true and #list > 0
+		local allClaimed = #list > 0
+		for _, e in ipairs(list) do if not e.c then allClaimed = false end end
+		rb.pulse = allClaimed
+		rb.tagIcon.Visible = false
+		rb.tagF.Visible = true
+		if free > 0 then rb.tagL.Text = "FREE"
+		elseif (v.credits or 0) > 0 then rb.tagL.Text = "x" .. v.credits
+		elseif v.testFree and (not robuxOk or v.testAllFree) then rb.tagL.Text = "TEST"
+		elseif robuxOk then
+			rb.tagIcon.Visible = true
+			centerRow(rb.tagIcon, rb.tagL, tostring(priceOf(C.Robux.RerollQuest)), 16, 16, 4)
+		else rb.tagF.Visible = false end
+		if not rb.tagIcon.Visible then
+			rb.tagL.AnchorPoint, rb.tagL.Position, rb.tagL.Size = Vector2.zero, UDim2.new(), UDim2.fromScale(1, 1)
+			rb.tagL.TextXAlignment = Enum.TextXAlignment.Center
+		end
+	end
+	for _, which in ipairs({ "daily", "weekly" }) do
+		local list = (v[which] and v[which].list) or {}
+		for i, e in ipairs(list) do fillQuest(rowFor(which, i), which, e) end
+		for i = #list + 1, #rows[which] do rows[which][i].row.Visible = false end
+	end
+	-- « ! » sur l'onglet Quests : au moins une quête finie pas encore réclamée
+	local claimable = false
+	for _, which in ipairs({ "daily", "weekly" }) do
+		for _, e in ipairs((v[which] and v[which].list) or {}) do
+			local def = QDEF[e.id]
+			if def and not e.c and e.n >= ((TIME_KINDS[def.Kind] and def.Goal * 60) or def.Goal) then claimable = true end
+		end
+	end
+	questDot.Visible = claimable and v.active == true
+	if scytheInfo.refresh then scytheInfo.refresh() end
+	local nt = v.nextTier and TIERS[v.nextTier]
+	rewardsDot.Visible = v.active == true and nt ~= nil and (v.coins or 0) >= (nt.Cost or 0)
+		and not (v.nextTier == SCYTHE_I and v.scythe and v.scythe.left == 0 and not v.scythe.mine)
+	local jl = v.jack or {}
+	jackH.Visible = #jl > 0
+	jackT.Text = ""
+	for i, j in ipairs(jl) do fillJack(rowFor("jack", i), j) end
+	for i = #jl + 1, #rows.jack do rows.jack[i].row.Visible = false end
+end
+
+-- ⏰ timers (chaque seconde)
+task.spawn(function()
+	while true do
+		task.wait(1)
+		local v = view
+		if v and not v.loading then
+			local t = serverNow()
+			if t < (v.start or 0) then timerL.Text = (UI.StartsIn or "Event Starts In: ") .. longTime(v.start - t)
+			elseif t < (v.finish or 0) then timerL.Text = (UI.EndsIn or "Event Ends In: ") .. longTime(v.finish - t)
+			else timerL.Text = UI.Ended or "The event has ended!" end
+			if v.tester and not v.realActive then timerL.Text = timerL.Text .. "  (TEST MODE)" end
+			if v.daily then dailyT.Text = padTime(v.daily.ends - t) end
+			if v.weekly then weeklyT.Text = padTime(v.weekly.ends - t) end
+			if isOpen and v.daily and t >= v.daily.ends + 1 and (not v._asked or os.clock() - v._asked > 5) then
+				v._asked = os.clock()
+				task.spawn(function() local nv = StateRF:InvokeServer() if nv then view = nv refresh() end end)
+			end
+		end
+	end
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 📐 OUVRIR / FERMER
+-- ════════════════════════════════════════════════════════════════
+local function topY() return math.max(GuiService:GetGuiInset().Y, 36) end
+-- taille de l'écran : la caméra (toujours juste, même quand la fenêtre est fermée)
+local function viewport()
+	local cam = workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize
+	if not vp or vp.X < 2 or vp.Y < 2 then vp = gui.AbsoluteSize end
+	return vp
+end
+-- ✅ même taille à CHAQUE ouverture (avant : trop petit la 1re fois, trop grand ensuite)
+local function fit()
+	local vp = viewport()
+	if vp.X < 2 or vp.Y < 2 then return false end
+	local extra = (view and view.tester) and TESTBAR_H or 0
+	uiScale.Scale = math.clamp(math.min((vp.Y - topY() - 40) / (PH + extra), vp.X * (UI.MaxScreenWidth or 0.94) / W, UI.MaxScale or 1),
+		0.3, 1.5)
+	return true
+end
+local function openPos(opened)
+	local extra = (view and view.tester) and TESTBAR_H * uiScale.Scale or 0
+	return UDim2.new(0.5, 0, opened and 0.5 or 0.56, topY() / 2 + 6 - extra / 2)
+end
+local function onViewport()
+	if fit() and isOpen then root.Position = openPos(true) end
+end
+local camConn
+local function watchCamera()
+	if camConn then camConn:Disconnect() camConn = nil end
+	local cam = workspace.CurrentCamera
+	if cam then camConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(onViewport) end
+	onViewport()
+end
+pcall(function() workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCamera) end)
+watchCamera()
+
+-- 🌫️ FOCUS : fond flou + tes autres UI cachées pendant que la fenêtre est ouverte ; tout est remis à la fermeture
+--    (une UI qu'un script rallume pendant ce temps est re-cachée, puis rallumée à la fermeture)
+local focus = { hidden = {}, conns = {}, core = {}, watched = {}, blur = nil, on = false }
+do
+	local KEEP = { HalloweenEventUI = true, HalloweenEventToast = true, NpcDialogGui = true }
+	for _, n in ipairs(UI.KeepGuis or {}) do KEEP[n] = true end
+	local CORE = { "Backpack", "PlayerList", "EmotesMenu", "Health" }
+	local function watch(g)
+		if not g:IsA("ScreenGui") or KEEP[g.Name] or focus.watched[g] then return end
+		focus.watched[g] = 0
+		if g.Enabled then focus.hidden[g] = true g.Enabled = false end
+		table.insert(focus.conns, g:GetPropertyChangedSignal("Enabled"):Connect(function()
+			if not focus.on or not g.Enabled then return end
+			-- un de tes scripts l'a rallumée : on la recache 2 fois maximum, puis on la laisse
+			-- (sinon ça se renvoie la balle à l'infini → « Exponential deferred event growth »)
+			local n = focus.watched[g] or 0
+			if n >= 2 then return end
+			focus.watched[g] = n + 1
+			focus.hidden[g] = true
+			task.defer(function()
+				if focus.on and g.Parent and g.Enabled then g.Enabled = false end
+			end)
+		end))
+	end
+	function focus.set(on)
+		if on == focus.on then return end
+		focus.on = on
+		if on then
+			if UI.HideOtherUI ~= false then
+				for _, g in ipairs(playerGui:GetChildren()) do watch(g) end
+				table.insert(focus.conns, playerGui.ChildAdded:Connect(function(g) if focus.on then watch(g) end end))
+				pcall(function()
+					local SG = game:GetService("StarterGui")
+					for _, n in ipairs(CORE) do
+						local t = Enum.CoreGuiType[n]
+						focus.core[n] = SG:GetCoreGuiEnabled(t)
+						SG:SetCoreGuiEnabled(t, false)
+					end
+				end)
+			end
+			if (UI.BlurSize or 18) > 0 then
+				pcall(function()
+					if focus.blur then focus.blur:Destroy() end
+					focus.blur = new("BlurEffect", { Name = "HalloweenEventBlur", Size = 0 }, workspace.CurrentCamera)
+					tween(focus.blur, 0.3, { Size = UI.BlurSize or 18 }, Enum.EasingStyle.Quad)
+				end)
+			end
+		else
+			for _, c in ipairs(focus.conns) do c:Disconnect() end
+			table.clear(focus.conns)
+			table.clear(focus.watched)
+			for g in pairs(focus.hidden) do
+				if g.Parent then pcall(function() g.Enabled = true end) end
+			end
+			table.clear(focus.hidden)
+			pcall(function()
+				local SG = game:GetService("StarterGui")
+				for n, was in pairs(focus.core) do SG:SetCoreGuiEnabled(Enum.CoreGuiType[n], was) end
+			end)
+			table.clear(focus.core)
+			local b = focus.blur
+			focus.blur = nil
+			if b then
+				tween(b, 0.2, { Size = 0 }, Enum.EasingStyle.Quad)
+				task.delay(0.25, function() b:Destroy() end)
+			end
+		end
+	end
+end
+
+function scytheInfo.setBlur(on)
+	local b = focus.blur
+	if b then tween(b, 0.2, { Size = on and (UI.BlurSize or 18) or 0 }, Enum.EasingStyle.Quad) end
+end
+
+local closing = false
+local function close()
+	if not isOpen then return end
+	isOpen, closing = false, true
+	focus.set(false)
+	if scytheInfo.close then scytheInfo.close() end
+	pcall(function()
+		local sel = GuiService.SelectedObject
+		if sel and sel:IsDescendantOf(gui) then GuiService.SelectedObject = nil end
+	end)
+	tween(root, 0.2, { Position = openPos(false) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	tween(dim, 0.2, { BackgroundTransparency = 1 })
+	task.delay(0.2, function() if closing and not isOpen then gui.Enabled = false end end)
+end
+
+-- 🎮 le bouton sélectionné par défaut (manette) : le prochain palier, ou la 1re quête à réclamer
+local function padDefault()
+	if tab == "Rewards" then
+		local c = view and view.nextTier and cards[view.nextTier] or cards[1]
+		return c and c.b
+	end
+	for _, which in ipairs({ "daily", "weekly" }) do
+		for _, r in ipairs(rows[which] or {}) do
+			if r.row.Visible and r.entry and not r.entry.c then return r.pb end
+		end
+	end
+	return refreshBtns.daily and refreshBtns.daily.b
+end
+local function open(which)
+	if which == "Quests" or which == "Rewards" then tab = which end
+	if isOpen then refresh() padSelect(padDefault()) return end
+	isOpen, closing = true, false
+	gui.Enabled = true
+	focus.set(true)
+	fit()
+	root.Position = openPos(false)
+	tween(root, 0.3, { Position = openPos(true) }, Enum.EasingStyle.Back)
+	dim.BackgroundTransparency = 1
+	tween(dim, 0.2, { BackgroundTransparency = 0.45 })
+	sound("Open", 0.4)
+	refresh()
+	task.spawn(function()
+		local v = StateRF:InvokeServer("open")       -- « open » = la fenêtre a vraiment été ouverte (quête « Visit Jack »)
+		if v then
+			if v.hidden then close() return end
+			view = v
+			if fit() and isOpen then root.Position = openPos(true) end
+			refresh()
+		end
+		if isOpen then padSelect(padDefault()) end
+	end)
+end
+
+closeBtn.Activated:Connect(close)
+
+-- ✨ EFFETS (seulement fenêtre ouverte) : pastilles qui battent, étoiles + reflet sur la faux, flèche qui bouge
+task.spawn(function()
+	local GOLD = Color3.fromRGB(255, 214, 110)
+	local rnd = Random.new()
+	local nextShine = 0
+	while true do
+		local dt = task.wait()
+		if isOpen then
+			eff.t += dt or 0.03
+			local t = eff.t
+			if scytheInfo.step then scytheInfo.step(dt or 0.03) end
+			-- ❗ battement de cœur (double « boum » toutes les 1,2 s)
+			local u = t % 1.2
+			local beat = (u < 0.14 and math.sin(u / 0.14 * math.pi)) or ((u > 0.24 and u < 0.38) and 0.7 * math.sin((u - 0.24) / 0.14 * math.pi)) or 0
+			for _, d in ipairs({ questDot, rewardsDot }) do
+				if d.Visible then d:FindFirstChildOfClass("UIScale").Scale = 1 + 0.22 * beat end
+			end
+			-- 🎃 la faux : étoiles, reflet, contour doré qui respire
+			local sc = SCYTHE_I and cards[SCYTHE_I]
+			if sc and tab == "Rewards" then
+				for _, sp in ipairs(eff.sparkles) do
+					if t - sp.t0 > sp.dur then
+						sp.t0 = t + rnd:NextNumber(0, 0.6)
+						sp.dur = rnd:NextNumber(0.7, 1.2)
+						sp.f.Position = UDim2.fromScale(rnd:NextNumber(0.1, 0.9), rnd:NextNumber(0.08, 0.7))
+						sp.size = rnd:NextNumber(0.55, 1.05)
+						local col = rnd:NextNumber() < 0.5 and WHITE or GOLD
+						for _, p in ipairs(sp.parts) do p.BackgroundColor3 = col end
+					end
+					local k = (t - sp.t0) / sp.dur
+					sp.f.Visible = k >= 0 and k <= 1
+					if sp.f.Visible then
+						sp.sc.Scale = math.sin(k * math.pi) * (sp.size or 1)
+						sp.f.Rotation = k * 90
+					end
+				end
+				if sc.shine then
+					if t >= nextShine then nextShine = t + 3.2 end
+					local k = 1 - (nextShine - t) / 0.9          -- le reflet traverse en 0,9 s, puis pause
+					sc.shine.Visible = k >= 0 and k <= 1
+					if sc.shine.Visible then
+						sc.shine.Position = UDim2.fromScale(-0.3 + 1.6 * k, 0.5)
+						sc.shine.BackgroundTransparency = 0.25
+					end
+				end
+				if view and not (view.owned and view.owned[SCYTHE_I]) and sc.baseStroke then
+					sc.boxStroke.Color = sc.baseStroke:Lerp(GOLD, 0.35 + 0.35 * math.sin(t * 2.4))
+				end
+			end
+			-- 🔄 NEW QUESTS pulse quand toute la section est réclamée (ça t'invite à prendre de nouvelles quêtes)
+			for _, rb in pairs(refreshBtns) do
+				rb.sc.Scale = (rb.pulse and tab == "Quests") and (1 + 0.06 * (0.5 + 0.5 * math.sin(t * 5))) or 1
+			end
+			-- 📦 stock : la pilule « respire » ; 👁️ VIEW clignote doucement
+			if eff.stockPill and eff.stockPill.Visible and eff.stockText.Text ~= "SOLD OUT" then
+				eff.stockText.TextColor3 = Color3.fromRGB(255, 214, 90):Lerp(Color3.fromRGB(255, 246, 200), 0.5 + 0.5 * math.sin(t * 3))
+			end
+			if eff.pageStock and eff.pageStock.Parent.Visible and eff.pageStock.Text ~= "SOLD OUT" then
+				eff.pageStock.TextColor3 = Color3.fromRGB(255, 214, 90):Lerp(Color3.fromRGB(255, 246, 200), 0.5 + 0.5 * math.sin(t * 3))
+			end
+			if eff.viewHint and eff.viewHint.Visible then
+				-- cycle de 4 s : fondu d'apparition (1,4 s), fondu de disparition (1,4 s), puis 1,2 s invisible
+				local ph = (t % 4) / 2.8
+				local k = ph < 1 and math.sin(math.pi * ph) ^ 2 or 0
+				eff.viewText.TextTransparency = 1 - 0.95 * k
+				eff.viewStroke.Transparency = 1 - 0.7 * k
+			end
+			-- 👉 la flèche avance doucement vers la droite
+			if hintB.Visible then
+				hintB.Position = UDim2.new(1, -6 + 5 * math.abs(math.sin(t * 3.2)), 0, 26 + 6 + IMG_H / 2)
+			end
+		end
+	end
+end)
+-- (cliquer à côté de la fenêtre ne la ferme plus : seulement le X)
+OpenBE.Event:Connect(function(which)
+	if view and view.hidden then return end
+	open(which)
+end)
+ProximityPromptService.PromptTriggered:Connect(function(prompt)
+	if prompt.Name == "HalloweenEventPrompt" then open() end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+	if not isOpen then return end
+	if input.KeyCode == Enum.KeyCode.ButtonB or input.KeyCode == Enum.KeyCode.Escape then
+		if scytheInfo.visible and scytheInfo.visible() then scytheInfo.close() else close() end
+	elseif input.KeyCode == Enum.KeyCode.ButtonL1 or input.KeyCode == Enum.KeyCode.ButtonR1 then
+		tab = tab == "Rewards" and "Quests" or "Rewards"
+		refresh()
+		padSelect(padDefault())
+	end
+end)
+
+-- les prompts des panneaux restent cachés pour les joueurs qui n'ont pas accès (mode test)
+local function hidePrompts()
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("ProximityPrompt") and d.Name == "HalloweenEventPrompt" then d.Enabled = false end
+	end
+	workspace.DescendantAdded:Connect(function(d)
+		if d:IsA("ProximityPrompt") and d.Name == "HalloweenEventPrompt" then d.Enabled = false end
+	end)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🪙 PETIT COMPTEUR À L'ÉCRAN (quand tu gagnes des coins)
+-- ════════════════════════════════════════════════════════════════
+local hudGui = new("ScreenGui", { Name = "HalloweenCoinsHUD", ResetOnSpawn = false, DisplayOrder = 9 }, playerGui)
+local corner_ = UI.HudCorner or "BottomRight"
+local hud = new("Frame", { Size = UDim2.fromOffset(210, 56), BackgroundColor3 = Color3.fromRGB(8, 6, 10), BackgroundTransparency = 0.15,
+	Visible = false }, hudGui)
+if corner_ == "BottomLeft" then hud.AnchorPoint = Vector2.new(0, 1) hud.Position = UDim2.new(0, 16, 1, -120)
+elseif corner_ == "TopRight" then hud.AnchorPoint = Vector2.new(1, 0) hud.Position = UDim2.new(1, -16, 0, 70)
+else hud.AnchorPoint = Vector2.new(1, 1) hud.Position = UDim2.new(1, -16, 1, -120) end
+corner(hud, 14)
+stroke(hud, PURPLE, 3)
+coinIcon(hud, UDim2.fromOffset(36, 36), UDim2.new(0, 12, 0.5, 0), Vector2.new(0, 0.5), 3)
+local hudTotal = label(hud, { Text = "0", FontFace = F.Black, TextSize = 30, Position = UDim2.fromOffset(56, 0), Size = UDim2.new(1, -64, 1, 0), ZIndex = 3 })
+tstroke(hudTotal, 1.5)
+local hudSub = label(hud, { Text = "", FontFace = F.Semi, TextSize = 14, TextColor3 = Color3.fromRGB(210, 200, 225), AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, 0, 1, 4), Size = UDim2.fromOffset(240, 18), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 3 })
+tstroke(hudSub, 1.2)
+local hudScale = new("UIScale", {}, hud)
+local hudId, shown = 0, 0
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎃 COMPTEUR DU HAUT (ramassage de coins) : la même plaque que les notifs,
+--    TON TOTAL en gros + l'icône ; un petit « +10 » avec sa pièce monte dans le total qui grimpe ;
+--    en dessous, en gris : la limite du jour des citrouilles.
+-- ════════════════════════════════════════════════════════════════
+do
+	local ctF = new("Frame", { Name = "CoinCounter", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, -130),
+		Size = UDim2.fromOffset(320, 84), BackgroundColor3 = Color3.fromRGB(14, 12, 18), BackgroundTransparency = 0.08 }, toastGui)
+	if toastImgId then
+		ctF.BackgroundTransparency = 1
+		new("ImageLabel", { Name = "CounterBg", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = toastImgId,
+			ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(48, 48, 976, 464), SliceScale = 0.32, ZIndex = 1 }, ctF)
+	else
+		corner(ctF, 14)
+		stroke(ctF, ORANGE, 3)
+	end
+	local ctScale = new("UIScale", {}, ctF)
+	local ctIcon = coinIcon(ctF, UDim2.fromOffset(48, 48), UDim2.new(0, 18, 0, 10), Vector2.new(0, 0), 3)
+	local ctIconScale = new("UIScale", {}, ctIcon)
+	local ctTotal = label(ctF, { Name = "Total", Text = "0", FontFace = F.Black, TextSize = 36, Position = UDim2.fromOffset(76, 8),
+		Size = UDim2.new(1, -92, 0, 44), ZIndex = 3 })
+	tstroke(ctTotal, 2)
+	local ctCap = label(ctF, { Name = "Today", Text = "", FontFace = F.Semi, TextSize = 15, TextColor3 = Color3.fromRGB(150, 146, 160),
+		Position = UDim2.fromOffset(20, 56), Size = UDim2.new(1, -40, 0, 20), ZIndex = 3 })
+	local ctId, ctShown, ctFrom, ctTo, ctT0, ctOn = 0, nil, 0, 0, 0, false
+	local function ctY()
+		local base = math.max(GuiService:GetGuiInset().Y, 36) + 14
+		return (os.clock() < toastUntil) and (base + 84) or base       -- sous une notif déjà affichée
+	end
+	coinTop = function(add, total, got, cap)
+		ctId += 1
+		local id = ctId
+		local cam = workspace.CurrentCamera
+		ctScale.Scale = math.clamp(((cam and cam.ViewportSize.X > 2) and cam.ViewportSize.X or gui.AbsoluteSize.X) / 1100, 0.65, 1)
+		-- (caché depuis un moment : on repart de ton vrai total, les achats / quêtes ont pu le changer)
+		if not ctOn or ctShown == nil then ctShown = math.max(0, total - add) end
+		ctOn = true
+		ctCap.Text = (got and cap and cap > 0) and ((got >= cap) and ("Today's pumpkins: " .. commas(cap) .. " / " .. commas(cap) .. " (limit reached)")
+			or ("Today's pumpkins: " .. commas(got) .. " / " .. commas(cap))) or ""
+		ctTotal.Text = commas(ctShown)
+		tween(ctF, 0.3, { Position = UDim2.new(0.5, 0, 0, ctY()) }, Enum.EasingStyle.Back)
+		-- le petit « +10 » et sa pièce partent d'en bas à droite et montent DANS le total
+		local chip = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, -40, 1, 6), Size = UDim2.fromOffset(84, 28),
+			BackgroundTransparency = 1, ZIndex = 5 }, ctF)
+		coinIcon(chip, UDim2.fromOffset(22, 22), UDim2.new(0, 2, 0.5, 0), Vector2.new(0, 0.5), 6)
+		local pl = label(chip, { Text = "+" .. commas(add), FontFace = F.Black, TextSize = 22, TextColor3 = Color3.fromRGB(255, 205, 90),
+			Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -28, 1, 0), ZIndex = 6 })
+		tstroke(pl, 1.8)
+		tween(chip, 0.45, { Position = UDim2.new(0, 150, 0, 30) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		task.delay(0.45, function()
+			chip:Destroy()
+			-- le total grimpe jusqu'au nouveau montant, la pièce du compteur « avale » le gain
+			ctFrom, ctTo, ctT0 = ctShown or 0, total, os.clock()
+			ctIconScale.Scale = 1.25
+			tween(ctIconScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+			task.spawn(function()
+				local mine = ctT0
+				while os.clock() - mine < 0.45 and ctT0 == mine do
+					ctShown = math.floor(ctFrom + (ctTo - ctFrom) * smooth((os.clock() - mine) / 0.45) + 0.5)
+					ctTotal.Text = commas(ctShown)
+					task.wait()
+				end
+				if ctT0 == mine then ctShown = ctTo ctTotal.Text = commas(ctTo) end
+			end)
+		end)
+		-- il reste tant que tu ramasses, puis remonte
+		task.delay(3.2, function()
+			if ctId == id then
+				ctOn = false
+				tween(ctF, 0.35, { Position = UDim2.new(0.5, 0, 0, -130) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			end
+		end)
+	end
+end
+
+local function hudGain(add, total, got, cap)
+	-- 🎃 les gains de coins s'affichent EN HAUT de l'écran : ton TOTAL qui monte (voir coinTop plus haut)
+	if UI.CoinsAtBottom ~= true then
+		coinTop(add, total, got, cap)
+		return
+	end
+	hudId += 1
+	local id = hudId
+	hud.Visible = true
+	local cam = workspace.CurrentCamera
+	hudScale.Scale = math.clamp(((cam and cam.ViewportSize.Y > 2) and cam.ViewportSize.Y or hudGui.AbsoluteSize.Y) / 800, 0.75, 1.1)
+	local from = shown
+	shown = total
+	local t0 = os.clock()
+	task.spawn(function()
+		while os.clock() - t0 < 0.5 and hudId == id do
+			hudTotal.Text = commas(from + (total - from) * smooth((os.clock() - t0) / 0.5))
+			task.wait()
+		end
+		if hudId == id then hudTotal.Text = commas(total) end
+	end)
+	hudSub.Text = (got and cap and cap > 0) and ("Pumpkin coins today: " .. got .. " / " .. cap) or ""
+	-- « +5 » qui monte
+	local plus = label(hud, { Text = "+" .. commas(add), FontFace = F.Black, TextSize = 30, TextColor3 = Color3.fromRGB(255, 205, 90),
+		AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, 2), Size = UDim2.fromOffset(160, 34),
+		TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 4 })
+	tstroke(plus, 2)
+	tween(plus, 0.9, { Position = UDim2.new(0.5, 0, 0, -36), TextTransparency = 1 }, Enum.EasingStyle.Quad)
+	task.delay(1, function() plus:Destroy() end)
+	hud.Size = UDim2.fromOffset(222, 60)
+	tween(hud, 0.25, { Size = UDim2.fromOffset(210, 56) }, Enum.EasingStyle.Back)
+	task.delay(4, function() if hudId == id then hud.Visible = false end end)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎃 LES COINS DES ZONES (même lévitation et même ramassage que les pages du grimoire)
+-- ════════════════════════════════════════════════════════════════
+local coins = {}              -- [id] = rec
+local coinFolder
+local function world()
+	if not coinFolder or not coinFolder.Parent then
+		coinFolder = new("Folder", { Name = "HalloweenCoins_Local" }, workspace)
+	end
+	return coinFolder
+end
+local STAR = "rbxasset://textures/particles/sparkles_main.dds"
+local C_OR, C_YE = Color3.fromRGB(255, 150, 40), Color3.fromRGB(255, 222, 120)
+
+local function seq(...)
+	local cs, kp = { ... }, {}
+	for i, c in ipairs(cs) do table.insert(kp, ColorSequenceKeypoint.new((i - 1) / math.max(1, #cs - 1), c)) end
+	return ColorSequence.new(kp)
+end
+
+-- la pièce : ton modèle (ReplicatedStorage ▸ HalloweenEventAssets ▸ HalloweenCoin), sinon une pièce simple
+local function fallbackCoin()
+	local m = new("Model", { Name = "HalloweenCoin" })
+	local body = new("Part", { Name = "Body", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.32, 2.3, 2.3),
+		Color = Color3.fromRGB(18, 18, 22), Material = Enum.Material.SmoothPlastic }, m)
+	local ring = new("Part", { Name = "Ring", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.34, 1.95, 1.95),
+		Color = C_OR, Material = Enum.Material.Neon }, m)
+	local face = new("Part", { Name = "Face", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.36, 1.8, 1.8),
+		Color = Color3.fromRGB(14, 14, 18), Material = Enum.Material.SmoothPlastic }, m)
+	local id = img(C.Coin and C.Coin.Icon)
+	for _, side in ipairs({ Enum.NormalId.Right, Enum.NormalId.Left }) do
+		if id then new("Decal", { Texture = id, Face = side }, face)
+		else
+			local sg = new("SurfaceGui", { Face = side, SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud, PixelsPerStud = 60,
+				LightInfluence = 0 }, face)
+			new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "🎃", TextScaled = true, FontFace = FRED }, sg)
+		end
+	end
+	ring.CFrame, face.CFrame = body.CFrame, body.CFrame
+	m.PrimaryPart = body
+	return m
+end
+
+local function coinTemplate()
+	local f = ReplicatedStorage:FindFirstChild("HalloweenEventAssets")
+	local t = f and f:FindFirstChild("HalloweenCoin")
+	if not t then return fallbackCoin() end
+	local m = t:Clone()
+	if m:IsA("BasePart") then
+		local mm = new("Model", { Name = "HalloweenCoin" })
+		m.Parent = mm
+		mm.PrimaryPart = m
+		m = mm
+	end
+	return m
+end
+
+local function buildCoin(id, pos)
+	local m = coinTemplate()
+	m.Name = "Coin_" .. id
+	local parts = {}
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow = true, false, false, false, false
+			parts[d] = d.Transparency
+		elseif d:IsA("SurfaceAppearance") then
+			pcall(function() d.EmissiveStrength = Z.CoinGlow or 3 end)        -- le visage et l'anneau brillent
+		end
+	end
+	local pp = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart", true)
+	m.PrimaryPart = pp
+	-- 📐 debout (épaisseur à l'horizontale) et à la bonne taille, quel que soit le sens de l'import :
+	--    le pivot est remis SUR la pièce (un import peut avoir un pivot tourné → la pièce restait à plat)
+	pcall(function() pp.PivotOffset = CFrame.new() end)
+	local sz = pp.Size
+	pcall(function()
+		local _, bs = m:GetBoundingBox()            -- toute la pièce (plusieurs morceaux possibles), dans le repère de pp
+		if typeof(bs) == "Vector3" and bs.Magnitude > 0 then sz = bs end
+	end)
+	local base = CFrame.new()
+	if sz.Y <= sz.X and sz.Y <= sz.Z then base = CFrame.Angles(0, 0, math.rad(90))
+	elseif sz.Z <= sz.X and sz.Z <= sz.Y then base = CFrame.Angles(0, math.rad(90), 0) end
+	local s0 = 1
+	pcall(function()
+		local ext = m:GetExtentsSize()
+		local big = math.max(ext.X, ext.Y, ext.Z)
+		if big > 0 then m:ScaleTo(m:GetScale() * (Z.CoinSize or 2.4) / big) end
+		s0 = m:GetScale()
+	end)
+	m:PivotTo(CFrame.new(pos) * base)
+	m.Parent = world()
+	local rec = { id = id, model = m, pp = pp, home = pos, parts = parts, state = "appear", t = math.random() * 10,
+		appearT = os.clock(), spin = math.random() * 6, base = base, s0 = s0 }
+	rec.light = new("PointLight", { Color = C_OR, Range = 7, Brightness = 1.1, Shadows = false }, pp)
+	rec.fx = new("Part", { Name = "CoinMagic", Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
+		Transparency = 1, Size = Vector3.new(2, 2.4, 2), CFrame = CFrame.new(pos), CastShadow = false }, m)
+	rec.stars = new("ParticleEmitter", { Texture = (FX and FX.Tex and FX.Tex("Star")) or STAR, Rate = 5, LightEmission = 1, LightInfluence = 0,
+		Lifetime = NumberRange.new(0.7, 1.2), Speed = NumberRange.new(0.05, 0.3), SpreadAngle = Vector2.new(180, 180),
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.4, 0.18), NumberSequenceKeypoint.new(1, 0) }),
+		Transparency = NumberSequence.new(0.1), Color = seq(WHITE, C_YE, C_OR), RotSpeed = NumberRange.new(-60, 60),
+		Rotation = NumberRange.new(0, 360), ZOffset = 0.4 }, rec.fx)
+	pcall(function() rec.stars.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume end)
+	rec.hl = new("Highlight", { Adornee = m, FillColor = C_YE, FillTransparency = 1, OutlineColor = WHITE, OutlineTransparency = 1,
+		DepthMode = Enum.HighlightDepthMode.Occluded, Enabled = false }, m)
+	return rec
+end
+
+local function setAlpha(rec, a)
+	for p, base in pairs(rec.parts) do
+		if p.Parent then p.Transparency = base + (1 - base) * (1 - a) end
+	end
+end
+
+local function puff(pos)
+	if FX and FX.Puff then pcall(FX.Puff, pos, 0.5) end
+end
+
+local function removeCoin(id, withPuff)
+	local rec = coins[id]
+	if not rec then return end
+	coins[id] = nil
+	if withPuff and rec.pp and rec.pp.Parent then puff(rec.pp.Position) end
+	rec.model:Destroy()
+end
+
+local function coinBurst(target)
+	if FX and FX.Burst then pcall(FX.Burst, target, 0.55, { C_YE, C_OR }) end
+	if FX and FX.Sparkle then pcall(FX.Sparkle, target, 18, seq(WHITE, C_YE, C_OR), 6) end
+	sound("Coin", 0.5)
+	local char = player.Character
+	if char then
+		local h = new("Highlight", { Adornee = char, FillColor = C_YE, FillTransparency = 0.6, OutlineColor = WHITE,
+			OutlineTransparency = 0.3, DepthMode = Enum.HighlightDepthMode.Occluded }, char)
+		tween(h, 0.6, { FillTransparency = 1, OutlineTransparency = 1 })
+		task.delay(0.7, function() h:Destroy() end)
+	end
+end
+
+local function hrp()
+	local c = player.Character
+	return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local RISE_T, DIVE_T = 0.45, 0.42
+local pickPending = {}
+RunService.Heartbeat:Connect(function(dt)
+	local r = hrp()
+	local me = r and r.Position
+	local hum = r and r.Parent:FindFirstChildOfClass("Humanoid")
+	local alive = hum and hum.Health > 0
+	local now = os.clock()
+	for id, rec in pairs(coins) do
+		if not rec.model.Parent then coins[id] = nil continue end
+		rec.t += dt
+		local t = rec.t
+		local d = me and (me - rec.home).Magnitude or math.huge
+		if rec.state == "idle" or rec.state == "appear" then
+			rec.spin += dt * 1.8
+			local cf = CFrame.new(rec.home + Vector3.new(0, math.sin(t * 1.6) * 0.22, 0)) * CFrame.Angles(0, rec.spin, 0)
+			if rec.state == "appear" then
+				local u = (now - rec.appearT) / 0.6
+				if u >= 1 then rec.state = "idle" setAlpha(rec, 1)
+				else
+					setAlpha(rec, smooth(u))
+					cf = cf * CFrame.new(0, (1 - smooth(u)) * -1, 0)
+				end
+			end
+			rec.model:PivotTo(cf * rec.base)
+			rec.light.Brightness = 1.1 + math.sin(t * 2.2) * 0.2
+			rec.hl.Enabled = d < 14
+			rec.hl.OutlineTransparency = 1 - math.clamp((14 - d) / 8, 0, 1) * 0.8
+			-- ✋ ramassage en passant dessus (le serveur vérifie la distance de son côté)
+			if rec.state == "idle" and alive and d <= (Z.AutoPickupDistance or 5) and not (rec.cool and now < rec.cool) then
+				rec.state = "rise"
+				rec.riseT0 = now
+				rec.riseFrom = rec.model:GetPivot()
+				pickPending[id] = now
+				ActionRE:FireServer("pick", id)
+				rec.stars.Rate = 20
+			end
+		elseif rec.state == "rise" or rec.state == "hover" then
+			local u = rec.state == "rise" and math.clamp((now - rec.riseT0) / RISE_T, 0, 1) or 1
+			local e = 1 - (1 - u) ^ 3
+			rec.spin += dt * (2 + e * 14)
+			local pos = rec.riseFrom.Position + Vector3.new(0, 1.6 * e + math.sin(t * 4) * 0.06 * e, 0)
+			rec.model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, rec.spin, 0) * rec.base)
+			if u >= 1 then rec.state = "hover" end
+			if rec.state == "hover" and rec.confirmed then
+				rec.state = "dive"
+				rec.diveT0 = now
+				rec.diveFrom = rec.model:GetPivot()
+			elseif pickPending[id] and now - pickPending[id] > 4 then
+				pickPending[id] = nil
+				rec.state = "back" rec.backT0 = now rec.backFrom = rec.model:GetPivot() rec.cool = now + 2.5
+			end
+		elseif rec.state == "dive" then
+			local u = math.clamp((now - rec.diveT0) / DIVE_T, 0, 1)
+			local e = u * u * u
+			local target = (r and (r.Position + Vector3.new(0, 0.6, 0))) or rec.home
+			local from = rec.diveFrom.Position
+			local mid = from:Lerp(target, 0.4) + Vector3.new(0, 1, 0)
+			local q = 1 - e
+			local pos = from * (q * q) + mid * (2 * q * e) + target * (e * e)
+			rec.spin += dt * 18
+			rec.model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, rec.spin, 0) * rec.base)
+			pcall(function() rec.model:ScaleTo(rec.s0 * math.max(0.15, 1 - e * 0.85)) end)
+			if u >= 1 then
+				coinBurst(target)
+				coins[id] = nil
+				rec.model:Destroy()
+				continue
+			end
+		elseif rec.state == "back" then
+			local u = math.clamp((now - rec.backT0) / 0.6, 0, 1)
+			rec.model:PivotTo(rec.backFrom:Lerp(CFrame.new(rec.home) * CFrame.Angles(0, rec.spin, 0) * rec.base, 1 - (1 - u) ^ 3))
+			if u >= 1 then rec.state = "idle" rec.stars.Rate = 5 end
+		end
+		if rec.fx.Parent then rec.fx.CFrame = CFrame.new(rec.model:GetPivot().Position) end
+		local far = d > (Z.ShowRadius or 220)
+		if far ~= rec.far then
+			rec.far = far
+			rec.light.Enabled = not far
+			rec.stars.Enabled = not far
+		end
+	end
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 📨 MESSAGES DU SERVEUR
+-- ════════════════════════════════════════════════════════════════
+local promptsHidden = false
+PushRE.OnClientEvent:Connect(function(kind, data)
+	data = data or {}
+	if kind == "view" then
+		view = data
+		if data.hidden then
+			if not promptsHidden then promptsHidden = true hidePrompts() end
+			close()
+			return
+		end
+		if not data.loading and shown == 0 then shown = data.coins or 0 end
+		if isOpen then refresh() end
+	elseif kind == "coinAdd" then
+		if type(data.P) == "table" and not coins[data.Id] then
+			coins[data.Id] = buildCoin(data.Id, Vector3.new(data.P[1], data.P[2], data.P[3]))
+		end
+	elseif kind == "coinClear" then
+		for id in pairs(coins) do
+			if coins[id].state ~= "dive" then removeCoin(id, true) end
+		end
+	elseif kind == "coinOk" then
+		if data.Id then
+			pickPending[data.Id] = nil
+			local rec = coins[data.Id]
+			if rec then rec.confirmed = true if rec.state == "idle" then rec.state = "hover" rec.riseFrom = rec.model:GetPivot() end end
+		end
+		if view and data.Total then view.coins = data.Total end
+		hudGain(data.Add or 0, data.Total or 0, data.Got, data.Cap)
+		if data.Jack then toast("+" .. commas(data.Add or 0) .. " " .. ((C.Coin and C.Coin.Name) or "Halloween Coins"), "Jack's reward!") end
+		if isOpen then refresh() end
+	elseif kind == "coinNo" then
+		local rec = coins[data.Id]
+		pickPending[data.Id] = nil
+		if rec then
+			if data.Gone then removeCoin(data.Id, true)
+			elseif rec.state ~= "dive" then
+				rec.state = "back" rec.backT0 = os.clock() rec.backFrom = rec.model:GetPivot() rec.cool = os.clock() + 2.5
+			end
+		end
+	elseif kind == "toast" then
+		if data.Kind == "quest" then
+			toast("Quest complete!", ((data.Text or ""):gsub("{N}", tostring(data.Goal or ""))) .. " · claim " .. commas(data.Reward or 0) .. " coins!")
+			sound("Claim", 0.35)
+		else
+			toast(data.Text or "", nil, data.Kind == "error")
+		end
+	elseif kind == "claimed" then
+		sound("Claim", 0.55)
+		toast("+" .. commas(data.Amount or 0) .. " " .. ((C.Coin and C.Coin.Name) or "Halloween Coins"), "Quest reward claimed!")
+	elseif kind == "rerolled" then
+		sound("Open", 0.4)
+		toast("New quests!", (data.Which == "weekly" and "Your weekly quests" or "Your daily quests") .. " were refreshed.")
+		for _, r in ipairs(rows[data.Which] or {}) do
+			r.row.BackgroundColor3 = PURPLE
+			r.row.BackgroundTransparency = 0.2
+			tween(r.row, 0.6, { BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45 })
+		end
+	elseif kind == "reward" then
+		if not isOpen then open("Rewards") end
+		table.insert(modalQueue, data)
+		showNextModal()
+	elseif kind == "needRobux" then
+		local rr = C.Robux and C.Robux.RerollQuest
+		if rr and (tonumber(rr.ProductId) or 0) > 0 then
+			ActionRE:FireServer("rerollBuy", data.Which)
+		else
+			toast("No free refresh left today", "Come back tomorrow for new quests!", true)
+		end
+	end
+end)
+
+-- premier coup d'œil (savoir si l'event est pour toi + le solde du compteur)
+task.delay(4, function()
+	local ok, v = pcall(function() return StateRF:InvokeServer() end)
+	if ok and v then
+		view = v
+		if v.hidden and not promptsHidden then promptsHidden = true hidePrompts() end
+		if not v.loading and v.coins then shown = v.coins end
+	end
+end)
