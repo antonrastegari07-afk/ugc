@@ -189,6 +189,17 @@ local function sfx(name, parent, volMul)
 	local snd = new("Sound", { Name = "FX_" .. name, SoundId = id, Volume = vol * (volMul or 1),
 		PlaybackSpeed = Config.SoundPitch or 1, RollOffMaxDistance = 90, RollOffMinDistance = 8 }, parent)
 	snd:Play()
+	-- 🩺 2e filet : un son qui n'a toujours pas chargé après 3 s est marqué « muet »
+	--    → les prochains dash utilisent le son par défaut.
+	if not snd.IsLoaded and not badId[id] and SFX_FALLBACK[name] and id ~= SFX_FALLBACK[name] then
+		task.delay(3, function()
+			if not snd.IsLoaded and not badId[id] then
+				badId[id] = true
+				warn(("⚠️ [ScytheFX] son %s (%s) toujours pas chargé après 3 s → son par défaut au prochain coup. "
+					.. "Audio en modération, refusé, ou d'un autre compte que le jeu ?"):format(name, id))
+			end
+		end)
+	end
 	if Config.Debug then
 		print(("🔊 [ScytheFX] %s → %s | volume %.2f | chargé : %s"):format(name, id, snd.Volume, tostring(snd.IsLoaded)))
 	end
