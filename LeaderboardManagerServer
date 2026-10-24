@@ -1,0 +1,762 @@
+--[[
+	LeaderboardManagerServer.lua        ⟦ v2 — blob borné ⟧
+	------------------------------------------------------------------
+	Gestionnaire UNIFIÉ pour 4 leaderboards all-time globaux :
+	  • Points   (extra: rebirths)
+	  • Rebirths
+	  • Streak   (extra: highScore)
+	  • Kills
+
+	→ À placer dans ServerScriptService. Remplace la version précédente.
+	→ Les LocalScripts ne changent PAS : mêmes Remotes, mêmes noms de champs.
+
+	════════════════════════════════════════════════════════════════════
+	🩹 CE QUI EST CORRIGÉ  —  « ValueTooLarge » sur LeaderboardProfiles_v1
+	════════════════════════════════════════════════════════════════════
+	L'ancienne version appelait markDirty() dans snapshotPlayer(), c'est-à-dire
+	pour CHAQUE joueur en ligne, à CHAQUE passage de build et de save. Résultat :
+	tout joueur ayant un jour rejoint le jeu finissait dans le blob, et n'en
+	sortait jamais. La clé a fini par dépasser 4 MB, et depuis, PLUS AUCUNE
+	écriture de profil ne passait — l'erreur revenait à chaque flush.
+
+	Or ce blob ne sert qu'à UNE chose : afficher le nom d'un joueur HORS LIGNE
+	qui figure dans un top. Il lui faut donc 125 entrées (50+25+25+25), pas des
+	dizaines de milliers.
+
+	Trois changements :
+
+	  1. On ne marque « à persister » QUE les joueurs réellement présents dans
+	     un board construit (+ ceux dont on vient de résoudre le nom). Un joueur
+	     lambda qui joue trois heures n'écrit plus rien.
+
+	  2. On ne persiste QUE les champs dont l'affichage a besoin : le nom, et
+	     les `extras` déclarés par les boards (rebirths, highScore). Les valeurs
+	     triées (points, streak, kills) viennent de l'OrderedDataStore — les
+	     stocker ici était du poids mort.
+
+	  3. Le blob est BORNÉ à MAX_PROFILES entrées, les plus récemment vues
+	     gardées. La coupe se fait DANS la transaction, donc elle rétrécit la
+	     clé même si elle est déjà trop grosse aujourd'hui : le premier flush
+	     après déploiement répare tout seul.
+
+	Il n'y a rien à supprimer à la main. Les entrées en trop partiront d'elles-
+	mêmes au premier flush réussi.
+--]]
+
+local Players          = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage= game:GetService("ReplicatedStorage")
+local HttpService      = game:GetService("HttpService")
+local RT               = Enum.DataStoreRequestType
+
+-- ========================================================================
+-- CONFIG GÉNÉRALE
+-- ========================================================================
+local SAVE_INTERVAL       = 120   -- sauvegarde des valeurs (s)
+local BUILD_INTERVAL      = 120   -- reconstruction + broadcast (s)
+local BUILD_STAGGER       = 2     -- délai entre chaque board dans un cycle de build
+local SAVE_THROTTLE       = 0.3   -- délai entre chaque SetAsync
+local INITIAL_BUILD_DELAY = 10    -- 1er build rapide (puis events au fil de l'eau)
+
+local PROFILE_STORE_NAME  = "LeaderboardProfiles_v1"
+local PROFILE_BLOB_KEY    = "profiles"
+
+--  Combien de profils on garde. Les boards en demandent 125 ; la marge sert
+--  aux joueurs qui entrent et sortent du top entre deux cycles.
+--  ⚠️ Ne monte pas ça à la légère : c'est ce plafond qui empêche la clé de
+--     redevenir illisible. 1500 entrées ≈ 150 KB, très loin de la limite.
+local MAX_PROFILES   = 1500
+local MAX_BLOB_BYTES = 1024 * 1024   -- 1 MB : on coupe bien avant les 4 MB de Roblox
+
+-- ========================================================================
+-- ACCÈS AUX STATS JOUEUR
+-- ========================================================================
+local function getLeaderstat(player, statName)
+	local ls = player:FindFirstChild("leaderstats")
+	if not ls then return 0 end
+	local v = ls:FindFirstChild(statName)
+	return v and math.floor(v.Value) or 0
+end
+
+local function getKills(player)
+	local ls = player:FindFirstChild("leaderstats")
+	if ls then
+		local k = ls:FindFirstChild("Kills")
+		if k then return math.floor(k.Value) end
+	end
+	local attr = player:GetAttribute("TotalKills") or player:GetAttribute("Kills")
+	return attr and math.floor(attr) or 0
+end
+
+local profileCache = {}   -- [userId] = { name, points, rebirths, streak, highScore, kills }
+local profileDirty = {}   -- [userId] = true   (à persister au prochain flush)
+local lastPersisted = {}  -- [userId] = signature déjà écrite (évite de réécrire l'identique)
+
+local function markDirty(userId)
+	profileDirty[userId] = true
+end
+
+--  ⚠️ NE MARQUE PLUS DIRTY. C'était la fuite : cette fonction tourne pour
+--     chaque joueur en ligne à chaque cycle. Le cache mémoire est gratuit,
+--     l'écriture ne l'est pas. Ce sont buildBoard() et resolveName() qui
+--     décident maintenant qui mérite d'être persisté.
+local function snapshotPlayer(player)
+	local id   = player.UserId
+	local prof = profileCache[id] or {}
+	prof.name      = player.DisplayName or player.Name
+	prof.points    = getLeaderstat(player, "Points")
+	prof.rebirths  = getLeaderstat(player, "Rebirths")
+	prof.streak    = math.floor(player:GetAttribute("FlameStreak")    or 0)
+	prof.highScore = math.floor(player:GetAttribute("FlameHighScore") or 0)
+	prof.kills     = getKills(player)
+	profileCache[id] = prof
+	return prof
+end
+
+-- ========================================================================
+-- DÉFINITION DES BOARDS
+--   field  = clé du profil utilisée comme valeur triée (et nom du champ
+--            renvoyé au client)
+--   extras = champs secondaires supplémentaires renvoyés au client
+-- ========================================================================
+local BOARD_LIST = {
+	{
+		id           = "Points",
+		store        = "GlobalLeaderboard_Points_v3",
+		topSize      = 100,
+		field        = "points",
+		extras       = { "rebirths" },
+		updateRemote = "PointsLeaderboardUpdate",
+		getRemote    = "GetPointsLeaderboard",
+	},
+	{
+		id           = "Rebirths",
+		store        = "GlobalLeaderboard_Rebirths_v1",
+		topSize      = 100,
+		field        = "rebirths",
+		extras       = {},
+		updateRemote = "RebirthLeaderboardUpdate",
+		getRemote    = "GetRebirthLeaderboard",
+	},
+	{
+		id           = "Streak",
+		store        = "GlobalLeaderboard_Streak_v1",
+		topSize      = 100,
+		field        = "streak",
+		extras       = { "highScore" },
+		updateRemote = "StreakLeaderboardUpdate",
+		getRemote    = "GetStreakLeaderboard",
+	},
+	{
+		id           = "Kills",
+		store        = "GlobalLeaderboard_Kills_v1",
+		topSize      = 100,
+		field        = "kills",
+		extras       = {},
+		updateRemote = "KillLeaderboardUpdate",
+		getRemote    = "GetKillLeaderboard",
+	},
+}
+
+local BOARD_BY_ID = {}
+for _, b in ipairs(BOARD_LIST) do BOARD_BY_ID[b.id] = b end
+
+--  Champs réellement persistés : le nom, plus les `extras` de chaque board.
+--  Déduit de BOARD_LIST : si tu ajoutes un extra à un board, il est persisté
+--  automatiquement, sans rien toucher ici.
+local PERSISTED_FIELDS = { name = true }
+for _, b in ipairs(BOARD_LIST) do
+	for _, ek in ipairs(b.extras) do PERSISTED_FIELDS[ek] = true end
+end
+
+local function persistShape(prof)
+	if type(prof) ~= "table" then return nil end
+	local out = { t = os.time() }
+	for k in pairs(PERSISTED_FIELDS) do
+		if prof[k] ~= nil then out[k] = prof[k] end
+	end
+	return out
+end
+
+--  Signature de ce qui sera écrit : si elle n'a pas bougé, inutile de
+--  réécrire la même chose toutes les deux minutes.
+local function persistSignature(prof)
+	if type(prof) ~= "table" then return "" end
+	local parts = {}
+	for k in pairs(PERSISTED_FIELDS) do
+		parts[#parts + 1] = k .. "=" .. tostring(prof[k])
+	end
+	table.sort(parts)
+	return table.concat(parts, "|")
+end
+
+--  Marque un joueur à persister UNIQUEMENT si son profil affiché a changé.
+local function markIfChanged(userId)
+	local prof = profileCache[userId]
+	if not prof then return end
+	local sig = persistSignature(prof)
+	if lastPersisted[userId] ~= sig then
+		profileDirty[userId] = true
+	end
+end
+
+-- ========================================================================
+-- STORES & REMOTES
+-- ========================================================================
+local orderedStores = {}
+for _, b in ipairs(BOARD_LIST) do
+	orderedStores[b.id] = DataStoreService:GetOrderedDataStore(b.store)
+end
+local profileStore = DataStoreService:GetDataStore(PROFILE_STORE_NAME)
+
+local function getOrCreate(name, class)
+	local r = ReplicatedStorage:FindFirstChild(name)
+	if not r then
+		r = Instance.new(class or "RemoteEvent")
+		r.Name   = name
+		r.Parent = ReplicatedStorage
+	end
+	return r
+end
+
+local updateEvents = {}
+local getFuncs     = {}
+for _, b in ipairs(BOARD_LIST) do
+	updateEvents[b.id] = getOrCreate(b.updateRemote, "RemoteEvent")
+	getFuncs[b.id]     = getOrCreate(b.getRemote, "RemoteFunction")
+end
+
+local openAdminPanelEvent = getOrCreate("OpenAdminPointsPanel", "RemoteEvent")
+
+-- ========================================================================
+-- CACHES DE SORTIE
+-- ========================================================================
+local cachedBoards = {}   -- [boardId] = liste d'entrées prêtes pour le client
+local lastSaved    = {}   -- [boardId][userId] = dernière valeur écrite (dirty-tracking)
+for _, b in ipairs(BOARD_LIST) do
+	cachedBoards[b.id] = {}
+	lastSaved[b.id]    = {}
+end
+
+-- ========================================================================
+-- BUDGET
+-- ========================================================================
+local function budgetOK(reqType)
+	local ok, budget = pcall(function()
+		return DataStoreService:GetRequestBudgetForRequestType(reqType)
+	end)
+	-- en cas d'échec de lecture du budget, on autorise (comportement prudent côté pcall)
+	return (not ok) or (budget == nil) or (budget > 0)
+end
+
+-- ========================================================================
+-- PROFIL BLOB (noms + champs secondaires, partagé entre tous les boards)
+-- ========================================================================
+local function loadProfileBlob()
+	local ok, stored = pcall(function()
+		return profileStore:GetAsync(PROFILE_BLOB_KEY)
+	end)
+	if ok and type(stored) == "table" then
+		local n = 0
+		for k, v in pairs(stored) do
+			local id = tonumber(k)
+			if id and type(v) == "table" and not profileCache[id] then
+				profileCache[id] = v
+				lastPersisted[id] = persistSignature(v)
+				n = n + 1
+			end
+		end
+		print(string.format("📇 %d profil(s) chargé(s) depuis %s", n, PROFILE_STORE_NAME))
+	elseif not ok then
+		warn("⚠️ Lecture du blob de profils impossible — les noms hors ligne "
+			.. "seront résolus un par un (plus lent, mais rien n'est cassé).")
+	end
+end
+
+--  ✂️ Borne le blob. Appelée DANS la transaction, donc elle rétrécit la clé
+--     même quand elle est déjà au-dessus de la limite — c'est ce qui répare
+--     une clé devenue trop grosse sans intervention manuelle.
+--
+--     On garde les entrées vues le plus récemment. Les joueurs actuellement
+--     dans un top sont rafraîchis à chaque build : ils sont donc toujours en
+--     tête et ne peuvent pas être coupés.
+local function pruneBlob(tbl)
+	local list = {}
+	for k, v in pairs(tbl) do
+		if type(v) == "table" then
+			list[#list + 1] = { k = k, t = tonumber(v.t) or 0 }
+		else
+			tbl[k] = nil       -- entrée corrompue : elle ne sert à rien
+		end
+	end
+
+	if #list == 0 then return tbl end
+
+	-- Plus récent d'abord. Les vieilles fiches (sans `t`, donc t = 0) partent
+	-- les premières : ce sont justement celles de l'ancien système qui
+	-- stockaient tout le monde.
+	table.sort(list, function(a, b) return a.t > b.t end)
+
+	local keep = math.min(#list, MAX_PROFILES)
+
+	-- Garde-fou dur : si malgré le plafond le JSON reste trop lourd (vieilles
+	-- fiches obèses), on resserre jusqu'à passer sous la barre.
+	for _ = 1, 10 do
+		for i = keep + 1, #list do tbl[list[i].k] = nil end
+
+		local okEnc, json = pcall(function() return HttpService:JSONEncode(tbl) end)
+		if not okEnc then break end
+		if #json <= MAX_BLOB_BYTES then break end
+
+		keep = math.floor(keep * 0.6)
+		if keep < 200 then keep = 200 end
+		if keep >= #list then break end
+	end
+
+	return tbl
+end
+
+-- 1 SEUL write pour tous les profils marqués "dirty".
+local function flushProfiles()
+	if next(profileDirty) == nil then return end
+	if not budgetOK(RT.UpdateAsync) then return end -- on retentera au prochain cycle
+
+	local batch, sigs = {}, {}
+	for id in pairs(profileDirty) do
+		local shaped = persistShape(profileCache[id])
+		if shaped then
+			batch[tostring(id)] = shaped
+			sigs[id] = persistSignature(profileCache[id])
+		end
+	end
+	profileDirty = {}
+
+	local ok = pcall(function()
+		profileStore:UpdateAsync(PROFILE_BLOB_KEY, function(old)
+			old = (type(old) == "table") and old or {}
+			for k, v in pairs(batch) do
+				old[k] = v
+			end
+			return pruneBlob(old)
+		end)
+	end)
+
+	if ok then
+		-- On ne retient la signature qu'après une écriture réussie : sinon un
+		-- échec ferait croire que la valeur est persistée et on ne réessaierait
+		-- jamais.
+		for id, sig in pairs(sigs) do lastPersisted[id] = sig end
+	else
+		warn("⚠️ Écriture du blob de profils échouée — les profils seront "
+			.. "réessayés au prochain cycle.")
+		for id in pairs(sigs) do profileDirty[id] = true end
+	end
+end
+
+local function removeProfileFromBlob(userId)
+	pcall(function()
+		profileStore:UpdateAsync(PROFILE_BLOB_KEY, function(old)
+			if type(old) == "table" then old[tostring(userId)] = nil end
+			return old
+		end)
+	end)
+	lastPersisted[userId] = nil
+end
+
+-- ========================================================================
+-- RÉSOLUTION DE NOM (rare : entrée offline jamais vue)
+-- ========================================================================
+local function resolveName(userId)
+	local prof = profileCache[userId]
+	if prof and prof.name then return prof.name end
+
+	local online = Players:GetPlayerByUserId(userId)
+	if online then
+		local nm = online.DisplayName or online.Name
+		profileCache[userId] = profileCache[userId] or {}
+		profileCache[userId].name = nm
+		markDirty(userId)   -- ce joueur figure dans un top : il mérite sa fiche
+		return nm
+	end
+
+	local ok, uname = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	local resolved = (ok and uname) or ("Player_" .. userId)
+	profileCache[userId] = profileCache[userId] or {}
+	profileCache[userId].name = resolved
+	markDirty(userId)
+	return resolved
+end
+
+-- ========================================================================
+-- LIRE LE TOP TRIÉ (1 page, 1 GetSortedAsync)
+-- ========================================================================
+local function fetchSortedTop(board)
+	local results = {}
+	if not budgetOK(RT.GetSortedAsync) then return results end
+
+	local store = orderedStores[board.id]
+	local ok, pages = pcall(function()
+		return store:GetSortedAsync(false, board.topSize, 1, 1000000000)
+	end)
+	if not ok or not pages then
+		warn(string.format("❌ [%s] Erreur GetSortedAsync", board.id))
+		return results
+	end
+
+	local ok2, page = pcall(function() return pages:GetCurrentPage() end)
+	if not ok2 or not page then return results end
+
+	for _, e in ipairs(page) do
+		local uid = tonumber(e.key)
+		if uid then
+			results[#results + 1] = { userId = uid, value = e.value }
+		end
+	end
+	return results
+end
+
+-- ========================================================================
+-- CONSTRUIRE UN BOARD (online frais + offline depuis le store)
+-- ========================================================================
+local function buildBoard(board)
+	local field  = board.field
+	local sorted = fetchSortedTop(board)
+
+	local merged = {}
+	local seen   = {}
+
+	-- 1) Joueurs en ligne = valeurs fraîches (prioritaires)
+	for _, p in ipairs(Players:GetPlayers()) do
+		local prof = snapshotPlayer(p)
+		local v    = prof[field] or 0
+		if v > 0 then
+			local id = p.UserId
+			if not seen[id] then
+				seen[id] = true
+				merged[#merged + 1] = { userId = id, name = prof.name, value = v, prof = prof }
+			end
+		end
+	end
+
+	-- 2) Joueurs hors ligne depuis l'OrderedDataStore
+	for _, e in ipairs(sorted) do
+		if not seen[e.userId] then
+			seen[e.userId] = true
+			local prof = profileCache[e.userId]
+			merged[#merged + 1] = {
+				userId = e.userId,
+				name   = prof and prof.name or nil, -- résolu plus bas si manquant
+				value  = e.value,
+				prof   = prof,
+			}
+		end
+	end
+
+	-- 3) Résoudre les noms manquants (rare, throttlé)
+	for _, m in ipairs(merged) do
+		if not m.name then
+			m.name = resolveName(m.userId)
+			m.prof = profileCache[m.userId]
+			task.wait(0.1)
+		end
+	end
+
+	-- 4) Trier + couper au topSize
+	table.sort(merged, function(a, b) return a.value > b.value end)
+
+	local result = {}
+	local limit  = math.min(board.topSize, #merged)
+	for i = 1, limit do
+		local m = merged[i]
+		local entry = {
+			rank   = i,
+			name   = m.name,
+			userId = m.userId,
+			[field]= m.value,
+		}
+		for _, ek in ipairs(board.extras) do
+			entry[ek] = (m.prof and m.prof[ek]) or 0
+		end
+		result[#result + 1] = entry
+
+		--  📇 C'EST ICI, et nulle part ailleurs, qu'on décide de persister un
+		--     profil : ce joueur est affiché dans un top, donc son nom devra
+		--     être lisible même quand il sera hors ligne. Les autres joueurs
+		--     ne coûtent rien.
+		markIfChanged(m.userId)
+	end
+
+	return result
+end
+
+local function broadcast(board, data)
+	pcall(function()
+		updateEvents[board.id]:FireAllClients(data)
+	end)
+end
+
+-- ========================================================================
+-- SAUVEGARDE (dirty-tracking : on n'écrit que ce qui a changé)
+-- ========================================================================
+local function savePass()
+	for _, p in ipairs(Players:GetPlayers()) do
+		local prof = snapshotPlayer(p)
+		local id   = p.UserId
+		for _, board in ipairs(BOARD_LIST) do
+			local v = prof[board.field] or 0
+			if v > 0 and lastSaved[board.id][id] ~= v then
+				if budgetOK(RT.SetIncrementSortedAsync) then
+					local ok = pcall(function()
+						orderedStores[board.id]:SetAsync(tostring(id), v)
+					end)
+					if ok then lastSaved[board.id][id] = v end
+					task.wait(SAVE_THROTTLE)
+				end
+			end
+		end
+	end
+	flushProfiles() -- 1 seul write pour tous les profils
+end
+
+-- ========================================================================
+-- BOUCLES PRINCIPALES
+-- ========================================================================
+
+-- Build : 1er build rapide, puis reconstruction périodique étalée
+task.spawn(function()
+	loadProfileBlob()
+	print("🏆 LeaderboardManager démarré — pré-chargement des profils")
+	task.wait(INITIAL_BUILD_DELAY)
+
+	while true do
+		for _, board in ipairs(BOARD_LIST) do
+			local data = buildBoard(board)
+			cachedBoards[board.id] = data
+			broadcast(board, data)
+			task.wait(BUILD_STAGGER)
+		end
+		-- Le premier flush après démarrage rétrécit la clé si elle avait
+		-- débordé : on ne l'attend donc pas jusqu'au cycle de save.
+		flushProfiles()
+		task.wait(BUILD_INTERVAL)
+	end
+end)
+
+-- Save : indépendante du build
+task.spawn(function()
+	task.wait(SAVE_INTERVAL)
+	while true do
+		savePass()
+		task.wait(SAVE_INTERVAL)
+	end
+end)
+
+-- ========================================================================
+-- RÉPONSES CLIENT (depuis le cache, instantané)
+-- ========================================================================
+for _, board in ipairs(BOARD_LIST) do
+	getFuncs[board.id].OnServerInvoke = function()
+		return cachedBoards[board.id]
+	end
+end
+
+-- ========================================================================
+-- SAUVEGARDE À LA DÉCONNEXION / FERMETURE
+-- ========================================================================
+local isClosing = false
+
+local function saveOnePlayer(player)
+	local prof = snapshotPlayer(player)
+	local id   = player.UserId
+	for _, board in ipairs(BOARD_LIST) do
+		local v = prof[board.field] or 0
+		if v > 0 and lastSaved[board.id][id] ~= v then
+			pcall(function()
+				orderedStores[board.id]:SetAsync(tostring(id), v)
+			end)
+			lastSaved[board.id][id] = v
+			task.wait(SAVE_THROTTLE)
+		end
+	end
+	--  Son profil n'est persisté que s'il figure déjà dans un top (donc s'il
+	--  est déjà connu du blob). Un joueur qui part sans être classé n'écrit
+	--  rien — c'est exactement ce qui faisait exploser la clé.
+	if lastPersisted[id] ~= nil then markIfChanged(id) end
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	if isClosing then return end
+	saveOnePlayer(player)
+	flushProfiles()
+end)
+
+game:BindToClose(function()
+	isClosing = true
+	for _, player in ipairs(Players:GetPlayers()) do
+		saveOnePlayer(player)
+	end
+	flushProfiles()
+	task.wait(3)
+end)
+
+-- ========================================================================
+-- ADMIN — SUPPRESSION (sur TOUS les boards)
+-- ========================================================================
+local ADMIN_IDS = {
+	3203521470, 11017023724, 8456613930, 8142402169,
+}
+
+local function isAdmin(player)
+	for _, id in ipairs(ADMIN_IDS) do
+		if player.UserId == id then return true end
+	end
+	return false
+end
+
+local function rebuildAll()
+	task.spawn(function()
+		task.wait(0.5)
+		for _, board in ipairs(BOARD_LIST) do
+			cachedBoards[board.id] = buildBoard(board)
+			broadcast(board, cachedBoards[board.id])
+			task.wait(BUILD_STAGGER)
+		end
+		print("🔄 Tous les leaderboards reconstruits après modification admin")
+	end)
+end
+
+local function deletePlayerEntry(targetUserId)
+	targetUserId = tonumber(targetUserId)
+	if not targetUserId then
+		warn("❌ DeletePlayerEntry: userId invalide")
+		return false
+	end
+
+	for _, board in ipairs(BOARD_LIST) do
+		pcall(function()
+			orderedStores[board.id]:RemoveAsync(tostring(targetUserId))
+		end)
+		lastSaved[board.id][targetUserId] = nil
+
+		local c = cachedBoards[board.id]
+		for i = #c, 1, -1 do
+			if c[i].userId == targetUserId then table.remove(c, i) end
+		end
+		for i, e in ipairs(c) do e.rank = i end
+	end
+
+	profileCache[targetUserId] = nil
+	profileDirty[targetUserId] = nil
+	removeProfileFromBlob(targetUserId)
+	rebuildAll()
+
+	print(string.format("🗑️ Joueur %d supprimé de tous les boards", targetUserId))
+	return true
+end
+
+local function deleteByRank(boardId, rank)
+	local board = BOARD_BY_ID[boardId]
+	if not board then
+		warn(string.format("❌ deleteByRank: board '%s' inconnu", tostring(boardId)))
+		return false
+	end
+	rank = tonumber(rank)
+	local entry = rank and cachedBoards[boardId][rank]
+	if not entry then
+		warn(string.format("❌ deleteByRank: aucune entrée au rang #%s sur %s", tostring(rank), boardId))
+		return false
+	end
+	print(string.format("🎯 Suppression %s #%d → %s (userId: %d)", boardId, rank, entry.name, entry.userId))
+	return deletePlayerEntry(entry.userId)
+end
+
+_G.DeletePlayerEntry = deletePlayerEntry
+_G.DeleteByRank      = deleteByRank
+
+-- ========================================================================
+-- COMMANDES CHAT ADMIN
+--   !delete <userId>          → supprime de tous les boards
+--   !deleterank <board> <#>   → ex: !deleterank Points 5
+--   !pointspanel              → ouvre le panneau admin Points
+-- ========================================================================
+Players.PlayerAdded:Connect(function(player)
+	player.Chatted:Connect(function(msg)
+		if not isAdmin(player) then return end
+		local lower = msg:lower()
+
+		if lower == "!pointspanel" then
+			openAdminPanelEvent:FireClient(player, cachedBoards["Points"])
+			print(string.format("📊 [Admin %s] panneau Points (%d entrées)", player.Name, #cachedBoards["Points"]))
+			return
+		end
+
+		local userId = msg:match("^!delete%s+(%d+)$")
+		if userId then
+			deletePlayerEntry(userId)
+			return
+		end
+
+		local bId, rank = msg:match("^!deleterank%s+(%a+)%s+(%d+)$")
+		if bId and rank then
+			-- normalise la casse vers un id de board connu
+			for id in pairs(BOARD_BY_ID) do
+				if id:lower() == bId:lower() then bId = id break end
+			end
+			deleteByRank(bId, rank)
+		end
+	end)
+end)
+
+-- ========================================================================
+-- DEBUG
+-- ========================================================================
+_G.ShowLeaderboard = function(boardId)
+	local c = cachedBoards[boardId]
+	if not c then warn("Board inconnu: "..tostring(boardId)); return end
+	local board = BOARD_BY_ID[boardId]
+	print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	print(string.format("🏆 %s (%d entrées)", boardId, #c))
+	for i = 1, math.min(10, #c) do
+		local e = c[i]
+		print(string.format("#%-3d %-22s  %s", e.rank, e.name, tostring(e[board.field])))
+	end
+end
+
+_G.ShowBudgets = function()
+	print("📊 Budgets DataStore :",
+		"Get="    .. DataStoreService:GetRequestBudgetForRequestType(RT.GetAsync),
+		"SetSort=".. DataStoreService:GetRequestBudgetForRequestType(RT.SetIncrementSortedAsync),
+		"GetSort=".. DataStoreService:GetRequestBudgetForRequestType(RT.GetSortedAsync),
+		"Update=" .. DataStoreService:GetRequestBudgetForRequestType(RT.UpdateAsync))
+end
+
+--  📏 Combien pèse réellement le blob, et combien de fiches il contient.
+--     À lancer après le déploiement pour vérifier que la coupe a bien eu lieu.
+_G.ShowProfileBlob = function()
+	local ok, stored = pcall(function() return profileStore:GetAsync(PROFILE_BLOB_KEY) end)
+	if not ok or type(stored) ~= "table" then
+		warn("❌ Lecture du blob impossible")
+		return
+	end
+	local n = 0
+	for _ in pairs(stored) do n = n + 1 end
+	local okEnc, json = pcall(function() return HttpService:JSONEncode(stored) end)
+	print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	print(string.format("📇 %s : %d fiche(s)", PROFILE_STORE_NAME, n))
+	if okEnc then
+		print(string.format("   Taille : %.1f KB  (plafond interne %.0f KB, limite Roblox 4096 KB)",
+			#json / 1024, MAX_BLOB_BYTES / 1024))
+	end
+	print(string.format("   Plafond de fiches : %d", MAX_PROFILES))
+	print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+end
+
+_G.ForceRefresh = function()
+	rebuildAll()
+end
+
+print("✅ LeaderboardManager v2 chargé (Points / Rebirths / Streak / Kills)")
+print("📋 Debug: _G.ShowLeaderboard('Points') | _G.ShowBudgets() | _G.ShowProfileBlob() | _G.ForceRefresh()")
+print("📋 Admin: !delete <id> | !deleterank Points 5 | !pointspanel")
