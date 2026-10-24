@@ -22,7 +22,6 @@ local LocalPlayer = Players.LocalPlayer
 local CFG = {
 	boardNames   = { "UGCLiveBoard", "UGCLiveBoard2" },
 	title        = "LIVE UGC REDEEMS",
-	liveText     = "LIVE",
 	verb         = "redeemed",
 	emptyText    = "No redeems yet... be the first!",
 	footerText   = "Updates live  •  latest redeems",
@@ -31,6 +30,19 @@ local CFG = {
 	maxShown     = 20,
 	entryHeight  = 84,
 	resyncDelay  = 300,   -- s : relecture silencieuse (le live passe par l'event)
+
+	-- 🪧 Titre flottant au-dessus du panneau (style « LIVE NOW! » du shop)
+	billboard = {
+		widthScale  = 0.85,   -- largeur = 85 % de la largeur du panneau
+		heightRatio = 0.16,   -- hauteur = 16 % de la largeur
+		gap         = 0.6,    -- studs entre le haut du panneau et le titre
+		maxDistance = 200,
+		gradient    = {       -- haut → bas
+			Color3.fromRGB(255, 190, 50),
+			Color3.fromRGB(255, 85, 150),
+		},
+		outline     = Color3.fromRGB(22, 15, 22),
+	},
 
 	palette = {
 		bg          = Color3.fromRGB(16, 10, 22),
@@ -41,14 +53,11 @@ local CFG = {
 		entry       = Color3.fromRGB(13, 8, 20),
 		entryEdge   = Color3.fromRGB(30, 16, 44),
 		entryStroke = Color3.fromRGB(78, 50, 108),
-		tileA       = Color3.fromRGB(46, 28, 68),
-		tileB       = Color3.fromRGB(22, 14, 34),
+		tileA       = Color3.fromRGB(250, 248, 255),   -- clair : les UGC noirs restent lisibles
+		tileB       = Color3.fromRGB(222, 214, 238),
+		ugcName     = Color3.fromRGB(172, 116, 251),   -- même violet que [UGC REDEEM] dans le chat
 		accent1     = Color3.fromRGB(255, 95, 190),    -- rose
 		accent2     = Color3.fromRGB(185, 125, 255),   -- violet
-		accent3     = Color3.fromRGB(110, 210, 255),   -- cyan (reflet du titre)
-		headerA     = Color3.fromRGB(44, 14, 66),
-		headerB     = Color3.fromRGB(120, 28, 110),
-		headerC     = Color3.fromRGB(60, 22, 120),
 		stroke      = Color3.fromRGB(110, 70, 150),
 		muted       = Color3.fromRGB(165, 145, 190),
 		white       = Color3.fromRGB(255, 255, 255),
@@ -276,7 +285,7 @@ local function buildEntry(parent, item)
 	ugcLbl.BackgroundTransparency = 1
 	ugcLbl.RichText               = true
 	ugcLbl.Text                   = string.format('<font color="%s">%s</font>  <font color="%s">%s</font>',
-		toHex(P.muted), CFG.verb, toHex(P.accent1), escape(item.an or "UGC"))
+		toHex(P.muted), CFG.verb, toHex(P.ugcName), escape(item.an or "UGC"))
 	ugcLbl.TextColor3             = P.white
 	ugcLbl.TextScaled             = true
 	ugcLbl.Font                   = Enum.Font.FredokaOne
@@ -571,7 +580,113 @@ function View:destroy()
 end
 
 --==============================================================================
--- UI D'UN BOARD (même squelette que LeaderboardCore, header « billboard »)
+-- 🪧 TITRE FLOTTANT (BillboardGui au-dessus du panneau)
+--   ● LIVE UGC REDEEMS — texte épais, dégradé vertical, contour sombre.
+--   Taille en studs : il grossit / rapetisse avec la distance, comme un objet.
+--==============================================================================
+local function buildBillboard(part, src)
+	local B = CFG.billboard
+	local sideways = (src.Face == Enum.NormalId.Left or src.Face == Enum.NormalId.Right)
+	local w = (sideways and part.Size.Z or part.Size.X) * B.widthScale
+	local h = w * B.heightRatio
+
+	local bb = Instance.new("BillboardGui")
+	bb.Name                  = "LiveTitle_" .. part.Name
+	bb.Adornee               = part
+	bb.Size                  = UDim2.new(w, 0, h, 0)
+	bb.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + h / 2 + B.gap, 0)
+	bb.LightInfluence        = 0
+	bb.MaxDistance           = B.maxDistance
+	bb.ResetOnSpawn          = false
+	bb.ZIndexBehavior        = Enum.ZIndexBehavior.Sibling
+	bb.Parent                = LocalPlayer:WaitForChild("PlayerGui")
+
+	local title = Instance.new("TextLabel")
+	title.AnchorPoint            = Vector2.new(0.5, 0.5)
+	title.Position               = UDim2.fromScale(0.5, 0.5)
+	title.Size                   = UDim2.fromScale(0.88, 1)
+	title.BackgroundTransparency = 1
+	title.Text                   = CFG.title
+	title.TextColor3             = Color3.new(1, 1, 1)   -- le dégradé fait la couleur
+	title.TextScaled             = true
+	title.Font                   = Enum.Font.FredokaOne
+	title.ZIndex                 = 2
+	title.Parent                 = bb
+	local tGrad = Instance.new("UIGradient")
+	tGrad.Color    = ColorSequence.new(B.gradient[1], B.gradient[2])
+	tGrad.Rotation = 90
+	tGrad.Parent   = title
+	local tStroke = Instance.new("UIStroke")
+	tStroke.Color         = B.outline
+	tStroke.LineJoinMode  = Enum.LineJoinMode.Round
+	tStroke.Parent        = title
+
+	-- ● point rouge juste à gauche de « LIVE »
+	local dotHolder = Instance.new("Frame")
+	dotHolder.AnchorPoint            = Vector2.new(0.5, 0.5)
+	dotHolder.Size                   = UDim2.fromScale(0.36, 0.36)
+	dotHolder.SizeConstraint         = Enum.SizeConstraint.RelativeYY
+	dotHolder.BackgroundTransparency = 1
+	dotHolder.ZIndex                 = 2
+	dotHolder.Parent                 = bb
+
+	local ring = Instance.new("Frame")
+	ring.AnchorPoint            = Vector2.new(0.5, 0.5)
+	ring.Position               = UDim2.fromScale(0.5, 0.5)
+	ring.Size                   = UDim2.fromScale(1, 1)
+	ring.BackgroundColor3       = P.live
+	ring.BackgroundTransparency = 1
+	ring.BorderSizePixel        = 0
+	ring.ZIndex                 = 2
+	ring.Parent                 = dotHolder
+	Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
+
+	local dot = Instance.new("Frame")
+	dot.AnchorPoint      = Vector2.new(0.5, 0.5)
+	dot.Position         = UDim2.fromScale(0.5, 0.5)
+	dot.Size             = UDim2.fromScale(1, 1)
+	dot.BackgroundColor3 = P.live
+	dot.BorderSizePixel  = 0
+	dot.ZIndex           = 3
+	dot.Parent           = dotHolder
+	Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+	local dStroke = Instance.new("UIStroke")
+	dStroke.Color  = B.outline
+	dStroke.Parent = dot
+	registerAnim(dot, {}, function(t, _, d)
+		d.BackgroundTransparency = 0.35 * (0.5 + 0.5 * math.sin(t * 3))
+	end)
+
+	-- Le groupe « ● + texte » reste centré ; le contour suit la distance.
+	local function layout()
+		local H  = bb.AbsoluteSize.Y
+		local d  = dotHolder.AbsoluteSize.X
+		local gap = d * 0.5
+		local th = math.clamp(H * 0.07, 1, 8)
+		tStroke.Thickness = th
+		dStroke.Thickness = math.max(1, th * 0.7)
+		title.Position = UDim2.new(0.5, (d + gap) / 2, 0.5, 0)
+		local textLeft = bb.AbsoluteSize.X / 2 + (d + gap) / 2 - title.TextBounds.X / 2
+		dotHolder.Position = UDim2.new(0, textLeft - gap - d / 2, 0.5, 0)
+	end
+	bb:GetPropertyChangedSignal("AbsoluteSize"):Connect(layout)
+	title:GetPropertyChangedSignal("TextBounds"):Connect(layout)
+	task.defer(layout)
+
+	-- onde autour du point rouge à chaque nouveau redeem
+	local PING_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local function ping()
+		ring.Size = UDim2.fromScale(1, 1)
+		ring.BackgroundTransparency = 0.2
+		tween(ring, PING_INFO, { Size = UDim2.fromScale(2.8, 2.8), BackgroundTransparency = 1 })
+	end
+
+	return bb, ping
+end
+
+--==============================================================================
+-- UI D'UN BOARD (même squelette que LeaderboardCore, sans header :
+-- le titre est un BillboardGui qui flotte au-dessus du panneau)
 --==============================================================================
 local function buildBoardUI(sg)
 	for _, c in ipairs(sg:GetChildren()) do c:Destroy() end
@@ -587,177 +702,11 @@ local function buildBoardUI(sg)
 	bgGrad.Rotation = 135
 	bgGrad.Parent   = main
 
-	------------------------------------------------------------------
-	-- 🎬 HEADER : dégradé qui dérive lentement + reflet + pastille LIVE
-	------------------------------------------------------------------
-	local HEADER_H = 0.11
-	local header = Instance.new("Frame")
-	header.Name             = "Header"
-	header.Size             = UDim2.new(1, 0, HEADER_H, 0)
-	header.BackgroundColor3 = Color3.new(1, 1, 1)
-	header.BorderSizePixel  = 0
-	header.ClipsDescendants = true
-	header.Parent           = main
-	local hGrad = Instance.new("UIGradient")
-	hGrad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.00, P.headerA),
-		ColorSequenceKeypoint.new(0.35, P.headerB),
-		ColorSequenceKeypoint.new(0.65, P.headerC),
-		ColorSequenceKeypoint.new(1.00, P.headerA),
-	})
-	hGrad.Parent = header
-	registerAnim(hGrad, {}, function(t, _, g)
-		g.Offset = Vector2.new(0.18 * math.sin(t * 0.35), 0)
-	end)
-
-	local hStroke = Instance.new("UIStroke")
-	hStroke.Color        = P.accent1
-	hStroke.Thickness    = 3
-	hStroke.Transparency = 0.2
-	hStroke.Parent       = header
-
-	-- reflet qui traverse le header de temps en temps
-	local shine = Instance.new("Frame")
-	shine.Size                   = UDim2.new(1, 0, 1, 0)
-	shine.BackgroundColor3       = Color3.fromRGB(255, 240, 255)
-	shine.BorderSizePixel        = 0
-	shine.ZIndex                 = 2
-	shine.Parent                 = header
-	local sGrad = Instance.new("UIGradient")
-	sGrad.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0.00, 1),
-		NumberSequenceKeypoint.new(0.35, 1),
-		NumberSequenceKeypoint.new(0.50, 0.85),
-		NumberSequenceKeypoint.new(0.65, 1),
-		NumberSequenceKeypoint.new(1.00, 1),
-	})
-	sGrad.Rotation = 14
-	sGrad.Offset   = Vector2.new(1, 0)
-	sGrad.Parent   = shine
-	registerAnim(sGrad, {}, function(t, _, g)
-		local c = t % 8
-		g.Offset = Vector2.new(c < 2.4 and (-1 + c / 2.4 * 2) or 1, 0)
-	end)
-
-	local title = Instance.new("TextLabel")
-	title.Size                   = UDim2.new(0.70, 0, 0.80, 0)
-	title.AnchorPoint            = Vector2.new(0.5, 0.5)
-	title.Position               = UDim2.fromScale(0.5, 0.5)
-	title.BackgroundTransparency = 1
-	title.Text                   = CFG.title
-	title.TextColor3             = Color3.new(1, 1, 1)
-	title.TextScaled             = true
-	title.Font                   = Enum.Font.FredokaOne
-	title.ZIndex                 = 3
-	title.Parent                 = header
-	local tc = Instance.new("UITextSizeConstraint", title)
-	tc.MaxTextSize = 52; tc.MinTextSize = 20
-	local tGrad = Instance.new("UIGradient")
-	tGrad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0, Color3.new(1, 1, 1)),
-		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 205, 238)),
-		ColorSequenceKeypoint.new(1.0, Color3.new(1, 1, 1)),
-	})
-	tGrad.Rotation = 90
-	tGrad.Parent   = title
-	local tStroke = Instance.new("UIStroke")
-	tStroke.Color        = P.headerA
-	tStroke.Thickness    = 2
-	tStroke.Transparency = 0.3
-	tStroke.Parent       = title
-
-	-- pastille ● LIVE
-	local pill = Instance.new("Frame")
-	pill.Name             = "LivePill"
-	pill.AnchorPoint      = Vector2.new(0, 0.5)
-	pill.Position         = UDim2.new(0.025, 0, 0.5, 0)
-	pill.Size             = UDim2.new(0.10, 0, 0.50, 0)
-	pill.BackgroundColor3 = Color3.fromRGB(20, 6, 18)
-	pill.BackgroundTransparency = 0.25
-	pill.BorderSizePixel  = 0
-	pill.ZIndex           = 3
-	pill.Parent           = header
-	Instance.new("UICorner", pill).CornerRadius = UDim.new(1, 0)
-	local pStroke = Instance.new("UIStroke")
-	pStroke.Color        = P.live
-	pStroke.Thickness    = 2
-	pStroke.Transparency = 0.3
-	pStroke.Parent       = pill
-
-	local dotHolder = Instance.new("Frame")
-	dotHolder.AnchorPoint            = Vector2.new(0.5, 0.5)
-	dotHolder.Position               = UDim2.new(0.22, 0, 0.5, 0)
-	dotHolder.Size                   = UDim2.fromScale(0.36, 0.36)
-	dotHolder.SizeConstraint         = Enum.SizeConstraint.RelativeYY
-	dotHolder.BackgroundTransparency = 1
-	dotHolder.ZIndex                 = 4
-	dotHolder.Parent                 = pill
-
-	local ring = Instance.new("Frame")
-	ring.AnchorPoint            = Vector2.new(0.5, 0.5)
-	ring.Position               = UDim2.fromScale(0.5, 0.5)
-	ring.Size                   = UDim2.fromScale(1, 1)
-	ring.BackgroundColor3       = P.live
-	ring.BackgroundTransparency = 1
-	ring.ZIndex                 = 4
-	ring.Parent                 = dotHolder
-	Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
-
-	local dot = Instance.new("Frame")
-	dot.AnchorPoint      = Vector2.new(0.5, 0.5)
-	dot.Position         = UDim2.fromScale(0.5, 0.5)
-	dot.Size             = UDim2.fromScale(1, 1)
-	dot.BackgroundColor3 = P.live
-	dot.BorderSizePixel  = 0
-	dot.ZIndex           = 5
-	dot.Parent           = dotHolder
-	Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
-	registerAnim(dot, {}, function(t, _, d)
-		d.BackgroundTransparency = 0.45 * (0.5 + 0.5 * math.sin(t * 3))
-	end)
-
-	local liveLbl = Instance.new("TextLabel")
-	liveLbl.AnchorPoint            = Vector2.new(0, 0.5)
-	liveLbl.Position               = UDim2.new(0.40, 0, 0.5, 0)
-	liveLbl.Size                   = UDim2.new(0.52, 0, 0.62, 0)
-	liveLbl.BackgroundTransparency = 1
-	liveLbl.Text                   = CFG.liveText
-	liveLbl.TextColor3             = Color3.new(1, 1, 1)
-	liveLbl.TextScaled             = true
-	liveLbl.Font                   = Enum.Font.FredokaOne
-	liveLbl.TextXAlignment         = Enum.TextXAlignment.Left
-	liveLbl.ZIndex                 = 4
-	liveLbl.Parent                 = pill
-
-	-- onde autour du point rouge à chaque nouveau redeem
-	local PING_INFO = TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local function ping()
-		ring.Size = UDim2.fromScale(1, 1)
-		ring.BackgroundTransparency = 0.2
-		tween(ring, PING_INFO, { Size = UDim2.fromScale(3.2, 3.2), BackgroundTransparency = 1 })
-	end
-
-	-- séparateur dégradé (identique aux leaderboards)
-	local divider = Instance.new("Frame")
-	divider.Size             = UDim2.new(0.95, 0, 0, 2)
-	divider.Position         = UDim2.new(0.025, 0, HEADER_H, 1)
-	divider.BackgroundColor3 = Color3.new(1, 1, 1)
-	divider.BorderSizePixel  = 0
-	divider.Parent           = main
-	local dGrad = Instance.new("UIGradient")
-	dGrad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0.0, Color3.new(0, 0, 0)),
-		ColorSequenceKeypoint.new(0.2, P.accent1),
-		ColorSequenceKeypoint.new(0.5, P.accent2),
-		ColorSequenceKeypoint.new(0.8, P.accent1),
-		ColorSequenceKeypoint.new(1.0, Color3.new(0, 0, 0)),
-	})
-	dGrad.Parent = divider
 
 	local content = Instance.new("Frame")
 	content.Name             = "ContentFrame"
-	content.Size             = UDim2.new(0.96, 0, 0.815, 0)
-	content.Position         = UDim2.new(0.02, 0, HEADER_H + 0.013, 0)
+	content.Size             = UDim2.new(0.96, 0, 0.895, 0)
+	content.Position         = UDim2.new(0.02, 0, 0.03, 0)
 	content.BackgroundColor3 = P.panel
 	content.BorderSizePixel  = 0
 	content.ClipsDescendants = true
@@ -829,7 +778,7 @@ local function buildBoardUI(sg)
 	local flc = Instance.new("UITextSizeConstraint", fLbl)
 	flc.MaxTextSize = 16; flc.MinTextSize = 8
 
-	return { content = content, scroll = scroll, msg = msg, ping = ping }
+	return { content = content, scroll = scroll, msg = msg }
 end
 
 --==============================================================================
@@ -922,9 +871,10 @@ local function initBoard(part)
 	src.Enabled         = false
 
 	local ui = buildBoardUI(sg)
+	local billboard, ping = buildBillboard(part, src)
 	local b = {
 		part = part, src = src, surfaceGui = sg,
-		scroll = ui.scroll, ping = ui.ping,
+		scroll = ui.scroll, ping = ping, billboard = billboard,
 		view = View.new(ui.scroll, ui.msg),
 	}
 	table.insert(boards, b)
@@ -972,6 +922,7 @@ task.spawn(function()
 			if not (b.surfaceGui.Parent and b.scroll.Parent and b.part:IsDescendantOf(Workspace)) then
 				b.view:destroy()
 				b.surfaceGui:Destroy()
+				b.billboard:Destroy()
 				if b.src and b.src.Parent then b.src.Enabled = true end
 				table.remove(boards, i)
 			else
