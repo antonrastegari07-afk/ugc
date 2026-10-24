@@ -1,0 +1,1139 @@
+--[[
+	📜 JackQuest_Client — la partie « joueur » des quêtes de Jack Lantern
+	📍 ServerScriptService ▸ JackQuest ▸ Client   (LocalScript, Disabled = rien à changer)
+	   Le serveur le copie dans le PlayerGui des joueurs autorisés seulement.
+
+	Ce qu'il fait (tout est LOCAL, chaque joueur voit SES pages) :
+	  • les pages déchirées lévitent (debout), tournent lentement sur elles-mêmes, petite lumière + étoiles
+	  • contour blanc quand tu t'approches, prompt [E] Take (sous la page) → le serveur VÉRIFIE
+	  • la page monte, plonge dans ton perso et éclate en magie (rien ne s'affiche sur l'écran)
+	  • Jack garde son grimoire ouvert dans les mains tant que la quête dure (seau posé au sol)
+	  • bannière « ALL PAGES FOUND! » ; la progression, c'est Jack qui te la dit quand tu lui parles
+	  • 🍬 quête du seau : bonbons qui brillent autour du Jack le plus proche (contour visible à travers les murs),
+	    tu passes dessus → ils sautent dans ton seau ; billboard « 4 / 10 » sur le seau ; seau plein → repère
+	    au-dessus de Jack + bouton « Give Candy » (son « Talk » revient quand le seau est vide)
+	⚠️ Le client ne décide JAMAIS rien : il demande, le serveur répond.
+--]]
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local ROOT   = script.Parent                       -- ScreenGui « JackQuestClient »
+local ASSETS = ROOT:WaitForChild("Assets", 10)
+local FX     = require(ROOT:WaitForChild("JackCinematics"))
+
+-- ════════════════════════════════════════════════════════════════
+-- ⚙️ RÉGLAGES VISUELS (le reste vient du serveur)
+-- ════════════════════════════════════════════════════════════════
+local UI = {
+	FontTitle = Enum.Font.FredokaOne,
+	ShowRadius = 260,                    -- au-delà, lumière et étoiles de la page sont coupées (perf)
+
+	-- 🪶 les pages qui lévitent (debout)
+	BobHeight = 0.1,                     -- elle reste en place : à peine un souffle de haut en bas
+	BobSpeed = 1.1,
+	SpinSpeed = 0.35,                    -- rotation sur elle-même, autour de l'axe vertical (radians/s : lent)
+	LightRange = 6, LightBrightness = 0.9,   -- petite PointLight
+	Stars = 6,                           -- petites étoiles magiques autour de la page (par seconde)
+	OutlineDistance = 16,                -- contour blanc à moins de … studs
+	OutlineColor = Color3.new(1, 1, 1),
+	-- ✋ le prompt pour la ramasser (placé SOUS la page : il ne la cache pas)
+	PromptAction = "Take", PromptObject = "Torn Page",
+	PromptHold = 0.25,                   -- secondes à maintenir
+	PromptDistance = 10,                 -- (le serveur accepte jusqu'à PickupRadius = 13)
+	PromptBelow = 1.7,                   -- studs sous le centre de la page
+	RiseHeight = 2.6,                    -- la page monte de … studs avant de plonger vers toi
+
+	-- 🍬 quête du seau : fond de la plaque à droite du seau, bords arrachés comme le pass
+	--    (BucketPanel.png, ou BucketPanel_orange.png avec le liseré orange → upload → colle l'ID ; vide = gris uni)
+	BucketPanelImage = "97476386797648",
+}
+
+local C_OR    = Color3.fromRGB(255, 150, 40)
+local C_YE    = Color3.fromRGB(255, 222, 120)
+local C_PU    = Color3.fromRGB(176, 100, 255)
+local C_LAV   = Color3.fromRGB(226, 196, 255)
+local C_PAPER = Color3.fromRGB(236, 216, 170)
+
+local stateRF  = ReplicatedStorage:WaitForChild("JackState", 30)
+local actionRE = ReplicatedStorage:WaitForChild("JackAction", 30)
+local toastRE  = ReplicatedStorage:WaitForChild("JackToast", 30)
+if not (stateRF and actionRE and toastRE) then
+	warn("[JackQuest] remotes introuvables (JackQuest_Server absent ?)")
+	return
+end
+
+ROOT.IgnoreGuiInset = true
+ROOT.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ROOT.DisplayOrder = 30
+pcall(function() ROOT.ScreenInsets = Enum.ScreenInsets.None end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 🧰 OUTILS
+-- ════════════════════════════════════════════════════════════════
+local function new(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props or {}) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
+end
+local function tween(o, t, props, style, dir, delay)
+	local tw = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out, 0, false, delay or 0), props)
+	tw:Play()
+	return tw
+end
+local function corner(o, r) return new("UICorner", { CornerRadius = r or UDim.new(0, 12) }, o) end
+local function smooth(u) u = math.clamp(u, 0, 1) return u * u * (3 - 2 * u) end
+local function seq(...)
+	local cs = { ... }
+	if #cs == 1 then return ColorSequence.new(cs[1]) end
+	local kp = {}
+	for i, c in ipairs(cs) do table.insert(kp, ColorSequenceKeypoint.new((i - 1) / (#cs - 1), c)) end
+	return ColorSequence.new(kp)
+end
+local function nseq(...)
+	local kp = {}
+	for _, p in ipairs({ ... }) do table.insert(kp, NumberSequenceKeypoint.new(p[1], p[2])) end
+	return NumberSequence.new(kp)
+end
+local function hrp()
+	local c = player.Character
+	local h = c and c:FindFirstChildOfClass("Humanoid")
+	if not h or h.Health <= 0 then return nil end
+	return c:FindFirstChild("HumanoidRootPart")
+end
+local function inDialog() return player:GetAttribute("InNpcDialog") == true end
+local function isGamepad()
+	local t = UserInputService:GetLastInputType()
+	return t and t.Name:find("Gamepad") ~= nil
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📡 ÉTAT (lu sur le serveur — jamais inventé ici)
+-- ════════════════════════════════════════════════════════════════
+local view = nil          -- vue complète renvoyée par JackState
+local freshPending = false -- quête tout juste acceptée : les pages apparaîtront avec un effet
+local grim = nil          -- view.active si c'est le grimoire
+local fetching = false
+local refreshPages, celebrateAll, hintBanner, placeBooks, syncHold -- fwd
+local candyHook = {}       -- 🍬 quête du seau (rempli plus bas)
+
+local function fetch()
+	if fetching then return end
+	fetching = true
+	local ok, res = pcall(function() return stateRF:InvokeServer() end)
+	fetching = false
+	if not ok or type(res) ~= "table" or res.loading then return end
+	if res.hidden then view, grim = nil, nil
+	else
+		view = res
+		grim = (res.active and res.active.Goal and res.active.Goal.Type == "grimoire") and res.active or nil
+	end
+	refreshPages()
+	placeBooks()
+	syncHold()
+	if candyHook.view then candyHook.view(view) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🌫️ LES PAGES DANS LE MONDE
+-- ════════════════════════════════════════════════════════════════
+local worldFolder
+local function world()
+	if not worldFolder or not worldFolder.Parent then
+		worldFolder = new("Folder", { Name = "JackQuestPages" }, workspace)
+	end
+	return worldFolder
+end
+
+local pages = {}          -- [i] = rec
+local pending = {}        -- [i] = os.clock() de la demande au serveur
+local BUSY = { rise = true, hover = true, dive = true }   -- page en train d'être ramassée : on n'y touche pas
+
+-- page de secours si l'installeur n'a pas été lancé
+local function fallbackPage()
+	local m = new("Model", { Name = "TornPage" })
+	local p = new("Part", { Name = "Page_Paper", Size = Vector3.new(1.5, 1.9, 0.05), Color = C_PAPER,
+		Material = Enum.Material.SmoothPlastic, Anchored = true, CanCollide = false }, m)
+	local g = new("Part", { Name = "Page_Glyph", Size = Vector3.new(0.7, 0.7, 0.06), Color = C_OR,
+		Material = Enum.Material.SmoothPlastic, Anchored = true, CanCollide = false, CFrame = p.CFrame }, m)
+	new("WeldConstraint", { Part0 = p, Part1 = g }, p)
+	m.PrimaryPart = p
+	return m
+end
+
+local onPrompt   -- fwd
+
+local function buildPage(i, pos)
+	local tpl = ASSETS and ASSETS:FindFirstChild("TornPage")
+	local m = tpl and tpl:Clone() or fallbackPage()
+	m.Name = "Page" .. i
+	local parts = {}
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow = true, false, false, false, false
+			parts[d] = d.Transparency
+		end
+	end
+	local pp = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart")
+	m.PrimaryPart = pp
+	m:PivotTo(CFrame.new(pos))
+	m.Parent = world()
+
+	local rec = { i = i, model = m, pp = pp, home = pos, parts = parts, state = "idle", t = math.random() * 10,
+		outline = 0, born = os.clock() }
+	-- petite lumière chaude
+	rec.light = new("PointLight", { Color = Color3.fromRGB(255, 205, 140), Range = UI.LightRange, Brightness = UI.LightBrightness,
+		Shadows = false }, pp)
+	-- ✨ petites étoiles magiques autour de la page (comme sur le livre de Jack)
+	rec.fx = new("Part", { Name = "PageMagic", Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
+		Transparency = 1, Size = Vector3.new(1.8, 2.2, 1.2), CFrame = CFrame.new(pos), CastShadow = false }, m)
+	rec.stars = new("ParticleEmitter", { Texture = FX.Tex("Star"), Rate = UI.Stars, LightEmission = 1, LightInfluence = 0,
+		Lifetime = NumberRange.new(0.8, 1.4), Speed = NumberRange.new(0.05, 0.25), SpreadAngle = Vector2.new(180, 180),
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.4, 0.17), NumberSequenceKeypoint.new(1, 0) }),
+		Transparency = NumberSequence.new(0.1), Color = seq(Color3.new(1, 1, 1), C_LAV, C_YE), RotSpeed = NumberRange.new(-60, 60),
+		Rotation = NumberRange.new(0, 360), ZOffset = 0.4 }, rec.fx)
+	pcall(function() rec.stars.Brightness = 2.5 end)
+	pcall(function() rec.stars.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume end)
+	rec.motes = new("ParticleEmitter", { Texture = FX.Tex("Spark"), Rate = math.max(1, UI.Stars * 0.4), LightEmission = 1,
+		LightInfluence = 0, Lifetime = NumberRange.new(1.4, 2.2), Speed = NumberRange.new(0.2, 0.45), EmissionDirection = Enum.NormalId.Top,
+		SpreadAngle = Vector2.new(20, 20), Acceleration = Vector3.new(0, 0.3, 0),
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 0.1), NumberSequenceKeypoint.new(1, 0) }),
+		Color = seq(C_LAV, C_PU), ZOffset = 0.3 }, rec.fx)
+	-- contour blanc quand tu t'approches
+	rec.hl = new("Highlight", { Name = "PageOutline", Adornee = m, FillColor = Color3.new(1, 1, 1), FillTransparency = 1,
+		OutlineColor = UI.OutlineColor, OutlineTransparency = 1, DepthMode = Enum.HighlightDepthMode.Occluded, Enabled = false }, m)
+	-- prompt (local : seul toi le vois) — accroché SOUS la page pour ne pas la cacher
+	rec.promptPart = new("Part", { Name = "PagePrompt", Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
+		Transparency = 1, Size = Vector3.new(0.2, 0.2, 0.2), CFrame = CFrame.new(pos - Vector3.new(0, UI.PromptBelow, 0)) }, m)
+	rec.prompt = new("ProximityPrompt", { Name = "TakePage", ActionText = UI.PromptAction, ObjectText = UI.PromptObject,
+		HoldDuration = UI.PromptHold, MaxActivationDistance = UI.PromptDistance, RequiresLineOfSight = false,
+		KeyboardKeyCode = Enum.KeyCode.E, Style = Enum.ProximityPromptStyle.Default, Enabled = true }, rec.promptPart)
+	rec.prompt.Triggered:Connect(function() onPrompt(rec) end)
+	return rec
+end
+
+local function setPageAlpha(rec, a)
+	for p, base in pairs(rec.parts) do
+		if p.Parent then p.Transparency = base + (1 - base) * (1 - a) end
+	end
+end
+
+local function removePage(i, puff)
+	local rec = pages[i]
+	if not rec then return end
+	pages[i] = nil
+	if puff and rec.pp and rec.pp.Parent then FX.Puff(rec.pp.Position, 0.6) end
+	if rec.model then rec.model:Destroy() end
+end
+
+-- la page apparaît (pouf + petit tourbillon)
+local function spawnPage(i, pos, fancy)
+	local rec = buildPage(i, pos)
+	pages[i] = rec
+	if fancy then
+		setPageAlpha(rec, 0)
+		rec.state = "appear"
+		rec.appearT = os.clock() + (i - 1) * 0.18
+		task.delay((i - 1) * 0.18, function()
+			if pages[i] == rec then FX.Puff(pos, 0.7) end
+		end)
+	end
+end
+
+refreshPages = function()
+	local want = {}
+	if grim and grim.Pages then
+		for _, pg in ipairs(grim.Pages) do
+			if not pg.Got and type(pg.P) == "table" then
+				want[pg.I] = Vector3.new(pg.P[1], pg.P[2], pg.P[3])
+			end
+		end
+	end
+	if freshPending and inDialog() then return end     -- on attend la fin de la discussion
+	local fresh = freshPending
+	for i in pairs(pages) do
+		if not want[i] and not BUSY[pages[i].state] then removePage(i, false) end
+	end
+	local spawned = 0
+	for i, pos in pairs(want) do
+		if not pages[i] and not pending[i] then spawnPage(i, pos, fresh) ; spawned += 1 end
+	end
+	if fresh and grim then
+		freshPending = false
+		if spawned > 0 then task.delay(0.3, function() hintBanner("The pages are out there!", "They float and sparkle. Look around!") end) end
+	end
+end
+
+-- ✋ prompt : on DEMANDE au serveur (c'est lui qui vérifie tout) ; la page monte dans les airs en attendant
+onPrompt = function(rec)
+	local i = rec.i
+	local now = os.clock()
+	if pages[i] ~= rec or rec.state ~= "idle" or pending[i] or (rec.cool and now < rec.cool) or inDialog() then return end
+	pending[i] = now
+	actionRE:FireServer("page", i)
+	rec.state = "rise"
+	rec.riseT0 = now
+	rec.riseFrom = rec.model:GetPivot()
+	rec.prompt.Enabled = false
+	FX.Sound("PageFly", rec.pp, 0.45)
+	tween(rec.light, 0.6, { Brightness = 1.8, Range = UI.LightRange + 2 })
+	tween(rec.hl, 0.3, { OutlineTransparency = 0, FillTransparency = 0.75 })
+	rec.stars.Rate = UI.Stars * 4
+end
+
+-- ✅ le serveur dit oui : la page plonge vers toi et ÉCLATE en magie en entrant
+local function catchPage(i, data)
+	local rec = pages[i]
+	pending[i] = nil
+	if not rec then return end
+	rec.data = data
+	rec.confirmed = true
+	if rec.state == "idle" or rec.state == "back" or rec.state == "appear" then   -- (rare) pas encore montée : on part de là
+		rec.state = "hover"
+		rec.riseFrom = rec.model:GetPivot()
+	end
+end
+
+-- ❌ refusé : la page redescend doucement à sa place
+local function returnPage(i)
+	local rec = pages[i]
+	pending[i] = nil
+	if not rec or rec.state == "dive" then return end
+	rec.state = "back"
+	rec.backT0 = os.clock()
+	rec.backFrom = rec.model:GetPivot()
+	rec.cool = os.clock() + 2.5
+	setPageAlpha(rec, 1)
+	rec.stars.Rate = UI.Stars
+	tween(rec.light, 0.6, { Brightness = UI.LightBrightness, Range = UI.LightRange })
+	tween(rec.hl, 0.4, { FillTransparency = 1 })
+end
+
+-- 💥 l'éclat magique quand la page entre en toi
+local function pageBurst(rec, target)
+	FX.Burst(target, 0.75, { Color3.fromRGB(255, 236, 190), C_PU })
+	FX.Sparkle(target, 26, seq(Color3.new(1, 1, 1), C_YE, C_PU), 7)
+	FX.Sound("PageGet", nil, 0.6)
+	local char = player.Character
+	if char then   -- ton perso s'illumine une seconde
+		local h = new("Highlight", { Name = "PageGlow", Adornee = char, FillColor = Color3.fromRGB(255, 226, 160), FillTransparency = 0.45,
+			OutlineColor = Color3.new(1, 1, 1), OutlineTransparency = 0.1, DepthMode = Enum.HighlightDepthMode.Occluded }, char)
+		tween(h, 0.9, { FillTransparency = 1, OutlineTransparency = 1 })
+		task.delay(1, function() h:Destroy() end)
+	end
+	local d = rec.data
+	if d and d.AllFound then task.delay(0.7, function() celebrateAll() end) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎞️ ANIMATION DES PAGES (une seule boucle)
+-- ════════════════════════════════════════════════════════════════
+local RISE_T, DIVE_T = 0.75, 0.5
+RunService.Heartbeat:Connect(function(dt)
+	local r = hrp()
+	local me = r and r.Position
+	local now = os.clock()
+	local talking = inDialog()
+	for i, rec in pairs(pages) do
+		if not rec.model.Parent then pages[i] = nil continue end
+		rec.t += dt
+		local t = rec.t
+		local d = me and (me - rec.home).Magnitude or math.huge
+		if rec.state == "idle" or rec.state == "appear" then
+			-- 🪶 debout, elle reste en place et tourne lentement sur elle-même (axe vertical)
+			local bob = math.sin(t * UI.BobSpeed) * UI.BobHeight
+			local cf = CFrame.new(rec.home + Vector3.new(0, bob, 0)) * CFrame.Angles(0, t * UI.SpinSpeed, 0)
+			if rec.state == "appear" then
+				local u = (now - rec.appearT) / 0.7
+				if u >= 1 then rec.state = "idle" ; setPageAlpha(rec, 1)
+				elseif u > 0 then
+					setPageAlpha(rec, smooth(u))
+					cf = cf * CFrame.new(0, (1 - smooth(u)) * -1.2, 0) * CFrame.Angles(0, (1 - u) * 6, 0)
+				else
+					setPageAlpha(rec, 0)
+				end
+			end
+			rec.model:PivotTo(cf)
+			rec.light.Brightness = UI.LightBrightness + math.sin(t * 1.3) * 0.12
+			-- contour blanc quand tu es proche
+			local want = (d <= UI.OutlineDistance and not talking) and 1 or 0
+			rec.outline += (want - rec.outline) * math.min(1, dt * 6)
+			rec.hl.OutlineTransparency = 1 - rec.outline * 0.95
+			rec.hl.Enabled = rec.outline > 0.01
+			rec.prompt.Enabled = rec.state == "idle" and not talking and not (rec.cool and now < rec.cool)
+		elseif rec.state == "rise" or rec.state == "hover" then
+			-- ⬆️ elle monte dans les airs en tournant (on attend le « oui » du serveur)
+			local u = rec.state == "rise" and math.clamp((now - rec.riseT0) / RISE_T, 0, 1) or 1
+			local e = 1 - (1 - u) ^ 3
+			local top = rec.riseFrom.Position + Vector3.new(0, UI.RiseHeight, 0)
+			local pos = rec.riseFrom.Position:Lerp(top, e) + Vector3.new(0, math.sin(t * 3) * 0.08 * e, 0)
+			rec.spin = (rec.spin or (t * UI.SpinSpeed)) + dt * (1 + e * 7)
+			rec.model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, rec.spin, 0) * CFrame.Angles(math.sin(t * 5) * 0.12 * e, 0, 0))
+			rec.hl.Enabled = true
+			if u >= 1 then rec.state = "hover" end
+			if rec.state == "hover" and rec.confirmed then
+				rec.state = "dive"
+				rec.diveT0 = now
+				rec.diveFrom = rec.model:GetPivot()
+				FX.Sound("PageFly", rec.pp, 0.4)
+				rec.stars.Rate = UI.Stars * 8
+			elseif pending[i] and now - pending[i] > 5 then
+				returnPage(i)                                 -- pas de réponse : elle redescend
+				task.spawn(fetch)
+			end
+		elseif rec.state == "dive" then
+			-- ⬇️ elle tournoie vers toi, plonge dans ta poitrine en accélérant, rapetisse… et éclate
+			local u = math.clamp((now - rec.diveT0) / DIVE_T, 0, 1)
+			local e = u * u * u
+			local target = (r and (r.Position + Vector3.new(0, 0.6, 0))) or rec.home
+			local from = rec.diveFrom.Position
+			local mid = from:Lerp(target, 0.4) + Vector3.new(0, 1.2, 0)
+			local q = 1 - e
+			local pos = from * (q * q) + mid * (2 * q * e) + target * (e * e)
+			rec.spin = (rec.spin or 0) + dt * 14
+			rec.model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, rec.spin, 0))
+			pcall(function() rec.model:ScaleTo(math.max(0.15, 1 - e * 0.85)) end)
+			if u >= 1 then
+				pageBurst(rec, target)
+				pages[i] = nil
+				rec.model:Destroy()
+			end
+		elseif rec.state == "back" then
+			local u = math.clamp((now - rec.backT0) / 0.8, 0, 1)
+			local e = 1 - (1 - u) ^ 3
+			rec.model:PivotTo(rec.backFrom:Lerp(CFrame.new(rec.home), e))
+			if u >= 1 then rec.state = "idle" end
+		end
+		if rec.fx.Parent then rec.fx.CFrame = CFrame.new(rec.model:GetPivot().Position) end
+		if rec.promptPart.Parent and rec.state == "idle" then
+			rec.promptPart.CFrame = CFrame.new(rec.home - Vector3.new(0, UI.PromptBelow, 0))
+		end
+		-- au loin : rien n'est calculé à l'écran
+		local far = d > UI.ShowRadius
+		if far ~= rec.far then
+			rec.far = far
+			rec.light.Enabled = not far
+			rec.stars.Enabled = not far
+			rec.motes.Enabled = not far
+		end
+	end
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 📖 JACK GARDE SON LIVRE (quête en cours) / LE POSE PAR TERRE (quête finie)
+-- ════════════════════════════════════════════════════════════════
+local function jackModels()
+	local jm = (view and view.JackMatch) or (grim and grim.JackMatch) or { Name = "Jack Lantern", Attribute = "JackLantern" }
+	local list = {}
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("Model") and ((jm.Attribute and d:GetAttribute(jm.Attribute) ~= nil) or (jm.Name and d.Name == jm.Name))
+			and d:FindFirstChild("HumanoidRootPart") then
+			table.insert(list, d)
+		end
+	end
+	return list
+end
+
+-- 📗 quête finie : le grimoire reste posé par terre à côté de chaque Jack (pas pendant la cinématique)
+placeBooks = function()
+	if not (view and view.BookDown) then
+		pcall(FX.ClearGroundBooks)                       -- (quête remise à zéro en test : plus de livre au sol)
+		return
+	end
+	if inDialog() or FX.IsRunning() then return end
+	for _, d in ipairs(jackModels()) do pcall(FX.GroundBook, d) end
+end
+
+-- 📖 quête en cours : il tient son livre ouvert (il lit), son seau reste au sol ; sinon il le range
+syncHold = function()
+	if inDialog() or FX.IsRunning() then return end      -- le dialogue / la cinématique s'en occupent
+	if not view then return end
+	for _, d in ipairs(jackModels()) do
+		if grim then
+			if not FX.IsHolding(d) then pcall(FX.SetHolding, d, true, { quiet = true }) end
+		elseif FX.IsHolding(d) then
+			pcall(FX.SetHolding, d, false)                   -- refusé / abandonné : il range son livre
+		end
+	end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎉 TOUTES TROUVÉES : bannière
+-- ════════════════════════════════════════════════════════════════
+-- confettis d'étincelles en UI
+local function uiBurst(parent, n, colors)
+	for k = 1, n do
+		local s = math.random(6, 13)
+		local f = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.42), Size = UDim2.fromOffset(s, s),
+			BackgroundColor3 = colors[math.random(1, #colors)], BorderSizePixel = 0, Rotation = math.random(0, 90), ZIndex = 40 }, parent)
+		corner(f, UDim.new(math.random() < 0.5 and 0.5 or 0.15, 0))
+		local a = math.random() * math.pi * 2
+		local r = 0.35 + math.random() * 0.45
+		tween(f, 0.9 + math.random() * 0.5, { Position = UDim2.fromScale(0.5 + math.cos(a) * r * 0.7, 0.42 + math.sin(a) * r),
+			Rotation = f.Rotation + math.random(-200, 200), BackgroundTransparency = 1 }, Enum.EasingStyle.Quart)
+		task.delay(1.6, function() f:Destroy() end)
+	end
+end
+
+
+local banner
+hintBanner = function(line1, line2)
+	if banner then banner:Destroy() end
+	local vp = workspace.CurrentCamera.ViewportSize
+	local k = math.min(1, vp.X / 620)
+	local b = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.2), Size = UDim2.fromOffset(520, 96),
+		BackgroundTransparency = 1, ZIndex = 45 }, ROOT)
+	banner = b
+	local sc = new("UIScale", { Scale = 0.3 * k }, b)
+	local t1 = new("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0.58, 0), Text = line1,
+		Font = UI.FontTitle, TextScaled = true, TextColor3 = C_YE, ZIndex = 46 }, b)
+	new("UIStroke", { Color = Color3.fromRGB(70, 24, 6), Thickness = 3.5 }, t1)
+	local t2 = new("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromScale(0, 0.6), Size = UDim2.new(1, 0, 0.36, 0),
+		Text = line2, Font = UI.FontTitle, TextScaled = true, TextColor3 = Color3.new(1, 1, 1), ZIndex = 46, TextTransparency = 1 }, b)
+	new("UIStroke", { Color = Color3.fromRGB(40, 16, 60), Thickness = 2.5 }, t2)
+	tween(sc, 0.5, { Scale = k }, Enum.EasingStyle.Back)
+	task.delay(0.3, function() tween(t2, 0.4, { TextTransparency = 0 }) end)
+	task.delay(3.2, function()
+		if banner ~= b then return end
+		tween(sc, 0.3, { Scale = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+		task.delay(0.35, function() b:Destroy() end)
+	end)
+end
+
+celebrateAll = function(line1, line2)
+	if banner then banner:Destroy() end
+	FX.Sound("AllFound", nil, 0.7)
+	local b = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.24), Size = UDim2.fromOffset(560, 130),
+		BackgroundTransparency = 1, ZIndex = 45 }, ROOT)
+	banner = b
+	local vp = workspace.CurrentCamera.ViewportSize
+	local sc = new("UIScale", { Scale = 0.2 * math.min(1, vp.X / 620) }, b)
+	local t1 = new("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0.62, 0), Text = line1 or "ALL PAGES FOUND!",
+		Font = UI.FontTitle, TextScaled = true, TextColor3 = C_YE, ZIndex = 46 }, b)
+	new("UIStroke", { Color = Color3.fromRGB(90, 30, 6), Thickness = 4 }, t1)
+	new("UIGradient", { Rotation = 90, Color = seq(Color3.fromRGB(255, 240, 170), C_OR) }, t1)
+	local t2 = new("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromScale(0, 0.62), Size = UDim2.new(1, 0, 0.34, 0),
+		Text = line2 or "Take them back to Jack 🎃", Font = UI.FontTitle, TextScaled = true, TextColor3 = Color3.new(1, 1, 1),
+		ZIndex = 46, TextTransparency = 1 }, b)
+	new("UIStroke", { Color = Color3.fromRGB(40, 16, 60), Thickness = 3 }, t2)
+	tween(sc, 0.6, { Scale = math.min(1, vp.X / 620) }, Enum.EasingStyle.Back)
+	t1.Rotation = -6
+	tween(t1, 0.9, { Rotation = 0 }, Enum.EasingStyle.Elastic)
+	task.delay(0.35, function() tween(t2, 0.4, { TextTransparency = 0 }) end)
+	uiBurst(ROOT, 60, { C_OR, C_YE, C_PU, Color3.fromRGB(140, 255, 120) })
+	local r = hrp()
+	if r then
+		FX.Sparkle(r.Position + Vector3.new(0, 2, 0), 40, nil, 8)
+	end
+	task.delay(3.6, function()
+		if banner ~= b then return end
+		tween(sc, 0.35, { Scale = 0 }, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+		task.delay(0.4, function() b:Destroy() end)
+	end)
+end
+
+
+-- ════════════════════════════════════════════════════════════════
+-- 🍬 QUÊTE DU SEAU : bonbons qui brillent autour de Jack, ramassage tout seul en passant dessus,
+--    le seau se remplit (billboard), seau plein → « Give Candy » à côté de Jack
+--    (même technique que les pages : le serveur VÉRIFIE tout, ici ce n'est que de l'affichage)
+-- ════════════════════════════════════════════════════════════════
+do
+	local CU = {
+		Grab = 6,                          -- tu passes à moins de … studs d'un bonbon → il saute dans ton seau
+		Scale = 2.3,                       -- taille des bonbons (× le modèle du grimoire)
+		BobHeight = 0.25, BobSpeed = 1.6, SpinSpeed = 1.3,
+		LightRange = 9, LightBrightness = 1.4,
+		Stars = 5,
+		Outline = Color3.fromRGB(255, 226, 110),   -- contour (visible à travers les murs : tu les trouves toujours)
+		GiveAction = "Give Candy", GiveObject = "Jack", GiveHold = 0.25, GiveDistance = 12,
+	}
+	local COLORS = { Color3.fromRGB(160, 80, 230), Color3.fromRGB(90, 200, 90), Color3.fromRGB(255, 110, 180),
+		Color3.fromRGB(80, 160, 255), Color3.fromRGB(255, 150, 40), Color3.fromRGB(240, 60, 70) }
+	local C_GREEN = Color3.fromRGB(110, 230, 110)
+	local playerGui = player:WaitForChild("PlayerGui")
+
+	local cv = nil                  -- vue du serveur (Bucket, Need, Count, Total, Full, Items)
+	local on = false                -- quête du seau en cours
+	local fresh = false             -- vient d'être acceptée (les bonbons apparaissent à la fin de la discussion)
+	local recs = {}                 -- [id] = bonbon dans le monde
+	local pendingId, pendingAt = nil, 0
+	local wasFull = false
+	local jacksCache = {}
+	local BUSYC = { rise = true, hover = true, dive = true }
+	local setHold                  -- (plus bas) bras tendu qui tient le seau
+
+	local folder, hl
+	local function candyWorld()
+		if not folder or not folder.Parent then
+			folder = new("Model", { Name = "JackCandies" }, workspace)
+			-- UN seul Highlight pour tous les bonbons : contour doré visible même derrière un mur
+			hl = new("Highlight", { Name = "CandyGlow", Adornee = folder, FillColor = Color3.fromRGB(255, 244, 210), FillTransparency = 0.72,
+				OutlineColor = CU.Outline, OutlineTransparency = 0.05, DepthMode = Enum.HighlightDepthMode.AlwaysOnTop }, folder)
+		end
+		return folder
+	end
+
+	local function bucketModel()
+		local c = player.Character
+		return c and c:FindFirstChild("JackCandyBucket")
+	end
+	local function bucketPos()
+		local b = bucketModel()
+		local h = b and (b.PrimaryPart or b:FindFirstChildWhichIsA("BasePart"))
+		if h then return h.Position + Vector3.new(0, -0.5, 0) end
+		local r = hrp()
+		return r and (r.Position + Vector3.new(0, 0.4, 0)) or nil
+	end
+
+	-- ── un bonbon ──
+	local function fallbackCandy(col)
+		local m = new("Model", { Name = "Candy" })
+		local p = new("Part", { Name = "Collider", Shape = Enum.PartType.Ball, Size = Vector3.new(0.5, 0.5, 0.5), Color = col,
+			Material = Enum.Material.SmoothPlastic, Anchored = true, CanCollide = false }, m)
+		m.PrimaryPart = p
+		return m
+	end
+	local function candyModel(col, scale)
+		local kinds = ASSETS and ASSETS:FindFirstChild("Candies")
+		kinds = kinds and kinds:GetChildren() or {}
+		local m = (#kinds > 0) and kinds[math.random(1, #kinds)]:Clone() or fallbackCandy(col)
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow = true, false, false, false, false
+				if d:GetAttribute("Tint") then d.Color = col end
+			end
+		end
+		m.PrimaryPart = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart")
+		if scale and scale ~= 1 then pcall(function() m:ScaleTo(m:GetScale() * scale) end) end
+		return m
+	end
+
+	local function setAlpha(rec, a)
+		for p, base in pairs(rec.parts) do
+			if p.Parent then p.Transparency = base + (1 - base) * (1 - a) end
+		end
+	end
+
+	local function spawnCandy(id, pos, fancy)
+		local col = COLORS[math.random(1, #COLORS)]
+		local m = candyModel(col, CU.Scale)
+		m.Name = "Candy" .. id
+		m:PivotTo(CFrame.new(pos))
+		m.Parent = candyWorld()
+		local pp = m.PrimaryPart
+		local rec = { id = id, model = m, pp = pp, home = pos, parts = {}, state = "idle", t = math.random() * 10, col = col }
+		local okS, sc = pcall(function() return m:GetScale() end)
+		rec.scale0 = okS and sc or 1
+		for _, d in ipairs(m:GetDescendants()) do if d:IsA("BasePart") then rec.parts[d] = d.Transparency end end
+		if pp then
+			rec.light = new("PointLight", { Color = col:Lerp(Color3.new(1, 1, 1), 0.35), Range = CU.LightRange,
+				Brightness = CU.LightBrightness, Shadows = false }, pp)
+			rec.stars = new("ParticleEmitter", { Texture = FX.Tex("Star"), Rate = CU.Stars, LightEmission = 1, LightInfluence = 0,
+				Lifetime = NumberRange.new(0.6, 1.1), Speed = NumberRange.new(0.3, 0.9), SpreadAngle = Vector2.new(180, 180),
+				Size = nseq({ 0, 0 }, { 0.4, 0.22 }, { 1, 0 }), Color = seq(Color3.new(1, 1, 1), col), ZOffset = 0.4 },
+			new("Attachment", {}, pp))
+			pcall(function() rec.stars.Brightness = 2.5 end)
+		end
+		if fancy then
+			rec.state = "appear"
+			rec.appearT = os.clock()
+			setAlpha(rec, 0)
+			FX.Puff(pos, 0.45, true)
+		end
+		recs[id] = rec
+		return rec
+	end
+
+	local function removeCandy(id, puff)
+		local rec = recs[id]
+		if not rec then return end
+		recs[id] = nil
+		if puff and rec.pp and rec.pp.Parent then FX.Puff(rec.pp.Position, 0.35) end
+		rec.model:Destroy()
+	end
+
+	-- ── 🪣 PANNEAU PHYSIQUE à droite de ton seau : combien il est rempli (rectangulaire, fond gris brossé) ──
+	--    Une vraie petite plaque dans le monde (pas un billboard) ; lisible des deux côtés. Visible pour toi seulement.
+	local PANEL_W, PANEL_H, PPS = 2.4, 1.2, 150             -- studs ; pixels par stud (canevas 360 × 180)
+	local panelFolder = new("Folder", { Name = "JackCandyBucketPanel" }, workspace)
+	local panel = new("Part", { Name = "BucketPanel", Size = Vector3.new(PANEL_W, PANEL_H, 0.06), Anchored = true, CanCollide = false,
+		CanQuery = false, CanTouch = false, CastShadow = false, Transparency = 1 }, nil)
+	local faces = {}
+	for _, face in ipairs({ Enum.NormalId.Back, Enum.NormalId.Front }) do
+		local sg = new("SurfaceGui", { Name = "Panel" .. face.Name, Face = face, SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
+			PixelsPerStud = PPS, LightInfluence = 0, AlwaysOnTop = false, ResetOnSpawn = false }, panel)
+		local root = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(26, 24, 30), BorderSizePixel = 0 }, sg)
+		local sc = new("UIScale", {}, root)
+		local bgId = UI.BucketPanelImage
+		if type(bgId) == "number" then bgId = tostring(bgId) end
+		if type(bgId) == "string" and bgId ~= "" then
+			if not bgId:find("://") then bgId = "rbxassetid://" .. bgId end
+			root.BackgroundTransparency = 1                   -- l'image a ses bords arrachés (transparents) : rien derrière
+			new("ImageLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Image = bgId, ScaleType = Enum.ScaleType.Stretch }, root)
+		else
+			new("UIStroke", { Color = Color3.fromRGB(10, 9, 12), Thickness = 6, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, root)
+		end
+		local title = new("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(24, 14), Size = UDim2.new(1, -48, 0, 28),
+			Text = "JACK'S BUCKET", Font = UI.FontTitle, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(255, 160, 60), ZIndex = 2 }, root)
+		new("UIStroke", { Color = Color3.fromRGB(8, 6, 10), Thickness = 2 }, title)
+		local count = new("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(24, 44), Size = UDim2.new(1, -48, 0, 70),
+			Text = "0 / 10", Font = UI.FontTitle, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.new(1, 1, 1), ZIndex = 2 }, root)
+		new("UIStroke", { Color = Color3.fromRGB(8, 6, 10), Thickness = 3 }, count)
+		local track = new("Frame", { Position = UDim2.fromOffset(24, 122), Size = UDim2.new(1, -48, 0, 14), BorderSizePixel = 0,
+			BackgroundColor3 = Color3.fromRGB(10, 9, 12), ZIndex = 2 }, root)
+		local bar = new("Frame", { Size = UDim2.fromScale(0, 1), BorderSizePixel = 0, BackgroundColor3 = Color3.new(1, 1, 1), ZIndex = 3 }, track)
+		local barGrad = new("UIGradient", { Rotation = 90, Color = seq(C_YE, C_OR) }, bar)
+		local sub = new("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(24, 142), Size = UDim2.new(1, -48, 0, 26),
+			Text = "", Font = UI.FontTitle, TextScaled = true, TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Color3.fromRGB(190, 184, 200), ZIndex = 2 }, root)
+		new("UIStroke", { Color = Color3.fromRGB(8, 6, 10), Thickness = 2 }, sub)
+		table.insert(faces, { count = count, bar = bar, barGrad = barGrad, sub = sub, scale = sc })
+	end
+	local panelOffset = nil          -- calculé une fois d'après la taille du seau
+
+	-- ── 🎃 repère au-dessus de Jack quand ton seau est plein ──
+	local mk = new("BillboardGui", { Name = "JackCandyMarker", Size = UDim2.fromOffset(230, 92), StudsOffset = Vector3.new(0, 3.4, 0),
+		AlwaysOnTop = true, LightInfluence = 0, ResetOnSpawn = false, Enabled = false }, playerGui)
+	local mkText = new("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), Text = "Bring your candy here!",
+		Font = UI.FontTitle, TextScaled = true, TextColor3 = C_YE }, mk)
+	new("UIStroke", { Color = Color3.fromRGB(60, 20, 6), Thickness = 2.5 }, mkText)
+	local mkArrow = new("TextLabel", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 34),
+		Size = UDim2.fromOffset(60, 54), Text = "▼", Font = UI.FontTitle, TextScaled = true, TextColor3 = C_OR }, mk)
+	new("UIStroke", { Color = Color3.fromRGB(60, 20, 6), Thickness = 3 }, mkArrow)
+
+	-- ── ✋ « Give Candy » : un prompt à toi, posé sur Jack (son « Talk » est éteint pendant ce temps) ──
+	local giveFolder = new("Folder", { Name = "JackCandyGive" }, workspace)
+	local givePart = new("Part", { Name = "GiveCandy", Anchored = true, CanCollide = false, CanQuery = false, CanTouch = false,
+		Transparency = 1, Size = Vector3.new(0.2, 0.2, 0.2) }, giveFolder)
+	local givePrompt = new("ProximityPrompt", { Name = "GiveCandy", ActionText = CU.GiveAction, ObjectText = CU.GiveObject,
+		HoldDuration = CU.GiveHold, MaxActivationDistance = CU.GiveDistance, RequiresLineOfSight = false,
+		KeyboardKeyCode = Enum.KeyCode.E, Enabled = false }, givePart)
+	local giving = 0
+	local talkOff = {}               -- [prompt de Jack] = était allumé
+	local function jackTalk(off)
+		if off then
+			for _, m in ipairs(jacksCache) do
+				for _, d in ipairs(m:GetDescendants()) do
+					if d:IsA("ProximityPrompt") and talkOff[d] == nil then
+						talkOff[d] = d.Enabled
+						d.Enabled = false
+					end
+				end
+			end
+		else
+			for d, was in pairs(talkOff) do if d.Parent then d.Enabled = was end end
+			table.clear(talkOff)
+		end
+	end
+	local function nearestJackModel()
+		local r = hrp()
+		local best, bd
+		for _, m in ipairs(jacksCache) do
+			local root = m.Parent and m:FindFirstChild("HumanoidRootPart")
+			if root then
+				local d = r and (root.Position - r.Position).Magnitude or 0
+				if not bd or d < bd then best, bd = m, d end
+			end
+		end
+		return best
+	end
+
+	-- ── 🪣 Jack t'a prêté son seau : il ne l'a plus dans la main (chez toi seulement) ──
+	local function jackBucketParts(m)
+		local out = {}
+		local pivot = m:FindFirstChild("BucketPivot", true)
+		if pivot then
+			for _, w in ipairs(pivot:GetChildren()) do
+				if w:IsA("WeldConstraint") then
+					local p = (w.Part0 == pivot) and w.Part1 or w.Part0
+					if p and p ~= pivot and p:IsA("BasePart") then table.insert(out, p) end
+				end
+			end
+		end
+		return out
+	end
+	local hiddenJack = false
+	local function hideJackBuckets(hide)
+		if not hide and not hiddenJack then return end
+		hiddenJack = hide
+		for _, m in ipairs(jacksCache) do
+			for _, p in ipairs(jackBucketParts(m)) do p.LocalTransparencyModifier = hide and 1 or 0 end
+		end
+	end
+
+	-- 🖐️ bras tendu vers l'avant, immobile en marchant / sautant (l'animation « tenir un outil » de Roblox,
+	--    priorité Action : elle passe par-dessus la marche et le saut). Jouée par toi → tout le monde la voit.
+	local holdTrack, holdChar, holdRetry = nil, nil, 0
+	local function holdAnimId(char, hum)
+		local a = char:FindFirstChild("Animate")
+		local tn = a and a:FindFirstChild("toolnone")
+		local an = tn and tn:FindFirstChildWhichIsA("Animation")
+		if an and an.AnimationId ~= "" then return an.AnimationId end
+		return hum.RigType == Enum.HumanoidRigType.R15 and "rbxassetid://507768375" or "rbxassetid://182393478"
+	end
+	setHold = function(want)
+		local char = player.Character
+		if want then
+			if holdTrack and holdChar == char then return end
+			if os.clock() < holdRetry then return end
+			holdRetry = os.clock() + 1
+			if holdTrack then pcall(function() holdTrack:Stop(0.2) end) end
+			holdTrack, holdChar = nil, nil
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			local an = hum and hum:FindFirstChildOfClass("Animator")
+			if not an then return end
+			local ok, tr = pcall(function() return an:LoadAnimation(new("Animation", { AnimationId = holdAnimId(char, hum) })) end)
+			if ok and tr then
+				pcall(function() tr.Priority = Enum.AnimationPriority.Action end)
+				tr.Looped = true
+				tr:Play(0.2)
+				holdTrack, holdChar = tr, char
+			end
+		elseif holdTrack then
+			pcall(function() holdTrack:Stop(0.25) end)
+			holdTrack, holdChar = nil, nil
+		end
+	end
+
+	local function updateHud()
+		local full = on and cv and cv.Full == true
+		local need = cv and math.max(cv.Need or 0, 1) or 1
+		local n = cv and math.min(cv.Bucket or 0, need) or 0
+		for _, f in ipairs(faces) do
+			f.count.Text = full and "FULL" or ("%d / %d"):format(n, need)
+			f.count.TextColor3 = full and C_GREEN or Color3.new(1, 1, 1)
+			tween(f.bar, 0.25, { Size = UDim2.fromScale(full and 1 or math.clamp(n / need, 0, 1), 1) })
+			f.barGrad.Color = full and seq(Color3.fromRGB(190, 255, 170), C_GREEN) or seq(C_YE, C_OR)
+			f.sub.Text = full and "Bring it back to Jack!" or ("Jack has %d / %d candies"):format(cv and cv.Count or 0, cv and cv.Total or 0)
+			f.sub.TextColor3 = full and Color3.new(1, 1, 1) or Color3.fromRGB(190, 184, 200)
+		end
+		givePrompt.Enabled = full and os.clock() > giving
+		jackTalk(full)
+	end
+
+	-- ✋ on DEMANDE au serveur ; le bonbon monte en attendant
+	local function grab(rec)
+		local now = os.clock()
+		pendingId, pendingAt = rec.id, now
+		actionRE:FireServer("candy", rec.id)
+		rec.state = "rise"
+		rec.riseT0 = now
+		rec.riseFrom = rec.model:GetPivot()
+		FX.Sound("Pop", rec.pp, 0.35)
+		if rec.stars then rec.stars.Rate = CU.Stars * 4 end
+	end
+	local function backCandy(rec)
+		if not rec or rec.state == "dive" then return end
+		rec.state = "back"
+		rec.backT0 = os.clock()
+		rec.backFrom = rec.model:GetPivot()
+		rec.cool = os.clock() + 1.5
+		setAlpha(rec, 1)
+		if rec.stars then rec.stars.Rate = CU.Stars end
+	end
+
+	-- 💥 il entre dans ton seau
+	local function candyBurst(rec, target)
+		FX.Sparkle(target, 14, seq(Color3.new(1, 1, 1), rec.col, C_YE), 5)
+		FX.Sound("PageGet", nil, 0.45)
+		local b = bucketModel()
+		if b then   -- le seau s'illumine un instant
+			local h = new("Highlight", { Name = "BucketGlow", Adornee = b, FillColor = rec.col, FillTransparency = 0.35,
+				OutlineColor = Color3.new(1, 1, 1), OutlineTransparency = 0.1, DepthMode = Enum.HighlightDepthMode.Occluded }, b)
+			tween(h, 0.6, { FillTransparency = 1, OutlineTransparency = 1 })
+			task.delay(0.7, function() h:Destroy() end)
+		end
+		for _, f in ipairs(faces) do
+			f.scale.Scale = 1.08
+			tween(f.scale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+		end
+	end
+
+	-- 🍬→🎃 les bonbons de ton seau volent dans les mains de Jack
+	local function deliverFx(amount)
+		local from = bucketPos()
+		local jm = nearestJackModel()
+		local root = jm and jm:FindFirstChild("HumanoidRootPart")
+		if not (from and root) then return end
+		local to = root.Position + Vector3.new(0, 1.2, 0)
+		local n = math.clamp(amount or 5, 3, 12)
+		for k = 1, n do
+			task.delay((k - 1) * 0.07, function()
+				local col = COLORS[math.random(1, #COLORS)]
+				local m = candyModel(col, 1.2)
+				m.Parent = candyWorld()
+				local t0 = os.clock()
+				local side = (math.random() - 0.5) * 3
+				local conn
+				conn = RunService.Heartbeat:Connect(function()
+					local u = math.clamp((os.clock() - t0) / 0.6, 0, 1)
+					local mid = from:Lerp(to, 0.5) + Vector3.new(side, 4, 0)
+					local q = 1 - u
+					local p = from * (q * q) + mid * (2 * q * u) + to * (u * u)
+					m:PivotTo(CFrame.new(p) * CFrame.Angles(u * 9, u * 7, 0))
+					if u >= 1 then
+						conn:Disconnect()
+						m:Destroy()
+						if k % 3 == 0 or k == n then FX.Sparkle(to, 8, seq(Color3.new(1, 1, 1), col), 4) end
+					end
+				end)
+			end)
+		end
+		task.delay(n * 0.07 + 0.6, function()
+			FX.Burst(to, 0.6, { Color3.fromRGB(255, 236, 190), C_OR })
+			FX.Sound("PageIn", nil, 0.5)
+		end)
+	end
+
+	-- ── synchro avec le serveur (vue complète ou réponse à un ramassage) ──
+	local function sync(c)
+		cv = c
+		local want = {}
+		if c and c.Items and not (fresh and inDialog()) then
+			for _, it in ipairs(c.Items) do
+				if type(it.P) == "table" then want[it.Id] = Vector3.new(it.P[1], it.P[2], it.P[3]) end
+			end
+		end
+		for id, rec in pairs(recs) do
+			if not want[id] and not BUSYC[rec.state] then removeCandy(id, c ~= nil and c.Full == true) end
+		end
+		local spawned = 0
+		for id, pos in pairs(want) do
+			if not recs[id] and pendingId ~= id then spawnCandy(id, pos, true) ; spawned += 1 end
+		end
+		if fresh and spawned > 0 then
+			fresh = false
+			task.delay(0.4, function() hintBanner("Fill Jack's bucket!", "Grab the glowing candies around him 🍬") end)
+		end
+		local full = c ~= nil and c.Full == true
+		if full and not wasFull and not fresh then
+			FX.Sound("AllFound", nil, 0.5)
+			hintBanner("Your bucket is full!", "Bring it back to Jack 🎃")
+		end
+		wasFull = full
+		updateHud()
+	end
+
+	candyHook.view = function(v)
+		local a = v and v.active
+		local c = (a and a.Goal and a.Goal.Type == "candy") and a.Candy or nil
+		on = c ~= nil
+		if on then jacksCache = jackModels() end
+		if not on then
+			for id in pairs(recs) do removeCandy(id, false) end
+			pendingId = nil
+			cv = nil
+			wasFull = false
+			givePrompt.Enabled = false
+			jackTalk(false)
+			hideJackBuckets(false)
+			return
+		end
+		hideJackBuckets(true)
+		sync(c)
+	end
+	candyHook.accepted = function() fresh = true end
+	candyHook.active = function() return on end
+	candyHook.toast = function(p)
+		if p.CandyGot then
+			local rec = recs[p.CandyGot]
+			if pendingId == p.CandyGot then pendingId = nil end
+			if rec then
+				rec.confirmed = true
+				if rec.state == "idle" or rec.state == "back" or rec.state == "appear" then
+					rec.state = "hover"
+					rec.riseFrom = rec.model:GetPivot()
+				end
+			end
+		elseif p.CandyRefused then
+			if pendingId == p.CandyRefused then pendingId = nil end
+			backCandy(recs[p.CandyRefused])
+			if p.BucketFull then hintBanner("Your bucket is full!", "Bring it back to Jack 🎃") end
+		end
+		if p.CandyGive then
+			giving = 0
+			deliverFx(p.CandyGive)
+			local c = p.Candy or {}
+			task.delay(0.9, function()
+				if p.AllCandy then
+					celebrateAll("ALL CANDIES DELIVERED!", "Jack is so happy! 🎃")
+				else
+					hintBanner(("%d / %d candies!"):format(c.Count or 0, c.Total or 0), "Go get more candies! 🍬")
+				end
+			end)
+		end
+		if p.Candy and on then sync(p.Candy) end
+	end
+
+	givePrompt.Triggered:Connect(function()
+		if not (on and cv and cv.Full) or inDialog() or os.clock() < giving then return end
+		giving = os.clock() + 4                    -- (sans réponse : le bouton revient dans 4 s)
+		givePrompt.Enabled = false
+		actionRE:FireServer("give")
+	end)
+
+	-- 🎞️ une seule boucle : bonbons, billboard, repère, prompt
+	local RISE_C, DIVE_C = 0.35, 0.4
+	RunService.Heartbeat:Connect(function(dt)
+		local now = os.clock()
+		local talking = inDialog()
+		local r = hrp()
+		local me = r and r.Position
+		local full = on and cv and cv.Full == true
+		-- billboard du seau
+		local b = bucketModel()
+		local h = b and (b.PrimaryPart or b:FindFirstChildWhichIsA("BasePart"))
+		-- 🪣 la plaque suit ton seau, à sa droite, tournée comme ton perso (lisible derrière toi et devant)
+		local showPanel = on and h ~= nil and r ~= nil and not talking
+		if showPanel then
+			if not panelOffset then
+				local okE, ext = pcall(function() return b:GetExtentsSize() end)
+				local wdt = (okE and ext and ext.X > 0.2 and ext.X < 8) and ext.X or 1.4
+				local hgt = (okE and ext and ext.Y > 0.2 and ext.Y < 8) and ext.Y or 1.4
+				panelOffset = CFrame.new(wdt / 2 + PANEL_W / 2 + 0.25, -hgt * 0.45, 0)
+			end
+			panel.CFrame = CFrame.new(h.Position) * r.CFrame.Rotation * panelOffset
+			if panel.Parent ~= panelFolder then panel.Parent = panelFolder end
+		elseif panel.Parent then
+			panel.Parent = nil
+			panelOffset = nil
+		end
+		setHold(on and h ~= nil)
+		-- repère + prompt sur Jack
+		local jm = (on and (full or giving > now)) and nearestJackModel() or nil
+		local jroot = jm and jm:FindFirstChild("HumanoidRootPart")
+		local head = jm and (jm:FindFirstChild("Head") or jroot)
+		if head and mk.Adornee ~= head then mk.Adornee = head end
+		mk.Enabled = full and head ~= nil and not talking
+		if mk.Enabled then mkArrow.Position = UDim2.new(0.5, 0, 0, 34 + math.abs(math.sin(now * 4)) * 8) end
+		if jroot then givePart.CFrame = jroot.CFrame end
+		if full and not givePrompt.Enabled and now > giving and not talking then givePrompt.Enabled = true end
+		if full then for _, f in ipairs(faces) do f.scale.Scale = 1 + math.abs(math.sin(now * 3)) * 0.04 end end
+		for id, rec in pairs(recs) do
+			if not rec.model.Parent then recs[id] = nil continue end
+			rec.t += dt
+			local t = rec.t
+			if rec.state == "idle" or rec.state == "appear" then
+				local cf = CFrame.new(rec.home + Vector3.new(0, math.sin(t * CU.BobSpeed) * CU.BobHeight, 0))
+					* CFrame.Angles(0, t * CU.SpinSpeed, math.sin(t * 0.9) * 0.25)
+				if rec.state == "appear" then
+					local u = (now - rec.appearT) / 0.6
+					if u >= 1 then rec.state = "idle" ; setAlpha(rec, 1)
+					else
+						setAlpha(rec, smooth(u))
+						cf = cf * CFrame.new(0, (1 - smooth(u)) * -1, 0)
+					end
+				end
+				rec.model:PivotTo(cf)
+				-- 🍬 tu passes dessus → il saute dans ton seau
+				if rec.state == "idle" and me and not talking and not full and not pendingId
+					and not (rec.cool and now < rec.cool) and (me - rec.home).Magnitude <= CU.Grab then
+					grab(rec)
+				end
+			elseif rec.state == "rise" or rec.state == "hover" then
+				local u = rec.state == "rise" and math.clamp((now - rec.riseT0) / RISE_C, 0, 1) or 1
+				local e = 1 - (1 - u) ^ 3
+				local pos = rec.riseFrom.Position + Vector3.new(0, 1.6 * e, 0)
+				rec.spin = (rec.spin or 0) + dt * (2 + e * 8)
+				rec.model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, rec.spin, 0))
+				if u >= 1 then rec.state = "hover" end
+				if rec.state == "hover" and rec.confirmed then
+					rec.state = "dive"
+					rec.diveT0 = now
+					rec.diveFrom = rec.model:GetPivot()
+				elseif pendingId == id and now - pendingAt > 5 then
+					pendingId = nil
+					backCandy(rec)
+					task.spawn(fetch)
+				end
+			elseif rec.state == "dive" then
+				-- ⬇️ il plonge dans ton seau en tournoyant, rapetisse… et éclate
+				local u = math.clamp((now - rec.diveT0) / DIVE_C, 0, 1)
+				local e = u * u * u
+				local target = bucketPos() or rec.home
+				local from = rec.diveFrom.Position
+				local mid = from:Lerp(target, 0.4) + Vector3.new(0, 1, 0)
+				local q = 1 - e
+				local pos = from * (q * q) + mid * (2 * q * e) + target * (e * e)
+				rec.spin = (rec.spin or 0) + dt * 14
+				rec.model:PivotTo(CFrame.new(pos) * CFrame.Angles(0, rec.spin, 0))
+				pcall(function() rec.model:ScaleTo(rec.scale0 * math.max(0.15, 1 - e * 0.85)) end)
+				if u >= 1 then
+					candyBurst(rec, target)
+					recs[id] = nil
+					rec.model:Destroy()
+				end
+			elseif rec.state == "back" then
+				local u = math.clamp((now - rec.backT0) / 0.6, 0, 1)
+				rec.model:PivotTo(rec.backFrom:Lerp(CFrame.new(rec.home), 1 - (1 - u) ^ 3))
+				if u >= 1 then rec.state = "idle" end
+			end
+		end
+	end)
+
+	-- (Jack t'a prêté son seau : on le garde caché chez lui, même si une animation le remet)
+	task.spawn(function()
+		while ROOT.Parent do
+			task.wait(1)
+			if on then hideJackBuckets(true) end
+		end
+	end)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📨 MESSAGES DU SERVEUR
+-- ════════════════════════════════════════════════════════════════
+toastRE.OnClientEvent:Connect(function(p)
+	if type(p) ~= "table" then return end
+	if p.Page then
+		local i = p.Page
+		local rec = pages[i]
+		if rec then catchPage(i, p)                      -- elle plonge vers toi et éclate (rien à l'écran)
+		else
+			pending[i] = nil
+			if p.AllFound then task.delay(0.3, function() celebrateAll() end) end
+		end
+		-- la vue locale est mise à jour tout de suite (le serveur reste la référence)
+		if grim and grim.Pages and grim.Pages[i] then
+			local pg = grim.Pages[i]
+			pg.Got, pg.Title, pg.Text, pg.Icon, pg.Formula, pg.P = true, p.Title, p.Text, p.Icon, p.Formula, nil
+		end
+		task.delay(1.5, fetch)
+	elseif p.PageRefused then
+		returnPage(p.PageRefused)
+	elseif p.Candy or p.CandyRefused or p.CandyGot or p.CandyGive then
+		if candyHook.toast then candyHook.toast(p) end     -- 🍬 quête du seau
+	elseif p.Refresh then
+		if p.Accepted then
+			-- la quête vient d'être acceptée : les pages (ou les bonbons) apparaissent à la fin du dialogue
+			freshPending = true
+			if candyHook.accepted then candyHook.accepted() end
+		end
+		task.spawn(fetch)
+	elseif p.StepId then
+		task.delay(0.5, fetch)
+	end
+end)
+
+-- la fin d'une discussion : on remet tout d'aplomb (pages, livre tenu / rangé, livre au sol)
+player:GetAttributeChangedSignal("InNpcDialog"):Connect(function()
+	if not inDialog() then task.delay(0.6, fetch) end
+end)
+
+-- au cas où : après un respawn, les pages restent (elles sont dans le Workspace, pas sur le perso)
+task.spawn(function()
+	task.wait(2)
+	fetch()
+	while ROOT.Parent do
+		task.wait((grim or (candyHook.active and candyHook.active())) and 6 or 12)
+		fetch()
+	end
+end)
