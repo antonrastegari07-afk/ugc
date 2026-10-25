@@ -160,6 +160,7 @@ local function blank()
 		pend = {},                                -- [tierId] = { ["1"] = true, … } parts de récompense pas encore versées
 		kv = { day = -1, v = {} },                -- kills comptés par victime aujourd'hui (SEC8, gardé entre les serveurs)
 		ms = 0,                                   -- plus haut checkpoint déjà compté (remis à 0 au rebirth)
+		msv = 0,                                  -- version de ms (2 = rebirth bien détecté ; < 2 = ms recalé une fois sur ton Stage)
 		hint = false,                             -- la petite flèche « la faux est au bout » a déjà été vue
 	}
 end
@@ -694,30 +695,52 @@ local function warped(uid)
 	return m ~= nil and os.clock() < (m.warpUntil or 0)
 end
 
+-- téléport fait PAR LE SERVEUR (respawn sur ton checkpoint, sortie d'arène…) : ce n'est pas de la triche,
+-- on ne le compte ni comme téléport ni comme distance parcourue (appelé par le système de checkpoints)
+local TP_GRACE = 1.5
+local function markServerTeleport(player)
+	local m = player and motion[player.UserId]
+	if m then m.pos = nil m.tpGrace = os.clock() + TP_GRACE end
+end
+
+local function sampleMotion(pl, t)
+	local m = motion[pl.UserId]
+	local ch = pl.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	if not (m and hrp) then return end
+	if t < (m.tpGrace or 0) then
+		m.pos, m.t = hrp.Position, t                 -- la position peut encore « sauter » le temps que le client suive
+		return
+	end
+	local dist = 0
+	if m.pos then
+		local dt = math.max(t - m.t, 0.05)
+		dist = (flat(hrp.Position) - flat(m.pos)).Magnitude
+		if dist > 8 and dist / dt > MAX_SPEED then
+			m.warpUntil = t + 4
+			dist = 0
+		else
+			m.travel = (m.travel or 0) + math.min(dist, 6)
+		end
+	end
+	m.pos, m.t = hrp.Position, t
+	m.samples = (m.samples or 0) + 1
+	-- « bouge » = le joueur appuie pour avancer (MoveDirection) OU il s'est vraiment déplacé (≥ 2 studs/s).
+	-- ⚠️ MoveDirection n'est pas fiable côté serveur (souvent 0 selon le client / le mobile) : seul,
+	--    il bloquait le temps de jeu de beaucoup de joueurs. Le vrai déplacement suffit aussi.
+	local hum = ch:FindFirstChildOfClass("Humanoid")
+	local md = hum and hum.MoveDirection
+	if md == nil or md.Magnitude > 0.1 or dist > 0.4 then m.moving = (m.moving or 0) + 1 end
+end
+
 task.spawn(function()
 	while true do
 		task.wait(0.2)
 		local t = os.clock()
 		for _, pl in ipairs(Players:GetPlayers()) do
-			local m = motion[pl.UserId]
-			local ch = pl.Character
-			local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-			if m and hrp then
-				if m.pos then
-					local dt = math.max(t - m.t, 0.05)
-					local dist = (flat(hrp.Position) - flat(m.pos)).Magnitude
-					if dist > 8 and dist / dt > MAX_SPEED then
-						m.warpUntil = t + 4
-					else
-						m.travel = (m.travel or 0) + math.min(dist, 6)
-					end
-				end
-				m.pos, m.t = hrp.Position, t
-				m.samples = (m.samples or 0) + 1
-				local hum = ch:FindFirstChildOfClass("Humanoid")
-				local md = hum and hum.MoveDirection
-				if md == nil or md.Magnitude > 0.1 then m.moving = (m.moving or 0) + 1 end
-			end
+			-- une erreur sur UN joueur ne doit jamais arrêter la boucle pour tout le serveur
+			local ok, err = pcall(sampleMotion, pl, t)
+			if not ok then warn("⚠️ [HalloweenEvent] mouvement : " .. tostring(err)) end
 		end
 	end
 end)
@@ -730,7 +753,7 @@ local function reachable(player, pos, maxDist)
 	if not hrp or not hum or hum.Health <= 0 then return false end
 	if warped(uid) then return false end
 	local m = motion[uid]
-	if m and m.pos and m.t then                      -- saut depuis le dernier relevé (0,2 s) : téléport → refusé
+	if m and m.pos and m.t and os.clock() >= (m.tpGrace or 0) then                     -- saut depuis le dernier relevé (0,2 s) : téléport → refusé
 		local dt = math.max(os.clock() - m.t, 0.05)
 		local dist = (flat(hrp.Position) - flat(m.pos)).Magnitude
 		if dist > 8 and dist / dt > MAX_SPEED then m.warpUntil = os.clock() + 4 return false end
@@ -1430,7 +1453,53 @@ local function watchCharacter(player, char)
 	end)
 end
 
--- 🧗 checkpoints (leaderstats ▸ Stage) — SEC4 / SEC5
+-- 🧗 checkpoints — SEC4 / SEC5
+--  Le système de checkpoints prévient DIRECTEMENT ce script (_G.HalloweenEvent.OnCheckpoint) :
+--    "touch" = checkpoint vraiment touché · "skip" = skip Robux · "load" = Stage chargé · "reset" = rebirth
+--  (ancien système de checkpoints sans _G.CheckpointHooks → on devine depuis leaderstats ▸ Stage)
+--  « Nouveau » checkpoint = plus haut que d.ms (le plus haut déjà compté depuis le dernier rebirth).
+--  Un checkpoint refusé (téléport, trop rapide) n'est PAS « brûlé » : il pourra encore compter.
+
+-- rebirth : l'obby repart de 0 (sinon plus rien ne compte jusqu'à dépasser ton ancien record)
+local function resetObby(st)
+	if st.d then st.d.ms = 0 touch(st) else st.pendReset = true end
+end
+
+local function countCheckpoint(player, st, num, prev)
+	local d = st.d
+	if not st.settled or not d then return end       -- au « posé », ms est recalé sur ton Stage
+	if num <= (d.ms or 0) then return end            -- déjà fait (retour en arrière, sélecteur d'étape)
+	if prev ~= num - 1 then                          -- saut de plusieurs étapes (chargement, admin…) : pas une montée
+		d.ms = num
+		touch(st)
+		return
+	end
+	if warped(player.UserId) then return end         -- téléport qui ne vient pas du serveur
+	local t = os.clock()
+	if st.stageT and t - st.stageT < (R.CheckpointMinGap or 0.8) then return end
+	st.stageT = t
+	d.ms = num
+	touch(st)
+	progress(player, "checkpoints", 1)
+	progress(player, "nodeath", 1)
+end
+
+local function onCheckpoint(player, num, how, prev)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then return end
+	num = tonumber(num)
+	if not num then return end
+	local st = P[player.UserId]
+	if not st then return end
+	if how == "reset" then return resetObby(st) end
+	if how == "touch" then return countCheckpoint(player, st, num, tonumber(prev)) end
+	-- "skip" / "load" : la position avance sans montée → ces checkpoints ne compteront pas
+	if st.d and st.settled and num > (st.d.ms or 0) then
+		st.d.ms = num
+		touch(st)
+	end
+end
+
+-- secours : ancien système de checkpoints (ne prévient pas) → on regarde leaderstats ▸ Stage
 local function watchStage(player)
 	task.spawn(function()
 		local ls = player:WaitForChild("leaderstats", 60)
@@ -1446,22 +1515,44 @@ local function watchStage(player)
 			local cur = tonumber(stg.Value) or 0
 			local prev = s2.lastStage or cur
 			s2.lastStage = cur
-			if not s2.settled or not s2.d then return end
-			local best = s2.d.ms or 0
-			if cur <= best then return end                -- déjà fait (retour en arrière, sélecteur d'étape)
-			s2.d.ms = cur
-			touch(s2)
-			if cur ~= prev + 1 or warped(uid) then return end     -- saut de plusieurs étapes / téléport : rien
-			local t = os.clock()
-			if s2.stageT and t - s2.stageT < (R.CheckpointMinGap or 0.8) then return end
-			s2.stageT = t
-			progress(player, "checkpoints", 1)
-			progress(player, "nodeath", 1)
+			if _G.CheckpointHooks then return end         -- le système de checkpoints nous prévient lui-même
+			countCheckpoint(player, s2, cur, prev)
 		end)
 	end)
 end
 
--- 🔄 rebirth / 🏆 manche gagnée : +1 exact après le chargement — SEC6
+-- 🔄 rebirth : +1 exact après le chargement — SEC6
+--    lu sur l'attribut RebirthCount ET sur leaderstats ▸ Rebirths (le plus grand des deux, jamais compté 2 fois)
+local function watchRebirth(player)
+	local uid = player.UserId
+	local function read()
+		local a = tonumber(player:GetAttribute("RebirthCount")) or 0
+		local ls = player:FindFirstChild("leaderstats")
+		local v = ls and ls:FindFirstChild("Rebirths")
+		return math.max(a, (v and tonumber(v.Value)) or 0)
+	end
+	local last = read()
+	local function changed()
+		local cur = read()
+		local st = P[uid]
+		if st and st.settled and cur == last + 1 then
+			progress(player, "rebirth", 1)
+			resetObby(st)
+		end
+		last = cur
+	end
+	player:GetAttributeChangedSignal("RebirthCount"):Connect(changed)
+	task.spawn(function()
+		local ls = player:WaitForChild("leaderstats", 60)
+		local v = ls and ls:WaitForChild("Rebirths", 60)
+		if not v then return end
+		if not (P[uid] and P[uid].settled) then last = read() end   -- valeur chargée = pas un rebirth
+		v.Changed:Connect(changed)
+	end)
+	return function() last = read() end                             -- remise à niveau au « posé »
+end
+
+-- 🏆 manche gagnée : +1 exact après le chargement — SEC6
 local function watchCounter(player, attr, kind)
 	local uid = player.UserId
 	local last = tonumber(player:GetAttribute(attr)) or 0
@@ -1470,7 +1561,6 @@ local function watchCounter(player, attr, kind)
 		local st = P[uid]
 		if st and st.settled and cur == last + 1 then
 			progress(player, kind, 1)
-			if kind == "rebirth" and st.d then st.d.ms = 0 touch(st) end   -- l'obby repart de 0
 		end
 		last = cur
 	end)
@@ -1478,23 +1568,28 @@ local function watchCounter(player, attr, kind)
 end
 
 -- ⏱️ temps de jeu ACTIF (il faut bouger)
+local function tickPlaytime(pl, tick)
+	local m = motion[pl.UserId]
+	local st = pd(pl.UserId)
+	if not (m and st and st.settled) then return end
+	-- actif = assez de distance ET le joueur bouge vraiment une bonne partie du temps
+	local moved = (m.travel or 0) >= (R.ActiveMoveStuds or 6)
+		and (m.moving or 0) >= (m.samples or 0) * (R.ActiveInputShare or 0.3)
+	m.travel, m.moving, m.samples = 0, 0, 0
+	if moved then
+		progress(pl, "playtime", tick)
+		if pl:GetAttribute("InArena") == true then progress(pl, "arenatime", tick) end
+	end
+end
+
 task.spawn(function()
 	local tick = R.PlaytimeTick or 15
 	while true do
 		task.wait(tick)
 		for _, pl in ipairs(Players:GetPlayers()) do
-			local m = motion[pl.UserId]
-			local st = pd(pl.UserId)
-			if m and st and st.settled then
-				-- actif = assez de distance ET le joueur appuie vraiment pour avancer une bonne partie du temps
-				local moved = (m.travel or 0) >= (R.ActiveMoveStuds or 6)
-					and (m.moving or 0) >= (m.samples or 0) * (R.ActiveInputShare or 0.3)
-				m.travel, m.moving, m.samples = 0, 0, 0
-				if moved then
-					progress(pl, "playtime", tick)
-					if pl:GetAttribute("InArena") == true then progress(pl, "arenatime", tick) end
-				end
-			end
+			-- une erreur sur UN joueur ne doit jamais arrêter le temps de jeu de tout le serveur
+			local ok, err = pcall(tickPlaytime, pl, tick)
+			if not ok then warn("⚠️ [HalloweenEvent] temps de jeu : " .. tostring(err)) end
 		end
 	end
 end)
@@ -1537,7 +1632,7 @@ local function onPlayer(player)
 	motion[uid] = { travel = 0 }
 	local syncWins, syncReb
 	watchStage(player)
-	syncReb = watchCounter(player, "RebirthCount", "rebirth")
+	syncReb = watchRebirth(player)
 	syncWins = watchCounter(player, "ArenaWins", "roundwin")
 	if player.Character then task.spawn(watchCharacter, player, player.Character) end
 	player.CharacterAdded:Connect(function(char)
@@ -1575,6 +1670,7 @@ local function onPlayer(player)
 			end
 		end
 		st.d = d
+		if st.pendReset then d.ms = 0 st.pendReset = nil touch(st) end     -- rebirth fait pendant le chargement
 		if ensurePeriods(d, now()) then touch(st) end
 		log("💾 sauvegarde chargée pour", player.Name, "coins =", d.coins)
 		if visibleFor(uid) then player:SetAttribute("HalloweenPass", true) end      -- Jack propose alors d'ouvrir la fenêtre
@@ -1587,9 +1683,15 @@ local function onPlayer(player)
 		if not player.Parent or P[uid] ~= st then return end
 		local ls = player:FindFirstChild("leaderstats")
 		local stg = ls and ls:FindFirstChild("Stage")
-		if stg then
-			st.lastStage = tonumber(stg.Value) or 0
-			d.ms = math.max(d.ms or 0, st.lastStage)
+		if stg then st.lastStage = tonumber(stg.Value) or 0 end
+		if (d.msv or 0) < 2 then
+			-- 🔧 ancien bug : le rebirth n'était pas vu (pas d'attribut RebirthCount) → ms restait au record
+			--    d'AVANT le rebirth et plus aucun checkpoint ne comptait. Recalé UNE fois sur ton Stage actuel.
+			d.ms = st.lastStage or 0
+			d.msv = 2
+			touch(st)
+		else
+			d.ms = math.max(d.ms or 0, st.lastStage or 0)
 		end
 		syncReb()
 		syncWins()
@@ -1738,6 +1840,10 @@ _G.HalloweenEvent = {
 		return amount
 	end,
 	Coins = function(uid) local st = pd(uid) return st and st.d.coins or 0 end,
+	-- 🧗 appelé par le système de checkpoints : (player, numéro, "touch"|"skip"|"load"|"reset", numéro d'avant)
+	OnCheckpoint = onCheckpoint,
+	-- 🛬 appelé par _G.SafeTeleport : un téléport fait par le serveur n'est pas un téléport de triche
+	MarkTeleport = markServerTeleport,
 }
 
 -- 💎 Jack verse ses points par ce chemin si tu ne l'as pas déjà branché ailleurs

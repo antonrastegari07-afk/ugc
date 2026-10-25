@@ -86,6 +86,21 @@ _G.PlayersInArena = _G.PlayersInArena or {}
 local checkpointLoadedSignal = Instance.new("BindableEvent")
 local playersWaitingForCheckpoints = {} -- [userId] = true
 
+-- ========================================
+-- 📣 PRÉVENIR LES QUÊTES (Halloween…) : elles ne devinent plus depuis leaderstats ▸ Stage
+-- ========================================
+--   "touch" = checkpoint vraiment touché (le seul qui compte comme « nouveau checkpoint »)
+--   "skip"  = skip Robux · "load" = progression chargée · "reset" = rebirth (l'obby repart de 0)
+_G.CheckpointHooks = true
+local function notifyCheckpoint(player, checkpointNum, how, prevNum)
+	local hook = _G.HalloweenEvent and _G.HalloweenEvent.OnCheckpoint
+	if type(hook) ~= "function" or not checkpointNum then return end
+	task.spawn(function()
+		local ok, err = pcall(hook, player, checkpointNum, how, prevNum)
+		if not ok then warn("⚠️ Quêtes checkpoint : " .. tostring(err)) end
+	end)
+end
+
 print("🚀 SCRIPT CHECKPOINT DÉMARRÉ (VERSION DÉFINITIVE + ARÈNE + LEADERBOARD CONTINU + NOTIFICATIONS)")
 
 -- ========================================
@@ -289,12 +304,15 @@ local function saveCheckpoint(player, checkpointName, skipNotify)
 	sessionCheckpoints[userId] = checkpointName
 	-- Extraire le numéro pour le système de skip ET le leaderboard
 	local checkpointNum = tonumber(string.match(checkpointName, "%d+"))
+	local prevNum = playerCheckpoints[userId]
 	if checkpointNum then
 		-- ✅ FIX: Toujours mettre à jour le numéro actuel (pas seulement si plus grand)
 		playerCheckpoints[userId] = checkpointNum
 		-- 📊 Mettre à jour le leaderboard (TOUJOURS, même si diminue!)
 		updateLeaderboard(player, checkpointNum)
 	end
+	-- 📣 Quêtes : checkpoint touché (un skip est signalé mais ne compte pas)
+	notifyCheckpoint(player, checkpointNum, skipNotify and "skip" or "touch", prevNum)
 	-- Notifier client
 	task.spawn(function()
 		pcall(function()
@@ -480,6 +498,10 @@ do
 		if plr and _G.AntiFlyTP and _G.AntiFlyTP.MarkTeleport then
 			pcall(_G.AntiFlyTP.MarkTeleport, plr, 5)
 		end
+		-- 🎃 quêtes : téléport fait par le serveur ≠ téléport de triche (sinon le checkpoint suivant ne comptait pas)
+		if plr and _G.HalloweenEvent and type(_G.HalloweenEvent.MarkTeleport) == "function" then
+			pcall(_G.HalloweenEvent.MarkTeleport, plr)
+		end
 		pcall(function()
 			character:PivotTo(targetCF)
 			hrp.AssemblyLinearVelocity = Vector3.zero
@@ -554,6 +576,7 @@ _G.ResetPlayerStage = function(player)
 	touchDebounce[userId]      = nil
 	skipDebounce[userId]       = nil
 	updateLeaderboard(player, 1)
+	notifyCheckpoint(player, 1, "reset")
 	-- ✅ DataStore : on ÉCRIT Checkpoint1 (au lieu de RemoveAsync).
 	--    Rebirth = reset voulu → écrire Checkpoint1 est toujours correct, même si la lecture n'avait pas réussi.
 	--    progressLoaded = true → un respawn ne relit PLUS le DataStore (plus de retour de l'ancienne progression).
@@ -736,6 +759,7 @@ local function handleCharacterSpawn(player, character)
 				playerCheckpoints[userId] = savedNum
 				-- 📊 Mettre à jour le leaderboard avec le checkpoint sauvegardé
 				updateLeaderboard(player, savedNum)
+				notifyCheckpoint(player, savedNum, "load")
 			end
 			task.spawn(function()
 				pcall(function()
@@ -784,6 +808,7 @@ _G.GetCheckpointForExit = function(player)
 				if num then
 					playerCheckpoints[userId] = num
 					updateLeaderboard(player, num)
+					notifyCheckpoint(player, num, "load")
 				end
 			end
 		end
