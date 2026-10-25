@@ -8,7 +8,7 @@ scene=bpy.context.scene
 TY=1.10  # tank axis y (caps sit on the back plate)
 R={
  'ghost':(0.0,0.5,0.5,1.0),'ghost_cap':(0.5,0.875,0.625,1.0),'outline':(0.625,0.875,0.75,1.0),
- 'jamb':(0.75,0.875,0.875,1.0),'conn':(0.875,0.875,1.0,1.0),
+ 'jamb':(0.75,0.875,0.875,1.0),'bubble':(0.875,0.0,1.0,0.0625),'conn':(0.875,0.875,1.0,1.0),
  'top':(0.5,0.5,1.0,0.6875),'bottom':(0.5,0.6875,1.0,0.875),'bars':(0.75,0.875,0.875,1.0),
  'inner':(0.0,0.25,0.5,0.5),'cloud':(0.5,0.25,0.75,0.5),'smokewall':(0.75,0.375,1.0,0.5),'plate':(0.75,0.25,1.0,0.375),
  'hose':(0.0,0.0,0.5,0.125),
@@ -16,7 +16,7 @@ R={
  'stock':(0.5,0.125,0.625,0.25),'gunbody':(0.625,0.125,0.75,0.25),'barrel':(0.75,0.125,0.875,0.25),'fins':(0.875,0.125,1.0,0.25),'funnel':(0.5,0.0,0.625,0.125),
  'handle':(0.625,0.0,0.75,0.125),'clips':(0.75,0.0,0.875,0.125),'chest':(0.875,0.0,1.0,0.125),
 }
-NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate']
+NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle']
 PID={k:i for i,k in enumerate(NAMES)}
 def rmap(rect,u,v):
     u0,v0,u1,v1=rect
@@ -81,6 +81,18 @@ def bars_fn():
 parts=[]
 def ghost_part(): pass
 # ---------- INNER inverted shell ----------
+def handle_top_fn():
+    bm,uvl=new_bm()
+    pts=[(x_,TY+0.30,0.80+0.16*math.sin(math.pi*(x_+0.30)/0.60)) for x_ in np.linspace(-0.30,0.30,9)]
+    pts=[(-0.30,TY+0.30,0.74)]+pts+[(0.30,TY+0.30,0.74)]
+    sweep(bm,uvl,pts,circle(0.03,6),R['bars'],ref=Vector((0,1,0)))
+    return mkobj('Top_Handle','Tank',bm)
+def bubbles_fn():
+    bm,uvl=new_bm()
+    for (ang,rad,zc,sz) in ((55,0.31,-0.12,0.035),(-60,0.30,0.05,0.028),(30,0.34,0.24,0.022),(-35,0.33,-0.26,0.03)):
+        a_=math.radians(ang); cx,cy=math.sin(a_)*rad,TY+math.cos(a_)*rad
+        lathe(bm,uvl,[(0,zc+sz),(sz*0.87,zc+sz*0.5),(sz*0.87,zc-sz*0.5),(0,zc-sz)],6,R['bubble'],cx=cx,cy=cy)
+    return mkobj('Bubbles','Smoke',bm)
 def inner_fn():
     bm,uvl=new_bm()
     lathe(bm,uvl,[(0,-0.52),(RIN,-0.52),(RIN,-0.1),(RIN,0.52),(0,0.52)],28,R['inner'],cy=TY,invert=True)
@@ -190,7 +202,7 @@ def circle(r,m): return [(r*math.cos(2*math.pi*k/m),r*math.sin(2*math.pi*k/m)) f
 # ---------- HOSE + connectors ----------
 GX=-0.84  # gun axis x (character's right side, front is -Y)
 HOSE_C=[(0,TY,0.86),(0,TY+0.02,1.12),(-0.16,TY+0.14,1.30),(-0.42,TY+0.36,1.12),(-0.52,TY+0.46,0.66),(-0.58,TY+0.48,0.26),
-        (-0.72,TY+0.46,0.10),(-0.86,TY+0.42,0.30),(-0.90,TY+0.38,0.80),(-0.88,TY+0.20,1.16),(GX,TY+0.02,1.20),(GX,TY,1.02)]
+        (-0.72,TY+0.46,0.10),(-0.86,TY+0.42,0.30),(-0.92,TY+0.38,0.80),(-0.92,TY+0.26,1.16),(-0.88,TY+0.10,1.30),(GX,TY+0.02,1.22),(GX,TY,1.10),(GX,TY,1.02)]
 def hose_fn():
     bm,uvl=new_bm(); sweep(bm,uvl,catmull(HOSE_C,2),circle(0.07,6),R['hose'],ref=Vector((0,1,0)))
     return mkobj('Hose','Hose',bm)
@@ -211,6 +223,8 @@ def conn_fn():
     lathe(bm,uvl,[(0,0.88),(0.10,0.88),(0.10,0.81),(0,0.81)],8,R['conn'],cy=TY)
     lathe(bm,uvl,[(0,1.05),(0.10,1.05),(0.10,0.95),(0,0.95)],8,R['conn'],cx=GX,cy=TY)
     lathe(bm,uvl,[(0,0.52),(0.045,0.52),(0.045,0.0),(0,0.0)],6,R['conn'],cx=GX-0.20,cy=TY+0.10)   # side energy cell
+    lathe(bm,uvl,[(0,0.20),(0.05,0.20),(0.05,0.13),(0,0.13)],6,R['conn'],cx=GX-0.10,cy=TY+0.215)   # dial knob
+    lathe(bm,uvl,[(0,-0.62),(0.06,-0.62),(0.06,-0.66),(0,-0.66)],6,R['conn'],cx=0.0,cy=TY+0.53)    # tank: pressure valve body (front of bottom block)
     return mkobj('Hose_Connectors','Hose',bm)
 # ---------- GUN (proton blaster, ~2 studs long, stowed vertically, emitter down) ----------
 def stock_fn():     # rear power block
@@ -236,7 +250,7 @@ def funnel_fn():    # emitter head
     return mkobj('Gun_Emitter','Gun',bm)
 def handle_fn():    # pistol grip, front grip, trigger, trigger guard
     bm,uvl=new_bm()
-    box(bm,uvl,(GX-0.30,TY,0.72),(0.30,0.11,0.13),R['handle'],Matrix.Rotation(math.radians(-18),3,'Y'))
+    box(bm,uvl,(GX-0.29,TY,0.74),(0.30,0.11,0.13),R['handle'],Matrix.Rotation(math.radians(22),3,'Y'))
     box(bm,uvl,(GX-0.29,TY,0.10),(0.26,0.10,0.11),R['handle'])
     box(bm,uvl,(GX-0.22,TY,0.62),(0.07,0.03,0.08),R['handle'])
     box(bm,uvl,(GX-0.25,TY,0.565),(0.14,0.03,0.025),R['handle'])
@@ -247,6 +261,10 @@ def clips_fn():     # tank clips + top rail + sight
         box(bm,uvl,(-0.555,TY,z),(0.14,0.12,0.08),R['clips'])
     box(bm,uvl,(GX,TY+0.225,0.30),(0.08,0.04,0.56),R['clips'])                 # rail on the visible face
     box(bm,uvl,(GX,TY+0.27,0.42),(0.07,0.06,0.16),R['clips'])                  # sight
+    box(bm,uvl,(GX+0.205,TY+0.06,0.30),(0.04,0.20,0.40),R['clips'])            # side armour plate (tank side)
+    for k_ in range(3):                                                         # emitter prongs
+        a_=math.radians(90+k_*120); ox,oy=math.sin(a_)*0.16,math.cos(a_)*0.16
+        box(bm,uvl,(GX+ox,TY+oy,-1.05),(0.04,0.04,0.12),R['clips'])
     return mkobj('Gun_Rail_Clips','Gun',bm)
 # ---------- STRAPS (backpack style: over the shoulder, down the front, back under the arm) ----------
 D=0.12    # strap centre-line distance from the torso surface (loose fit for other body types)
@@ -261,29 +279,27 @@ def catmull(P,sub=3):
             t=k/sub
             out.append(0.5*((2*p1)+(-p0+p2)*t+(2*p0-5*p1+4*p2-p3)*t*t+(-p0+3*p1-3*p2+p3)*t**3))
     out.append(P[-2]); return out
-# rounded-rectangle loop around the shoulder (side view = a 'D'), like a classic Roblox backpack strap
-SD=0.045                      # gap between strap and torso
-SX=0.66                       # strap x position (beside the neck)
-Y0,Y1=-0.5-SD,0.5+SD          # front / back
-Z0,Z1=0.12,1.0+SD             # under the arm / over the shoulder
-CR_=0.14                      # corner radius
-def strap_loop(x,per_corner=4):
-    pts=[]
-    corners=[((Y1-CR_,Z1-CR_),0.0),((Y0+CR_,Z1-CR_),math.pi/2),((Y0+CR_,Z0+CR_),math.pi),((Y1-CR_,Z0+CR_),1.5*math.pi)]
-    for (cy,cz),a0 in corners:
-        for t in np.linspace(a0,a0+math.pi/2,per_corner):
-            pts.append((x,cy+CR_*math.cos(t),cz+CR_*math.sin(t)))
-        # mid point of the following straight edge
-    out=[]
-    for i,p in enumerate(pts):
-        out.append(p); q=pts[(i+1)%len(pts)]
-        if (Vector(q)-Vector(p)).length>0.2: out.append(tuple((Vector(p)+Vector(q))/2))
-    return out
-def loop_normal(p):
-    cy=min(max(p.y,Y0+CR_),Y1-CR_); cz=min(max(p.z,Z0+CR_),Z1-CR_)
-    d=Vector((0,p.y-cy,p.z-cz)); return d.normalized() if d.length>1e-6 else Vector((0,0,1))
-def tab_path(a,b):
-    a=Vector(a); b=Vector(b); return catmull([a,(a+b)/2+Vector((0,0.04,0)),b],2)
+# backpack straps (reference: classic Roblox backpack): leave the top of the pack, go forward over the shoulder,
+# round the front edge, run down the chest, round the bottom corner and go back under the arm to the bottom of the pack
+SD=0.045; SX=0.68
+Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.25; CR_=0.13
+def strap_path(x):
+    sx=math.copysign(1,x)
+    ctrl=[(sx*0.34,0.80,0.70),(sx*0.50,0.66,0.86),(x,0.50,ZT-0.01),(x,0.20,ZT),(x,-0.10,ZT)]
+    ctrl+=[(x,Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
+    ctrl+=[(x,Y0,0.55),(x,Y0,0.25)]
+    ctrl+=[(x,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner
+    ctrl+=[(x,0.10,ZB),(x,0.42,ZB),(sx*0.56,0.60,-0.40),(sx*0.42,0.74,-0.56)]
+    out=[]; 
+    for p in ctrl:
+        if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
+    return catmull(out,1)
+def strap_normal(p):
+    # flat side of the strap faces away from the shoulder/torso
+    q=Vector((0,min(max(p.y,-0.5+CR_),0.5),min(max(p.z,ZB+CR_),1.0-CR_)))
+    d=Vector((0,p.y-q.y,p.z-q.z))
+    if p.y>0.5 and p.z<0.9: d=Vector((0,0.2,-1.0)) if p.z<0.2 else Vector((0,0.3,1.0))
+    return d.normalized() if d.length>1e-6 else Vector((0,0,1))
 def rsec(w,t,m=8):
     out=[]
     for k in range(m):
@@ -296,10 +312,8 @@ def torso_normal(p):
     d=p-q
     return d.normalized() if d.length>1e-6 else Vector((0,1,0))
 def strap_fn(name,x,rect):
-    bm,uvl=new_bm(); sx=math.copysign(1,x)
-    sweep(bm,uvl,strap_loop(x),SEC,rect,normal_fn=loop_normal,closed=True)
-    sweep(bm,uvl,tab_path((x,Y1,0.86),(sx*0.36,0.78,0.62)),SEC,rect,normal_fn=lambda p:Vector((0,-1,0)))
-    sweep(bm,uvl,tab_path((x,Y1,0.26),(sx*0.36,0.78,-0.62)),SEC,rect,normal_fn=lambda p:Vector((0,-1,0)))
+    bm,uvl=new_bm()
+    sweep(bm,uvl,strap_path(x),SEC,rect,normal_fn=strap_normal)
     return mkobj(name,'Straps',bm)
 def chest_fn():
     bm,uvl=new_bm()
@@ -307,10 +321,10 @@ def chest_fn():
     box(bm,uvl,(0,Y0-0.045,0.62),(0.10,0.03,0.08),R['chest'])
     return mkobj('Chest_Strap','Straps',bm)
 
-order=[('inner',inner_fn),('cloud',cloud_fn),('outline',outline_fn),('ghost',ghost_fn),
+order=[('inner',inner_fn),('cloud',cloud_fn),('bubble',bubbles_fn),('outline',outline_fn),('ghost',ghost_fn),('thandle',handle_top_fn),
        ('top',top_fn),('bottom',bottom_fn),('bars',bars_fn),('hose',hose_fn),('conn',conn_fn),('stock',stock_fn),('gunbody',gunbody_fn),('barrel',barrel_fn),('fins',fins_fn),('funnel',funnel_fn),
        ('handle',handle_fn),('clips',clips_fn),('strapL',lambda:strap_fn('Strap_L',-SX,R['strapL'])),
-       ('strapR',lambda:strap_fn('Strap_R',SX,R['strapR'])),('chest',chest_fn)]
+       ('strapR',lambda:strap_fn('Strap_R',SX,R['strapR']))]
 objs=[(k,fn()) for k,fn in order]
 # ---------- fuse ----------
 me=bpy.data.meshes.new('GhostVac_UGC'); fin=bpy.data.objects.new('GhostVac_UGC',me); C['GhostVac_UGC'].objects.link(fin)

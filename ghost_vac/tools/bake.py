@@ -3,7 +3,7 @@ from PIL import Image, ImageFilter
 from noise import fbm, worley
 S=1024
 d=np.load('geo.npz'); P=d['P']; UV=d['UV']; NN=d['N']; PID=d['pid']
-NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate']
+NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle']
 ID={k:i for i,k in enumerate(NAMES)}
 R={'hose':(0.0,0.0,0.5,0.125)}
 TY=1.10; GS=1.5; GZ0=-0.385; GX=-0.84
@@ -42,6 +42,9 @@ def bolts_ring(zc,count,rad,th0=0):
 noise1=fbm(p*9,3,2)
 _low=fbm(p*3.0,3,21); _brush=fbm(p*np.array([60,60,4.0]),2,22); _sm=fbm(p*14,3,23)
 _scr=np.abs(np.sin(fbm(p*np.array([7,7,7]),3,24)*55)); scratches=(1-ss(0.0,0.06,_scr))*ss(0.1,0.35,fbm(p*5,2,25)+0.2)
+
+def hazard(u,v,w=0.03):   # yellow/black diagonal stripes
+    return (np.floor((u+v)/w)%2==0)
 def metal(base,edge=None,grime=None):
     # dark worn metal: low-freq tint, brushed streaks, scratches, worn bright edges, grime in recesses
     c=np.asarray(base)*(0.82+0.22*_low[:,None]+0.06*_brush[:,None])
@@ -73,12 +76,30 @@ for key,zl,zs,za in (('top',(0.50,0.60,0.68,0.72),0.62,0.75),('bottom',(-0.53,-0
     gauge=np.zeros(n)
     if key=='bottom':
         for gx_ in (-0.35,0,0.35): gauge=np.maximum(gauge,((np.abs(oct_face)<1)&(np.abs(fx-gx_)<0.14)&(np.abs(z+0.765)<0.03)).astype(float))
-    c,rm=metal(np.array([0.20,0.22,0.25]),edge=np.clip(edges*1.2,0,1),grime=np.clip(seams+0.5*gr,0,1))
+    ao=np.exp(-((z-(0.47 if key=='top' else -0.47))/0.05)**2)+ (np.exp(-((z+0.89)/0.04)**2) if key=='bottom' else 0)
+    c,rm=metal(np.array([0.20,0.22,0.25]),edge=np.clip(edges*1.2,0,1),grime=np.clip(seams+0.5*gr+0.6*ao,0,1))
+    rv=np.zeros(n)
+    for rz in ((0.53,0.66) if key=='top' else (-0.57,-0.78)):
+        rv=np.maximum(rv,(rr>0.45)*(1-ss(0.6,1.0,np.hypot((np.abs(fx)-0.82)/0.08,(z-rz)/0.012))))
+    c=c*(1-rv[:,None])+np.array([0.55,0.57,0.60])*rv[:,None]
+    haz=np.zeros(n,bool)
+    if key=='bottom':
+        haz=(np.abs(np.abs(oct_face)-90)<1)&(np.abs(fx)<0.7)&(np.abs(z+0.595)<0.035)
+        hc=np.where(hazard(fx*0.22,z,0.035)[:,None],np.array([0.85,0.62,0.08]),np.array([0.05,0.05,0.05]))
+        c=np.where(haz[:,None],hc*(0.85+0.15*_low[:,None]),c)
+    scr=np.zeros(n); wave=np.zeros(n)
+    if key=='top':
+        scr=((np.abs(oct_face)<1)&(np.abs(fx)<0.62)&(np.abs(z-0.555)<0.04)).astype(float)
+        wave=scr*(np.abs((z-0.555)-0.022*np.sin(fx*14))<0.005)
+        c=c*(1-scr[:,None])+np.array([0.03,0.06,0.08])*scr[:,None]
+        c=c*(1-wave[:,None])+cyan*wave[:,None]
     c=c*(1-vent[:,None]*0.8)
     c[accent]=np.array([0.12,0.13,0.15])
-    eT=np.clip(stripe+lt+gauge,0,1)
+    eT=np.clip(stripe+lt+gauge+wave,0,1)
     c=c*(1-eT[:,None])+cyan*eT[:,None]
-    setp(m,c,1.0*(1-eT),np.where(eT>0.3,0.2,rm),eT,0.4*edges-0.5*seams-0.4*vent+0.2*accent+0.15*scratches)
+    mt=np.where(haz,0.2,1.0)*(1-eT)*(1-0.8*scr)
+    rgv=np.where(eT>0.3,0.2,np.where(scr>0.5,0.1,np.where(haz,0.55,rm)))
+    setp(m,c,mt,rgv,eT,0.4*edges-0.5*seams-0.4*vent+0.2*accent+0.15*scratches+0.6*rv-0.2*scr)
 m=k==ID['bars']; cb,rb=metal(np.array([0.30,0.32,0.36]),edge=np.clip(np.abs(noise1)*0.6,0,1)); setp(m,cb,1.0,rb,0.0,0.15*scratches)
 # ---------------- INNER WALL (seen through the window) ----------------
 m=k==ID['inner']
@@ -87,6 +108,8 @@ c1=np.array([0x14,0x26,0x3A])/255; c2=np.array([0x3D,0x7A,0x9E])/255; c3=np.arra
 wall=np.where((t<0.5)[:,None],c1+(c2-c1)*(t/0.5)[:,None],c2+(c3-c2)*((t-0.5)/0.5)[:,None])
 st=lambda c,w: np.exp(-((th-c)/w)**2)
 hl=np.clip(0.7*st(150,5)+0.5*st(165,1.6)+0.6*st(-160,3)+0.4*st(-140,1.5),0,1)*ss(-0.3,-0.15,z)*(1-ss(0.5,0.62,z))
+caus=np.clip(fbm(p*np.array([6,6,1.5]),3,40)*1.2,0,1)*0.18
+wall=wall*(1+caus[:,None])
 wall=wall*(1-0.65*hl[:,None])+np.array([0.85,0.95,1.0])*0.65*hl[:,None]
 setp(m,wall,0.0,0.06,0.06+0.16*t,0.0)
 # ---------------- SMOKE ----------------
@@ -117,11 +140,21 @@ dm=np.hypot(gx,gz-0.478); mouth=(1-ss(0.0035,0.0060,np.abs(dm-0.020)))*(gz<0.474
 dark=np.maximum(eyes,mouth)
 c=c*(1-dark[:,None])+np.array([0.035,0.045,0.08])*dark[:,None]; c=c*(1-hlg[:,None])+hlg[:,None]
 col[m]=c; met[m]=0; rgh[m]=r*(1-dark)+0.08*dark; em[m]=e*(1-dark); h[m]=0.6*eyes+0.3*hlg-0.4*mouth
+m=k==ID['bubble']
+q=p[m]
+setp(m,np.array([0.80,0.97,1.0]),0.0,0.1,0.9,0.0)
+m=k==ID['thandle']
+grip=(np.abs(x)<0.16).astype(float)
+ch,rh=metal(np.array([0.30,0.32,0.36]),edge=np.clip(np.abs(noise1),0,1))
+ch=ch*(1-grip[:,None])+np.array([0.06,0.065,0.075])*grip[:,None]
+setp(m,ch,1.0*(1-grip),np.where(grip>0.5,0.75,rh),0.0,0.3*grip*(np.sin(x*180)>0))
 # ---------------- HOSE (rings along the length) ----------------
 m=k==ID['hose']; u0,v0,u1,v1=R['hose']; lu=(tu[m]-u0)/(u1-u0)
 ring=0.5+0.5*np.sin(lu*2*np.pi*26); ringm=ss(0.55,0.8,ring)
 setp(m,np.array([0.07,0.075,0.085])*(1+1.1*ringm[:,None])*(0.9+0.2*_low[m][:,None]),0.0,0.72-0.12*ringm,0.0,0.6*ring)
-m=k==ID['conn']; cc_,rc_=metal(np.array([0.34,0.36,0.40]),edge=np.clip(np.abs(noise1),0,1)); setp(m,cc_,1.0,rc_,0.0,0.1*scratches)
+m=k==ID['conn']; cc_,rc_=metal(np.array([0.34,0.36,0.40]),edge=np.clip(np.abs(noise1),0,1))
+dot=(np.abs(z-0.20)<0.004)&(np.hypot(x-(GX-0.10+0.025),y-(TY+0.215))<0.012)
+cc_[dot]=cyan; setp(m,cc_,np.where(dot,0.0,1.0),rc_,dot.astype(float),0.1*scratches)
 # ---------------- GUN ----------------
 gth=np.degrees(np.arctan2(x-GX,y-TY)); gface=np.round(gth/45)*45; gfx=(gth-gface)/22.5
 gedge=np.clip(1.2*np.exp(-((np.abs(gfx)-1)/0.07)**2),0,1)
@@ -135,8 +168,12 @@ for gf in (-135,-45,45,135):
         bolt=np.maximum(bolt,(np.abs(gface-gf)<1)*(1-ss(0.6,1.0,np.hypot(gfx/0.18,(z-bz)/0.014))))
 c,rs=metal(np.array([0.19,0.21,0.24]),edge=gedge,grime=vent.astype(float)*0.6)
 c=c*(1-0.8*vent[:,None]); c=c*(1-bolt[:,None])+np.array([0.55,0.57,0.6])*bolt[:,None]
-c=c*(1-ringS[:,None])+cyan*ringS[:,None]
-setp(m,c,1.0*(1-ringS),np.where(ringS>0.3,0.2,rs),ringS,0.3*gedge-0.4*vent+0.5*bolt+0.12*scratches)
+hz2=(np.abs(gface)<1)&(np.abs(gfx)<0.8)&(np.abs(z-0.77)<0.035)
+c=np.where(hz2[:,None],np.where(hazard(gfx*0.2,z,0.03)[:,None],np.array([0.85,0.62,0.08]),np.array([0.05,0.05,0.05])),c)
+lab=(np.abs(np.abs(gface)-45)<1)&(np.abs(gfx)<0.6)&(z>0.66)&(z<0.86)
+labl=lab&((np.abs(z-0.80)<0.006)|(np.abs(z-0.775)<0.004)|(np.abs(z-0.75)<0.004))&(np.abs(gfx)<0.45)
+c=np.where(lab[:,None],np.array([0.62,0.63,0.60]),c); c=np.where(labl[:,None],np.array([0.12,0.12,0.12]),c)
+setp(m,c,np.where(hz2|lab,0.1,1.0),np.where(lab,0.6,np.where(hz2,0.5,rs)),0.0,0.3*gedge-0.4*vent+0.5*bolt+0.12*scratches+0.1*lab)
 # body: gauges on the 45 deg faces, LED strips on the side faces, panel seams
 m=k==ID['gunbody']
 gg=np.zeros(n)
@@ -169,11 +206,18 @@ c,rf2=metal(np.array([0.24,0.26,0.29]),edge=gedge)
 c=c*(1-lip[:,None])+cyan*lip[:,None]; c[core]=np.array([0.80,0.98,1.0])
 eF=np.clip(lip+core,0,1)
 setp(m,c,1.0*(1-eF),np.where(eF>0.3,0.2,rf2),eF,0.12*scratches)
-m=k==ID['handle']; setp(m,np.array([0.06,0.065,0.075])*(0.9+0.2*_low[m][:,None]),0.0,0.72,0.0,0.25*fbm(p*60,2,7))
+m=k==ID['handle']
+knurl=((np.sin((x+z)*260)>0)^(np.sin((x-z)*260)>0)).astype(float)
+setp(m,np.array([0.06,0.065,0.075])*(0.9+0.2*_low[m][:,None]),0.0,0.75,0.0,0.35*knurl[m])
 m=k==ID['clips']
 lens=(y>TY+0.295)&(np.abs(z-0.42)<0.05)&(np.abs(x-GX)<0.025)
+pbolt=np.zeros(n)
+for bz in (0.14,0.46):
+    for by in (TY-0.01,TY+0.13):
+        pbolt=np.maximum(pbolt,(x>GX+0.22)*(1-ss(0.6,1.0,np.hypot((y-by)/0.014,(z-bz)/0.014))))
 cc_,rc_=metal(np.array([0.24,0.26,0.30]),edge=np.clip(np.abs(noise1),0,1)); cc_[lens]=cyan
-setp(m,cc_,np.where(lens,0.0,1.0),rc_,lens.astype(float),0.1*scratches)
+cc_=cc_*(1-pbolt[:,None])+np.array([0.55,0.57,0.6])*pbolt[:,None]
+setp(m,cc_,np.where(lens,0.0,1.0),rc_,lens.astype(float),0.1*scratches+0.5*pbolt)
 # ---------------- STRAPS / PLATE ----------------
 for key in ('strapL','strapR','chest'):
     m=k==ID[key]; q=p[m]
@@ -186,10 +230,11 @@ for key in ('strapL','strapR','chest'):
         edge=np.minimum(np.abs(vv-0.0),np.minimum(np.abs(vv-0.5),np.abs(vv-1.0)))
         buckle=np.zeros(m.sum(),bool)
         stitch=((np.abs(vv-0.125)<0.02)|(np.abs(vv-0.375)<0.02)|(np.abs(vv-0.625)<0.02)|(np.abs(vv-0.875)<0.02)).astype(float)*(np.sin((q[:,0]+q[:,1]+q[:,2])*160)>0)
-    fab=np.array([0.07,0.09,0.15])*(0.9+0.2*fbm(q*50,2,9)[:,None])
+    weave=((np.sin(q[:,0]*300+q[:,2]*300)>0)^(np.sin(q[:,1]*300-q[:,2]*300)>0)).astype(float)
+    fab=np.array([0.07,0.09,0.15])*(0.88+0.2*fbm(q*50,2,9)[:,None]+0.06*weave[:,None])
     c=fab*(1-stitch[:,None])+np.array([0.30,0.36,0.48])*stitch[:,None]
     c[buckle]=np.array([0.55,0.58,0.63])
-    col[m]=c; met[m]=np.where(buckle,0.9,0.0); rgh[m]=np.where(buckle,0.3,0.85); em[m]=0; h[m]=0.4*stitch+0.5*buckle
+    col[m]=c; met[m]=np.where(buckle,0.9,0.0); rgh[m]=np.where(buckle,0.3,0.85); em[m]=0; h[m]=0.4*stitch+0.5*buckle+0.12*weave
 m=k==ID['plate']
 pb=np.zeros(n)
 for bx in (-0.78,0.78):
