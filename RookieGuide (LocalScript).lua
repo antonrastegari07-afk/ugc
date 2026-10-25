@@ -15,6 +15,9 @@ local Flow = require(script:WaitForChild("GuideFlow"))
 local Geometry = require(script:WaitForChild("SpotlightGeometry"))
 if _G.__RookieGuideLoaded then return end
 _G.__RookieGuideLoaded = true
+-- État lu par le How to Play : "pending" -> "running" -> "done".
+-- Le How to Play ne s'affiche qu'une fois le guide terminé (ou pas nécessaire).
+pg:SetAttribute("RookieGuideState", "pending")
 
 local generation, current, disposed = 0, nil, false
 local start, finish, refresh, nextCheckpoint, resolveShop, setSpotlight
@@ -249,39 +252,6 @@ local function buildUI(s)
 	s.overlay.Enabled, s.hud.Enabled = true, true
 end
 
--- How to Play : retenu pendant le guide (sinon UIFocusSystem le garde ouvert
--- sous le guide avec son flou/zoom), puis affiché à la fin du parcours.
-local function holdHowToPlay(s)
-	local cfg = C.HowToPlay
-	if not cfg or cfg.ShowOnFinish == false then return end
-	task.spawn(function()
-		local gui = pg:WaitForChild(cfg.ScreenGui, C.LoadTimeout)
-		local frame = gui and findPath(gui, cfg.Path)
-		if not alive(s) or not frame or not frame:IsA("GuiObject") then return end
-		s.htpFrame = frame
-		local function hide()
-			if alive(s) and frame.Visible then
-				s.htpWanted = true
-				frame.Visible = false
-			end
-		end
-		connect(s, frame:GetPropertyChangedSignal("Visible"), hide)
-		hide()
-	end)
-end
-local function showHowToPlay(frame)
-	if not frame or not frame.Parent then return end
-	frame.Visible = true
-	-- Relance l'animation d'entrée du panneau intérieur (script "animations").
-	local inner = frame:FindFirstChild(C.HowToPlay.Panel or "HtpButton")
-	if inner and inner:IsA("GuiObject") then
-		if inner.Visible then
-			inner.Visible = false
-			task.delay(0.05, function() if inner.Parent then inner.Visible = true end end)
-		else inner.Visible = true end
-	end
-end
-
 local function clearWorld(s)
 	if s.marker then s.marker:Destroy() s.marker = nil end
 	if s.world then s.world:Destroy() s.world = nil end
@@ -470,12 +440,15 @@ finish = function(s, mark, keepShop)
 	end
 	_G.RookieGuideActive = false
 	current = nil
-	-- Connexions déjà coupées : le How to Play peut maintenant s'afficher.
-	if s.htpFrame and (s.started or s.htpWanted) then showHowToPlay(s.htpFrame) end
+	-- Le script du How to Play attend cet état pour s'afficher.
+	pg:SetAttribute("RookieGuideState", "done")
 end
 
 start = function(replay)
-	if disposed or not C.Enabled or (not replay and _G.RookieGuideCompletedSession) then return end
+	if disposed or not C.Enabled or (not replay and _G.RookieGuideCompletedSession) then
+		if not current then pg:SetAttribute("RookieGuideState", "done") end
+		return
+	end
 	if current then finish(current, false) end
 	generation = generation + 1
 	local token = generation
@@ -485,7 +458,7 @@ start = function(replay)
 	current = s
 	-- Empêche la popup de l'ancien tutoriel de partir pendant le contrôle serveur.
 	_G.RookieGuideActive = true
-	holdHowToPlay(s)
+	pg:SetAttribute("RookieGuideState", "running")
 	task.delay(C.LoadTimeout, function()
 		if alive(s) and not s.started then
 			warn("[RookieGuide] Chargement incomplet : guide annulé, interfaces conservées.")
@@ -589,6 +562,7 @@ _G.DisableRookieGuide, _G.RookieGuideReplay = disableAPI, replayAPI
 script.Destroying:Connect(function()
 	if current then finish(current, false) end
 	disposed = true
+	pg:SetAttribute("RookieGuideState", "done")
 	_G.__RookieGuideLoaded = nil
 	if _G.DisableRookieGuide == disableAPI then _G.DisableRookieGuide = nil end
 	if _G.RookieGuideReplay == replayAPI then _G.RookieGuideReplay = nil end
