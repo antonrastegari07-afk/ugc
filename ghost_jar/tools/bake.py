@@ -101,12 +101,11 @@ col[m]=cc; A[m]=1; met[m]=0; rgh[m]=0.85; em[m]=0; h[m]=0.5*grain-0.6*spots
 m=k==14
 q=p[m]; nz=q[:,2]; naz=np.degrees(np.arctan2(q[:,0],-q[:,1]))
 stn=lambda c,w: np.exp(-((naz-c)/w)**2)
-corkin=np.ones_like(nz)
+corkin=ss(0.874,0.880,nz)
 grain=fbm(q*40,3,5)
-corkc=np.array([0.55,0.40,0.25])*(0.9+0.2*grain[:,None])
+corkc=np.array([0.60,0.42,0.25])*(0.9+0.2*grain[:,None])
 glassn=np.array([0.10,0.17,0.22])
-nc=corkc*0.85+np.array([0.10,0.20,0.26])*0.15
-nc=nc*(1-0.35*ss(0.875,0.858,nz)[:,None])
+nc=(corkc*0.72+np.array([0.10,0.24,0.30])*0.28)*corkin[:,None]+glassn*(1-corkin[:,None])
 edge=np.zeros_like(nz)
 nc=nc*(1-0.5*edge[:,None])
 hl3=np.clip(0.8*stn(-40,6)+stn(-28,2)+0.6*stn(42,3),0,1)
