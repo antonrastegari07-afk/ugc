@@ -286,15 +286,15 @@ def catmull(P,sub=3):
     out.append(P[-2]); return out
 # backpack straps (reference: classic Roblox backpack): leave the top of the pack, go forward over the shoulder,
 # round the front edge, run down the chest, round the bottom corner and go back under the arm to the bottom of the pack
-SD=0.045; SX=0.71
-Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.58; CR_=0.13
+SD=0.045; SX=0.84
+Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.22; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
-    ctrl=[(sx*0.34,0.84,0.93),(sx*0.50,0.72,0.97),(sx*0.68,0.60,1.02),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
+    ctrl=[(sx*0.46,0.74,0.98),(sx*0.74,0.64,1.035),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
     ctrl+=[(x,Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
     ctrl+=[(x,Y0,0.55),(x,Y0,0.25)]
     ctrl+=[(x,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner
-    ctrl+=[(x,0.10,ZB),(x,0.45,ZB),(sx*0.56,0.62,-0.46),(sx*0.44,0.74,-0.38),(sx*0.34,0.84,-0.36)]
+    ctrl+=[(x,0.10,ZB),(x,0.42,ZB),(sx*0.60,0.60,-0.27),(sx*0.44,0.72,-0.26)]
     out=[]; 
     for p in ctrl:
         if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
