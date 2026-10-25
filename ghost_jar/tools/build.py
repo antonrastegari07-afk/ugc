@@ -25,7 +25,7 @@ R={
  'outline':(0.625,0.75,0.75,0.875),'outline_cap':(0.75,0.75,0.875,0.875),
  'band0':(0.75,0.0,1.0,0.0625),'band1':(0.75,0.0625,1.0,0.125),
 }
-PART_IDS={k:i for i,k in enumerate(['inner','glow','smoke0','smoke1','smoke2','smoke3','ghost','sparkle','cork','band0','band1','outer','outline','puff','neck'])}
+PART_IDS={k:i for i,k in enumerate(['inner','glow','smoke0','smoke1','smoke2','smoke3','ghost','sparkle','cork','band0','band1','outer','outline','puff','neck','smokewall','basering'])}
 def rmap(rect,u,v):
     u0,v0,u1,v1=rect
     return (u0+PAD+(u1-u0-2*PAD)*u, v0+PAD+(v1-v0-2*PAD)*v)
@@ -150,6 +150,8 @@ C={n:coll(n) for n in ['Jar_Outer','Jar_Inner_Inverted','Ghost','Smoke_Layers','
 parts=[]
 parts.append(('inner',build('Jar_Inner_Inverted',C['Jar_Inner_Inverted'],lambda bm,uvl:(lathe(bm,uvl,INNER,28,R['inner'],invert=True)))))
 parts.append(('smoke0',build('Smoke_Mound',C['Smoke_Layers'],lambda bm,uvl:disc_dome(bm,uvl,0.373,0.185,0.15,24,4,R['smoke0'],1,0.028))))
+parts.append(('smokewall',build('Smoke_Side',C['Smoke_Layers'],lambda bm,uvl:lathe(bm,uvl,[(0.373,0.15),(0.373,0.09),(0.373,0.035)],24,R['smoke1']))))
+parts.append(('basering',build('Jar_Base_Glass',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,[(0.373,0.036),(0.386,0.034),(0.386,0.0)],32,R['smoke2']))))
 def puff_fn(bm,uvl):
     rng=np.random.default_rng(3)
     for k in range(7):
@@ -200,7 +202,7 @@ LIP=[(0.191,0.962),(0.214,0.962),(0.229,0.982),(0.216,1.002),(0.191,0.999),(0.19
 parts.append(('band1',build('Jar_Lip',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,LIP,32,R['band1'],invert=True))))
 NECK=[(0.193,0.966),(0.193,0.876),(0.212,0.866)]
 parts.append(('neck',build('Jar_Neck',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,NECK,32,R['outer_top']))))
-OUTER_FLOOR=[(0.385,0.0),(0.2,0.0),(0,0.0)]
+OUTER_FLOOR=[(0.386,0.0),(0.2,0.0),(0,0.0)]
 parts.append(('outer',build('Jar_Outer_Floor',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,OUTER_FLOOR,28,R['outer_base']))))
 
 # ---------- final fused mesh, in draw order (back -> front) ----------

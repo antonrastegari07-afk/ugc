@@ -35,7 +35,7 @@ arc=np.exp(-((az+38)/26)**2)*np.exp(-((z-0.76)/0.02)**2)
 lipl=np.exp(-((z-0.985)/0.008)**2)
 base=1-ss(0.02,0.10,z)
 hl=np.clip(hl+arc+0.8*lipl,0,1)
-glass=np.array([0.10,0.17,0.22])*(0.85+0.15*fbm(p*5,2,4)[:,None])
+glass=np.array([0.24,0.40,0.50])*(0.85+0.15*fbm(p*5,2,4)[:,None])
 glass=glass*(1-base[:,None])+np.array([0.30,0.75,0.90])*base[:,None]
 c_out=glass*(1-0.85*hl[:,None])+np.ones(3)*0.85*hl[:,None]
 put(m,c_out,1.0,0.0,0.06,0.45*base*(1-hl),0.03*fbm(p*6,2,3)+0.3*lipl)
@@ -43,12 +43,12 @@ put(m,c_out,1.0,0.0,0.06,0.45*base*(1-hl),0.03*fbm(p*6,2,3)+0.3*lipl)
 m=k==0
 low=1-ss(0.05,0.40,z)
 hl2=np.clip(0.8*st(150,4)+0.6*st(162,1.5)+0.6*st(-150,3)+0.5*st(25,3)+0.5*st(-25,2),0,1)*ss(0.10,0.2,z)
-wall=np.array([0.07,0.12,0.16])*(1-low[:,None])+np.array([0.35,0.85,0.98])*low[:,None]
-wall=wall*(1-0.75*hl2[:,None])+np.array([0.85,0.95,1.0])*0.75*hl2[:,None]
-put(m,wall,1.0,0.0,0.06,0.5*low**1.5,0.0)
+wall=np.array([0.20,0.36,0.46])*(1-low[:,None])+np.array([0.35,0.85,0.98])*low[:,None]
+wall=wall*(1-0.6*hl2[:,None])+np.array([0.85,0.95,1.0])*0.6*hl2[:,None]
+put(m,wall,1.0,0.0,0.06,0.07+0.35*low**1.5,0.0)
 # ---- smoke layers (2..5)
-for L,(dens,emv) in enumerate([(1.0,1.0),(1.0,0.9)]):
-    m=k==(2 if L==0 else 13)
+for L,(dens,emv) in enumerate([(1.0,1.0),(1.0,0.9),(1.0,0.85)]):
+    m=k==(2,13,15)[L]
     if not m.any(): continue
     q=p[m]
     sw=fbm(q*np.array([7,7,7])+L*3.1,4,10+L)
@@ -104,18 +104,23 @@ stn=lambda c,w: np.exp(-((naz-c)/w)**2)
 corkin=ss(0.874,0.880,nz)
 grain=fbm(q*40,3,5)
 corkc=np.array([0.60,0.42,0.25])*(0.9+0.2*grain[:,None])
-glassn=np.array([0.10,0.17,0.22])
+glassn=np.array([0.20,0.36,0.46])
 nc=(corkc*0.72+np.array([0.10,0.24,0.30])*0.28)*corkin[:,None]+glassn*(1-corkin[:,None])
 edge=np.zeros_like(nz)
 nc=nc*(1-0.5*edge[:,None])
 hl3=np.clip(0.8*stn(-40,6)+stn(-28,2)+0.6*stn(42,3),0,1)
 nc=nc*(1-0.8*hl3[:,None])+np.ones(3)*0.8*hl3[:,None]
 col[m]=nc; A[m]=1; met[m]=0; rgh[m]=0.06; em[m]=0; h[m]=0
+# ---- thick glass base ring (16)
+m=k==16
+bc=np.array([0.45,0.80,0.92])*(1-0.6*st(-40,8)[m][:,None]*0)+0
+hb=np.clip(0.9*st(-40,5)+0.7*st(38,3),0,1)[m]
+col[m]=np.array([0.45,0.80,0.92])*(1-hb[:,None])+np.ones(3)*hb[:,None]; A[m]=1; met[m]=0; rgh[m]=0.05; em[m]=0.35; h[m]=0
 # ---- glass lip ring (10)
 m=k==10
 q=p[m]; lz=q[:,2]; laz=np.degrees(np.arctan2(q[:,0],-q[:,1]))
 toph=np.exp(-((lz-1.0)/0.006)**2)*(0.4+0.6*np.exp(-((laz+40)/50)**2))
-lc=np.array([0.12,0.22,0.28])*(1-toph[:,None])+np.ones(3)*toph[:,None]
+lc=np.array([0.26,0.44,0.54])*(1-toph[:,None])+np.ones(3)*toph[:,None]
 col[m]=lc; A[m]=1; met[m]=0; rgh[m]=0.05; em[m]=0; h[m]=0
 # ---- bands (9,10)
 for bk,zlo,zhi,lights in ((9,0.012,0.085,(-14,14)),):
