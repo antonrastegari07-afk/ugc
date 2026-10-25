@@ -13,7 +13,7 @@ local pg = player:WaitForChild("PlayerGui")
 local C = require(script:WaitForChild("RookieConfig"))
 local Flow = require(script:WaitForChild("GuideFlow"))
 local Geometry = require(script:WaitForChild("SpotlightGeometry"))
-local VERSION = "v5 (bande noire derrière les textes)"
+local VERSION = "v6 (trou inclut le X du UGC shop)"
 if _G.__RookieGuideLoaded then
 	warn("[RookieGuide] Copie IGNORÉE (" .. VERSION .. ") : un autre RookieGuide tourne déjà ("
 		.. tostring(_G.__RookieGuideLoaded) .. "). Supprime l'ancienne copie.")
@@ -72,7 +72,8 @@ end
 
 -- Découpe, arrondi, halo et flèche du tutoriel ; les lettres ont leur contour.
 -- Recalcul seulement quand la cible/la taille d'écran change, coalescé.
-setSpotlight = function(s, target, clickable)
+-- extras : objets à inclure dans le trou (ex. le X rouge qui dépasse de la boutique).
+setSpotlight = function(s, target, clickable, extras)
 	disconnect(s.spotConnections)
 	s.spotVersion = (s.spotVersion or 0) + 1
 	local version, queued = s.spotVersion, false
@@ -87,6 +88,16 @@ setSpotlight = function(s, target, clickable)
 		local rect
 		if valid then
 			local p, z, margin = o.AbsolutePosition - origin, o.AbsoluteSize, C.Style.HolePadding
+			-- Agrandit le trou pour englober les extras visibles.
+			local x1, y1, x2, y2 = p.X, p.Y, p.X + z.X, p.Y + z.Y
+			for _, e in ipairs(extras or {}) do
+				if e.Parent and e.Visible and e.AbsoluteSize.X > 1 and e.AbsoluteSize.Y > 1 then
+					local ep, ez = e.AbsolutePosition - origin, e.AbsoluteSize
+					x1, y1 = math.min(x1, ep.X), math.min(y1, ep.Y)
+					x2, y2 = math.max(x2, ep.X + ez.X), math.max(y2, ep.Y + ez.Y)
+				end
+			end
+			p, z = Vector2.new(x1, y1), Vector2.new(x2 - x1, y2 - y1)
 			rect = Geometry.layout(w, h, p.X, p.Y, z.X, z.Y, margin,
 				C.Style.HoleCornerRadius, s.cornerSteps)
 			valid = rect ~= nil
@@ -143,6 +154,11 @@ setSpotlight = function(s, target, clickable)
 		watch(target, "AbsoluteSize")
 		watch(target, "Visible")
 		table.insert(s.spotConnections, target.AncestryChanged:Connect(queue))
+	end
+	for _, e in ipairs(extras or {}) do
+		watch(e, "AbsolutePosition")
+		watch(e, "AbsoluteSize")
+		watch(e, "Visible")
 	end
 	layout()
 end
@@ -342,7 +358,7 @@ refresh = function(s)
 		s.note.Position, s.note.Size = UDim2.fromOffset(12, compact and 90 or 146), UDim2.new(1, -24, 0, compact and 24 or 32)
 		s.message.AnchorPoint, s.message.Position = Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -12)
 		s.skip.NextSelectionDown, s.done.NextSelectionUp = s.done, s.skip
-		setSpotlight(s, s.shopPanel, false)
+		setSpotlight(s, s.shopPanel, false, s.shopClose and { s.shopClose } or nil)
 		if padActive() then GS.SelectedObject = s.done end
 		if not s.anyClickArmed then
 			s.anyClickArmed = true
@@ -378,6 +394,9 @@ resolveShop = function(s)
 	local gui = pg:FindFirstChild(C.UGC.ScreenGui)
 	local panel = gui and findPath(gui, C.UGC.PanelPath)
 	local opener = gui and findPath(gui, C.UGC.ButtonPath)
+	-- X rouge de fermeture : inclus dans le trou de la dernière étape.
+	local close = gui and findPath(gui, C.UGC.ClosePath or { "ShopFrame", "ShopToggle" })
+	s.shopClose = close and close:IsA("GuiObject") and close or nil
 	if panel and not panel:IsA("GuiObject") then panel = nil end
 	if opener and not opener:IsA("GuiObject") then opener = nil end
 	local changed = panel ~= s.shopPanel or opener ~= s.shopButton
