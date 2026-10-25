@@ -1,0 +1,564 @@
+--[[
+	NewEventPartScript (synchronise + auto-detection d'event + compatible StreamingEnabled)
+	---------------------------------------------------------------------------------------
+	À placer DANS le modele "NewEventPart" en tant que `Script`
+	avec RunContext = Client.
+
+	MODE AUTO (recommande) : le serveur envoie eventId = "auto"
+	  -> le client recupere le prochain event de l'experience via
+	     SocialService:GetUpcomingExperienceEventsAsync()
+
+	MODE PIN : le serveur envoie un eventId numerique
+	  -> affiche cet event precis ; si introuvable, bascule en auto.
+
+	STREAMING :
+	  - Si la part du modele est dechargee puis rechargee, le Billboard et le
+	    ProximityPrompt sont recrees automatiquement sur la nouvelle part.
+	  - Si tout le modele (et donc ce script) est decharge puis recharge,
+	    le script redemarre et reprend instantanement le dernier etat recu
+	    du serveur (stocke dans _G), sans rester bloque sur "Loading".
+
+	NOTE : ces APIs sont CLIENT-ONLY et ne renvoient rien en Studio
+	sur un place non publie. Tester en jeu.
+--]]
+
+local SocialService     = game:GetService("SocialService")
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService   = game:GetService("TextChatService")
+local StarterGui        = game:GetService("StarterGui")
+
+------------------------------------------------------------------
+-- CONFIGURATION
+------------------------------------------------------------------
+local FALLBACK_TITLE          = "New Free UGC ???"
+local PROMPT_DISTANCE         = 12
+local BILLBOARD_MAX_DISTANCE  = 65
+local BILLBOARD_HEIGHT_OFFSET = 6.6
+local BILLBOARD_WIDTH_STUDS   = 10
+local BILLBOARD_HEIGHT_STUDS  = 4
+local REFRESH_INTERVAL        = 60   -- minimum entre deux vérifs
+local REFRESH_IDLE            = 300  -- rythme normal (aucun event, ou event lointain)
+local DEBUG                   = true -- log la liste des events trouves
+
+local GRADIENT_TOP     = Color3.fromRGB(220, 245, 255)
+local GRADIENT_BOTTOM  = Color3.fromRGB(0, 140, 255)
+local STROKE_COLOR     = Color3.fromRGB(0, 25, 70)
+local STROKE_THICKNESS = 2
+
+local COLOR_LOADING = Color3.fromRGB(180, 180, 180)
+local COLOR_LOADED  = Color3.fromRGB(255, 255, 255)
+local COLOR_MESSAGE = Color3.fromRGB(110, 255, 130)
+
+------------------------------------------------------------------
+local model = script.Parent
+
+-- Etat partage entre les "vies" du script (survit au streaming out/in)
+_G.__EventSyncState = _G.__EventSyncState or {}
+local SAVED = _G.__EventSyncState
+
+------------------------------------------------------------------
+-- ÉTAT
+------------------------------------------------------------------
+local pinnedEventId  = nil   -- ce que demande le serveur ("auto" ou un id)
+local activeEventId  = nil   -- l'event reellement affiche
+local eventStartUnix = nil
+local eventHasEnded  = false
+local hasRsvped      = false
+local rsvpBusy       = false
+local isLoaded       = false
+local resolveToken   = 0
+
+-- Ce qui est affiche (l'UI peut etre recreee a tout moment, on garde le texte ici)
+local titleText     = "Loading"
+local countdownText = "..."
+local messageText   = ""
+
+------------------------------------------------------------------
+-- UI (recreee a chaque fois que la part revient du streaming)
+------------------------------------------------------------------
+local ui = nil
+
+local function addStroke(label)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color        = STROKE_COLOR
+	stroke.Thickness    = STROKE_THICKNESS
+	stroke.LineJoinMode = Enum.LineJoinMode.Round
+	stroke.Parent       = label
+end
+
+local function buildLabel(billboard, name, sizeScale, posScale)
+	local label = Instance.new("TextLabel")
+	label.Name                   = name
+	label.Size                   = UDim2.fromScale(1, sizeScale)
+	label.Position               = UDim2.fromScale(0, posScale)
+	label.BackgroundTransparency = 1
+	label.Text                   = ""
+	label.TextColor3             = COLOR_LOADED
+	label.Font                   = Enum.Font.FredokaOne
+	label.TextScaled             = true
+	label.Parent                 = billboard
+	addStroke(label)
+	return label
+end
+
+local function buildGradientLabel(billboard, name, sizeScale, posScale)
+	local label = buildLabel(billboard, name, sizeScale, posScale)
+
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0,    GRADIENT_TOP),
+		ColorSequenceKeypoint.new(0.55, Color3.fromRGB(120, 200, 255)),
+		ColorSequenceKeypoint.new(1,    GRADIENT_BOTTOM),
+	})
+	gradient.Rotation = 90
+	gradient.Parent   = label
+
+	return label, gradient
+end
+
+-- Applique l'etat courant a l'UI (si elle existe)
+local function render()
+	if not ui then return end
+
+	ui.titleGradient.Enabled     = isLoaded
+	ui.countdownGradient.Enabled = isLoaded
+	ui.titleLabel.TextColor3     = isLoaded and COLOR_LOADED or COLOR_LOADING
+	ui.countdownLabel.TextColor3 = isLoaded and COLOR_LOADED or COLOR_LOADING
+
+	ui.titleLabel.Text     = titleText
+	ui.countdownLabel.Text = countdownText
+	ui.messageLabel.Text   = messageText
+
+	local prompt = ui.prompt
+	if not isLoaded or not activeEventId or eventHasEnded or rsvpBusy then
+		prompt.Enabled = false
+	elseif hasRsvped then
+		prompt.ActionText = "Notified"
+		prompt.Enabled    = false
+	else
+		prompt.ActionText = "Notify Me"
+		prompt.ObjectText = "Upcoming Event"
+		prompt.Enabled    = true
+	end
+end
+
+local onPromptTriggered -- defini plus bas
+
+local function buildUI(part)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name                  = "EventRsvpPrompt"
+	prompt.ActionText            = "Notify Me"
+	prompt.ObjectText            = "Upcoming Event"
+	prompt.KeyboardKeyCode       = Enum.KeyCode.E
+	prompt.HoldDuration          = 0
+	prompt.MaxActivationDistance = PROMPT_DISTANCE
+	prompt.RequiresLineOfSight   = false
+	prompt.Enabled               = false
+	prompt.Parent                = part
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name           = "EventBillboard"
+	billboard.Size           = UDim2.fromScale(BILLBOARD_WIDTH_STUDS, BILLBOARD_HEIGHT_STUDS)
+	billboard.StudsOffset    = Vector3.new(0, BILLBOARD_HEIGHT_OFFSET, 0)
+	billboard.AlwaysOnTop    = false
+	billboard.LightInfluence = 0
+	billboard.MaxDistance    = BILLBOARD_MAX_DISTANCE
+	billboard.Parent         = part
+
+	local messageLabel = buildLabel(billboard, "Message", 0.20, 0.00)
+	messageLabel.TextColor3 = COLOR_MESSAGE
+	local titleLabel, titleGradient         = buildGradientLabel(billboard, "Title", 0.43, 0.22)
+	local countdownLabel, countdownGradient = buildGradientLabel(billboard, "Countdown", 0.32, 0.68)
+
+	local newUi = {
+		part              = part,
+		prompt            = prompt,
+		billboard         = billboard,
+		messageLabel      = messageLabel,
+		titleLabel        = titleLabel,
+		titleGradient     = titleGradient,
+		countdownLabel    = countdownLabel,
+		countdownGradient = countdownGradient,
+		conns             = {},
+	}
+	table.insert(newUi.conns, prompt.Triggered:Connect(function(player)
+		onPromptTriggered(player)
+	end))
+	return newUi
+end
+
+local function detachUI()
+	if not ui then return end
+	for _, c in ipairs(ui.conns) do c:Disconnect() end
+	pcall(function() ui.prompt:Destroy() end)
+	pcall(function() ui.billboard:Destroy() end)
+	ui = nil
+end
+
+local tryAttach
+
+tryAttach = function()
+	local primary = model.PrimaryPart
+	-- deja attache a une part valide (et c'est la PrimaryPart si elle existe) -> rien a faire
+	if ui and ui.part:IsDescendantOf(model) and (primary == nil or primary == ui.part) then
+		return
+	end
+
+	local part = primary or model:FindFirstChildWhichIsA("BasePart", true)
+	if ui and ui.part == part then return end
+
+	detachUI()
+	if not part then return end -- pas encore streamee : DescendantAdded nous rappellera
+
+	ui = buildUI(part)
+	-- La part est dechargee par le streaming -> on detache et on attend la suivante
+	table.insert(ui.conns, part.AncestryChanged:Connect(function()
+		if not part:IsDescendantOf(model) then
+			task.defer(tryAttach)
+		end
+	end))
+	render()
+end
+
+model.DescendantAdded:Connect(function(desc)
+	if desc:IsA("BasePart") then
+		task.defer(tryAttach)
+	end
+end)
+model:GetPropertyChangedSignal("PrimaryPart"):Connect(function()
+	task.defer(tryAttach)
+end)
+tryAttach()
+
+------------------------------------------------------------------
+-- COUNTDOWN / LOADING
+------------------------------------------------------------------
+local function formatRemaining(seconds)
+	if seconds <= 0 then return "Event is live!" end
+	local days    = math.floor(seconds / 86400)
+	local hours   = math.floor((seconds % 86400) / 3600)
+	local minutes = math.floor((seconds % 3600) / 60)
+	local secs    = math.floor(seconds % 60)
+	if days > 0 then
+		return string.format("%dd %02dh %02dm %02ds", days, hours, minutes, secs)
+	elseif hours > 0 then
+		return string.format("%02dh %02dm %02ds", hours, minutes, secs)
+	else
+		return string.format("%02dm %02ds", minutes, secs)
+	end
+end
+
+task.spawn(function()
+	local dots = {".", "..", "...", ""}
+	local i = 1
+	while true do
+		if not isLoaded then
+			titleText = "Loading" .. dots[i]
+			i = i % 4 + 1
+		elseif activeEventId then
+			if eventHasEnded then
+				countdownText = "Event ended"
+			elseif eventStartUnix then
+				countdownText = formatRemaining(eventStartUnix - os.time())
+			end
+		end
+		render()
+		task.wait(isLoaded and 1 or 0.4)
+	end
+end)
+
+------------------------------------------------------------------
+-- API SOCIALSERVICE
+------------------------------------------------------------------
+local function toUnix(value)
+	if value == nil then return nil end
+	if typeof(value) == "DateTime" then return value.UnixTimestamp end
+	if type(value) == "number" then return math.floor(value) end
+	if type(value) == "string" then
+		local ok, dt = pcall(DateTime.fromIsoDate, value)
+		if ok and dt then return dt.UnixTimestamp end
+	end
+	if type(value) == "table" and value.Year then
+		local ok, dt = pcall(function()
+			return DateTime.fromUniversalTime(
+				value.Year, value.Month, value.Day,
+				value.Hour or 0, value.Minute or 0, value.Second or 0,
+				value.Millisecond or 0
+			)
+		end)
+		if ok and dt then return dt.UnixTimestamp end
+	end
+	return nil
+end
+
+-- Liste des events a venir de CETTE experience (client-only)
+_G.__EventCache = _G.__EventCache or { list = nil, at = 0, bad = {}, busy = false }
+local CACHE = _G.__EventCache
+local CACHE_TTL    = 120
+local BUSY_TIMEOUT = 20 -- si un script a ete detruit (streaming) pendant l'appel, le verrou expire
+
+local function getUpcomingEvents()
+	while CACHE.busy and os.clock() - (CACHE.busySince or 0) < BUSY_TIMEOUT do
+		task.wait(0.2)
+	end
+	if CACHE.list and os.clock() - CACHE.at < CACHE_TTL then
+		return CACHE.list
+	end
+	CACHE.busy, CACHE.busySince = true, os.clock()
+	local ok, res = pcall(function()
+		return SocialService:GetUpcomingExperienceEventsAsync()
+	end)
+	CACHE.busy = false
+	if not ok then
+		warn("[NewEventPart] GetUpcomingExperienceEventsAsync : " .. tostring(res))
+		return nil
+	end
+	if type(res) ~= "table" then return nil end
+	CACHE.list, CACHE.at = res, os.clock()
+	if DEBUG then
+		if #res == 0 then
+			warn("[NewEventPart] Aucun event a venir pour cette experience.")
+		else
+			for _, ev in ipairs(res) do
+				print(string.format("[NewEventPart] Event dispo : id=%s | %s | ended=%s",
+					tostring(ev.Id), tostring(ev.Title), tostring(ev.HasEnded)))
+			end
+		end
+	end
+	return res
+end
+
+-- Un event precis par ID. Retourne nil (SANS erreur) si :
+-- id inconnu / event d'une autre experience / annule / non publie.
+local function getEventById(eventId)
+	local ok, res = pcall(function()
+		return SocialService:GetExperienceEventAsync(eventId)
+	end)
+	if not ok then
+		warn("[NewEventPart] GetExperienceEventAsync a erreur : " .. tostring(res))
+		return nil
+	end
+	if type(res) ~= "table" then
+		warn(string.format(
+			"[NewEventPart] Event '%s' introuvable (nil) -> id inexistant, event d'une autre experience, annule ou non publie.",
+			tostring(eventId)))
+		return nil
+	end
+	return res
+end
+
+local function pickNextEvent(list)
+	if not list then return nil end
+	for _, ev in ipairs(list) do
+		if ev.HasEnded ~= true then return ev end
+	end
+	return nil
+end
+
+------------------------------------------------------------------
+-- RSVP / PROMPT
+------------------------------------------------------------------
+local function readRsvp(eventData, eventId)
+	if eventData and eventData.UserRsvpStatus ~= nil then
+		return eventData.UserRsvpStatus == Enum.RsvpStatus.Going
+	end
+	local ok, status = pcall(function()
+		return SocialService:GetEventRsvpStatusAsync(eventId)
+	end)
+	if ok then return status == Enum.RsvpStatus.Going end
+	return false
+end
+
+onPromptTriggered = function(player)
+	if player ~= Players.LocalPlayer then return end
+	if not activeEventId or rsvpBusy then return end
+
+	rsvpBusy = true -- anti double-clic
+	render()
+	local ok, err = pcall(function()
+		SocialService:PromptRsvpToEventAsync(activeEventId)
+	end)
+	if not ok then
+		warn("[NewEventPart] PromptRsvpToEventAsync : " .. tostring(err))
+	end
+
+	task.wait(1)
+	hasRsvped = readRsvp(nil, activeEventId)
+	rsvpBusy  = false
+	render()
+end
+
+------------------------------------------------------------------
+-- RESOLUTION DE L'EVENT
+------------------------------------------------------------------
+local function applyEventData(data, eventId)
+	activeEventId  = eventId
+	eventStartUnix = toUnix(data.StartTime)
+	local endUnix  = toUnix(data.EndTime)
+
+	if type(data.Title) == "string" and data.Title ~= "" then
+		titleText = data.Title
+	else
+		titleText = FALLBACK_TITLE
+	end
+
+	eventHasEnded = (data.HasEnded == true) or (endUnix ~= nil and endUnix <= os.time())
+	if eventHasEnded then
+		eventStartUnix = nil
+		countdownText  = "Event ended"
+	elseif not eventStartUnix then
+		countdownText = ""
+	end
+
+	hasRsvped = readRsvp(data, eventId)
+	render()
+end
+
+local function clearEvent(reason)
+	activeEventId  = nil
+	eventStartUnix = nil
+	eventHasEnded  = false
+	titleText      = FALLBACK_TITLE
+	countdownText  = reason or ""
+	render()
+end
+
+local function resolveEvent()
+	resolveToken += 1
+	local myToken = resolveToken
+
+	local id   = pinnedEventId
+	local data = nil
+
+	-- 1) ID epingle par le serveur
+	if id and id ~= "" and id ~= "auto" and not CACHE.bad[id] then
+		data = getEventById(id)
+		if myToken ~= resolveToken then return end
+		if data then
+			applyEventData(data, data.Id and tostring(data.Id) or id)
+			return
+		end
+		CACHE.bad[id] = true
+		warn("[NewEventPart] ID epingle invalide -> ignore pour la session, mode auto")
+	end
+
+	-- 2) Auto : prochain event de l'experience
+	for attempt = 1, 3 do
+		local list = getUpcomingEvents()
+		if myToken ~= resolveToken then return end
+		local ev = pickNextEvent(list)
+		if ev and ev.Id then
+			applyEventData(ev, tostring(ev.Id))
+			return
+		end
+		if list then break end -- liste valide mais vide : inutile de reessayer
+		task.wait(3 * attempt)
+		if myToken ~= resolveToken then return end
+	end
+
+	clearEvent("No upcoming event")
+end
+
+-- Re-resolution periodique (event termine -> passe au suivant tout seul)
+task.spawn(function()
+	while true do
+		local waitFor = REFRESH_IDLE
+		if activeEventId and not eventHasEnded and eventStartUnix then
+			waitFor = math.clamp(eventStartUnix - os.time(), REFRESH_INTERVAL, REFRESH_IDLE)
+		end
+		task.wait(waitFor)
+		if isLoaded then pcall(resolveEvent) end
+	end
+end)
+
+------------------------------------------------------------------
+-- MESSAGES SYSTEME (reponses aux commandes admin)
+------------------------------------------------------------------
+local function showNotice(text)
+	_G.__EventSyncNotice = _G.__EventSyncNotice or {}
+	local now  = os.clock()
+	local last = _G.__EventSyncNotice[text]
+	if last and now - last < 1 then return end -- evite les doublons multi-parts
+	_G.__EventSyncNotice[text] = now
+
+	local ok = pcall(function()
+		local channels = TextChatService:FindFirstChild("TextChannels")
+		local general  = channels and channels:FindFirstChild("RBXGeneral")
+		if not general then error("no channel") end
+		general:DisplaySystemMessage("[EventSync] " .. text)
+	end)
+	if not ok then
+		pcall(function()
+			StarterGui:SetCore("ChatMakeSystemMessage", {
+				Text  = "[EventSync] " .. text,
+				Color = COLOR_MESSAGE,
+			})
+		end)
+	end
+end
+
+------------------------------------------------------------------
+-- RECEPTION DES DONNEES DU SERVEUR
+------------------------------------------------------------------
+local function markLoaded()
+	if isLoaded then return end
+	isLoaded = true
+	render()
+end
+
+local function applySyncedData(data)
+	if type(data) ~= "table" then return end
+
+	if data.notice then
+		showNotice(tostring(data.notice))
+		if data.eventId == nil and data.message == nil then return end
+	end
+
+	markLoaded()
+
+	if data.message ~= nil then
+		SAVED.message = data.message
+		messageText = tostring(data.message)
+		render()
+	end
+
+	if data.eventId ~= nil then
+		SAVED.eventId = data.eventId
+		if tostring(data.eventId) ~= pinnedEventId then
+			pinnedEventId = tostring(data.eventId)
+			task.spawn(resolveEvent)
+		end
+	end
+end
+
+-- Le script vient d'etre recree par le streaming : on reprend direct le dernier etat connu
+if SAVED.eventId ~= nil or SAVED.message ~= nil then
+	applySyncedData({ eventId = SAVED.eventId, message = SAVED.message })
+end
+
+-- Filet : si le serveur ne repond pas en 12s, on part en mode auto tout seul
+task.delay(12, function()
+	if isLoaded then return end
+	markLoaded()
+	warn("[NewEventPart] Pas de reponse serveur -> mode auto")
+	pinnedEventId = "auto"
+	task.spawn(resolveEvent)
+end)
+
+local EventSync = ReplicatedStorage:WaitForChild("EventSync", 30)
+if not EventSync then
+	warn("[NewEventPart] EventSync RemoteEvent introuvable")
+	return
+end
+
+EventSync.OnClientEvent:Connect(applySyncedData)
+
+task.spawn(function()
+	local tries = 0
+	while not isLoaded and tries < 20 do
+		EventSync:FireServer("RequestInitial")
+		tries += 1
+		task.wait(1.5)
+	end
+end)
