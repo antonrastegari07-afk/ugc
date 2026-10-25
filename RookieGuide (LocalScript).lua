@@ -201,6 +201,18 @@ local function buildUI(s)
 	s.message = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 68),
 		Size = UDim2.new(1, -24, 0, 100), BackgroundTransparency = 1 }, s.safe)
 	make("UISizeConstraint", { MaxSize = Vector2.new(760, 260) }, s.message)
+	-- Bande noire semi-transparente derrière les textes, bords gauche/droite en fondu.
+	local backdrop = make("Frame", { Name = "TextBackdrop", AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, 160, 1, 12),
+		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0,
+		BorderSizePixel = 0, Active = false, ZIndex = 4 }, s.message)
+	local dim = C.Style.TextBackdropTransparency or 0.45
+	make("UIGradient", { Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.22, dim),
+		NumberSequenceKeypoint.new(0.78, dim),
+		NumberSequenceKeypoint.new(1, 1),
+	}) }, backdrop)
 	s.title = text(s.message, "", C.Style.MaxTextSize)
 	s.title.Position, s.title.Size = UDim2.fromOffset(12, 10), UDim2.new(1, -24, 0, 72)
 	for _, label in ipairs({s.title}) do
