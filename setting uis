@@ -1712,26 +1712,26 @@ Lighting.DescendantAdded:Connect(function()
 	end
 end)
 
--- FPS / Ping : compact, sans fond (FPS · icône perf · PING)
+-- FPS / Ping : sans fond (FPS · PING · icône perf)
 local hud = new("ScreenGui", { Name = "PerfHud", ResetOnSpawn = false, IgnoreGuiInset = true,
 	DisplayOrder = 90, Enabled = false }, playerGui)
 local hudRow = new("Frame", {
-	AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -8), Size = UDim2.fromOffset(0, 18),
+	AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -8), Size = UDim2.fromOffset(0, 26),
 	AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1,
 }, hud)
 new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder,
-	VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 4) }, hudRow)
+	VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8) }, hudRow)
 local function hudText(order, txt)
 	return new("TextLabel", {
-		LayoutOrder = order, Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X,
-		BackgroundTransparency = 1, Font = Enum.Font.FredokaOne, TextSize = 13, TextColor3 = T.White,
+		LayoutOrder = order, Size = UDim2.fromOffset(0, 26), AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 1, Font = Enum.Font.FredokaOne, TextSize = 16, TextColor3 = T.White,
 		TextStrokeTransparency = 0.4, TextStrokeColor3 = Color3.new(0, 0, 0), Text = txt,
 	}, hudRow)
 end
 local hudLbl = hudText(1, "FPS --")
-new("ImageLabel", { LayoutOrder = 2, Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1,
+new("ImageLabel", { LayoutOrder = 3, Size = UDim2.fromOffset(24, 24), BackgroundTransparency = 1,
 	Image = "rbxassetid://127390072755648", ScaleType = Enum.ScaleType.Fit }, hudRow)
-local hudPing = hudText(3, "PING -- ms")
+local hudPing = hudText(2, "PING -- ms")
 appliers.SettingPerfStats = function(v) hud.Enabled = (v == true) end
 
 local function toast(head, body)
