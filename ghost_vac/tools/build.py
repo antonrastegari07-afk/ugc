@@ -281,7 +281,7 @@ def catmull(P,sub=3):
     out.append(P[-2]); return out
 # backpack straps (reference: classic Roblox backpack): leave the top of the pack, go forward over the shoulder,
 # round the front edge, run down the chest, round the bottom corner and go back under the arm to the bottom of the pack
-SD=0.045; SX=0.68
+SD=0.045; SX=0.71
 Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.25; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
@@ -306,7 +306,7 @@ def rsec(w,t,m=8):
         a=2*math.pi*k/m; cx=w/2-t/2
         out.append((math.copysign(cx,math.cos(a))+t/2*math.cos(a) if abs(math.cos(a))>1e-6 else t/2*math.cos(a), t/2*math.sin(a)))
     return out
-SEC=rsec(0.10,0.035,6)
+SEC=rsec(0.17,0.04,6)
 def torso_normal(p):
     q=Vector((min(max(p.x,-1),1),min(max(p.y,-0.5),0.5),min(max(p.z,-1),1)))
     d=p-q
@@ -321,7 +321,7 @@ def chest_fn():
     box(bm,uvl,(0,Y0-0.045,0.62),(0.10,0.03,0.08),R['chest'])
     return mkobj('Chest_Strap','Straps',bm)
 
-order=[('inner',inner_fn),('cloud',cloud_fn),('bubble',bubbles_fn),('outline',outline_fn),('ghost',ghost_fn),('thandle',handle_top_fn),
+order=[('inner',inner_fn),('cloud',cloud_fn),('bubble',bubbles_fn),('outline',outline_fn),('ghost',ghost_fn),
        ('top',top_fn),('bottom',bottom_fn),('bars',bars_fn),('hose',hose_fn),('conn',conn_fn),('stock',stock_fn),('gunbody',gunbody_fn),('barrel',barrel_fn),('fins',fins_fn),('funnel',funnel_fn),
        ('handle',handle_fn),('clips',clips_fn),('strapL',lambda:strap_fn('Strap_L',-SX,R['strapL'])),
        ('strapR',lambda:strap_fn('Strap_R',SX,R['strapR']))]

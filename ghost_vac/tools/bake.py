@@ -200,7 +200,7 @@ c=c*(1-0.8*tip[:,None])+cyan*0.8*tip[:,None]
 setp(m,c,1.0*(1-tip),rf,0.8*tip,0.3*gedge)
 # emitter: glowing lip + core
 m=k==ID['funnel']
-core=(z<-0.96)&(np.hypot(x-GX,y-TY)<0.10)
+core=(z<-0.955)&(np.hypot(x-GX,y-TY)<0.102)   # glowing disc inside the muzzle hole
 lip=np.exp(-((z+0.86)/0.012)**2)
 c,rf2=metal(np.array([0.24,0.26,0.29]),edge=gedge)
 c=c*(1-lip[:,None])+cyan*lip[:,None]; c[core]=np.array([0.80,0.98,1.0])
