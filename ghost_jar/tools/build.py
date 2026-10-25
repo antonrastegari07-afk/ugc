@@ -25,7 +25,7 @@ R={
  'outline':(0.625,0.75,0.75,0.875),'outline_cap':(0.75,0.75,0.875,0.875),
  'band0':(0.75,0.0,1.0,0.0625),'band1':(0.75,0.0625,1.0,0.125),
 }
-PART_IDS={k:i for i,k in enumerate(['inner','glow','smoke0','smoke1','smoke2','smoke3','ghost','sparkle','cork','band0','band1','outer','outline','puff'])}
+PART_IDS={k:i for i,k in enumerate(['inner','glow','smoke0','smoke1','smoke2','smoke3','ghost','sparkle','cork','band0','band1','outer','outline','puff','neck'])}
 def rmap(rect,u,v):
     u0,v0,u1,v1=rect
     return (u0+PAD+(u1-u0-2*PAD)*u, v0+PAD+(v1-v0-2*PAD)*v)
@@ -198,6 +198,8 @@ OUTER_TOP=[(0.205,1.008),(0.228,0.995),(0.222,0.975),(0.194,0.965),(0.192,0.93),
 OUTER_BASE=[(0.376,0.10),(0.392,0.10),(0.390,0.04),(0.365,0.008),(0.30,0.0),(0,0.0)]
 LIP=[(0.180,0.972),(0.214,0.966),(0.229,0.984),(0.216,1.004),(0.181,1.001),(0.180,0.972)]
 parts.append(('band1',build('Jar_Lip',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,LIP,32,R['band1'],invert=True))))
+NECK=[(0.193,0.970),(0.191,0.93),(0.199,0.895),(0.222,0.866),(0.236,0.856)]
+parts.append(('neck',build('Jar_Neck',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,NECK,32,R['outer_top']))))
 OUTER_FLOOR=[(0.385,0.0),(0.2,0.0),(0,0.0)]
 parts.append(('outer',build('Jar_Outer_Floor',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,OUTER_FLOOR,28,R['outer_base']))))
 

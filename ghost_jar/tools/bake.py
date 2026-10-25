@@ -97,6 +97,20 @@ cc=cc*(1-0.5*spots[:,None])+np.array([0.30,0.19,0.10])*0.5*spots[:,None]
 top=q[:,2]>1.08; edge=ss(0.15,0.185,np.hypot(q[:,0],q[:,1]))*top
 cc=cc*(1-0.3*edge[:,None])
 col[m]=cc; A[m]=1; met[m]=0; rgh[m]=0.85; em[m]=0; h[m]=0.5*grain-0.6*spots
+# ---- neck glass with the cork seen through it (14)
+m=k==14
+q=p[m]; nz=q[:,2]; naz=np.degrees(np.arctan2(q[:,0],-q[:,1]))
+stn=lambda c,w: np.exp(-((naz-c)/w)**2)
+corkin=ss(0.895,0.91,nz)
+grain=fbm(q*40,3,5)
+corkc=np.array([0.42,0.32,0.22])*(0.9+0.2*grain[:,None])
+glassn=np.array([0.10,0.17,0.22])
+nc=glassn*(1-corkin[:,None])+(corkc*0.7+np.array([0.10,0.20,0.26])*0.3)*corkin[:,None]
+edge=np.exp(-((nz-0.902)/0.004)**2)
+nc=nc*(1-0.5*edge[:,None])
+hl3=np.clip(0.8*stn(-40,6)+stn(-28,2)+0.6*stn(42,3),0,1)
+nc=nc*(1-0.8*hl3[:,None])+np.ones(3)*0.8*hl3[:,None]
+col[m]=nc; A[m]=1; met[m]=0; rgh[m]=0.06; em[m]=0; h[m]=0
 # ---- glass lip ring (10)
 m=k==10
 q=p[m]; lz=q[:,2]; laz=np.degrees(np.arctan2(q[:,0],-q[:,1]))
