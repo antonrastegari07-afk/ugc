@@ -196,7 +196,17 @@ function Engine:Step(now)
 				best = candidate
 			end
 		end
-		if best then effect = best.definition end
+		if best then
+			effect = best.definition
+			-- BorrowedFOVOffset : la fenêtre prêtée garde son flou mais avec CE zoom
+			-- (0 = aucun changement de FOV pendant le Rookie Guide)
+			local borrowedOffset = active.definition.BorrowedFOVOffset
+			if borrowedOffset ~= nil then
+				best.borrowed = best.borrowed or setmetatable({ FOVOffset = borrowedOffset },
+					{ __index = best.definition })
+				effect = best.borrowed
+			end
+		end
 	end
 
 	local mask = {}

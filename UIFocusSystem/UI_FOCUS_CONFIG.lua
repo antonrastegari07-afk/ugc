@@ -23,6 +23,9 @@ C.Blur = {
 }
 
 C.Zoom = {
+	-- false = UIFocus ne touche PLUS JAMAIS au FOV (ni zoom, ni correction).
+	-- Pratique pour voir si un AUTRE script change le FOV : si le FOV bouge
+	-- encore avec false, ce n'est pas UIFocus. Le flou reste actif.
 	Enabled = true,
 	FOVOffset = -10,    -- négatif = rapproche le décor ; 0 = aucun zoom
 	MinFOV = 20,
@@ -58,6 +61,7 @@ C.Menus = {
 	{ Id = "RookieGuide", ScreenGui = "RookieGuideUI", Trigger = "Enabled",
 		KeepWholeGui = true, Priority = 100, CameraEffects = false,
 		CameraEffectsFrom = { "UGCshop" },
+		BorrowedFOVOffset = 0,   -- boutique ouverte pendant le guide : flou oui, zoom NON
 		ReplaceKeepScreenGuis = true,
 		KeepScreenGuis = { "RookieGuideHUD", "UGCshop", "TouchGui" } },
 	{ Id = "Settings", ScreenGui = "SettingsUI", Trigger = "Enabled", KeepWholeGui = true },

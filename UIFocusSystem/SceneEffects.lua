@@ -61,7 +61,8 @@ function Effects:_watchCamera()
 			--    nouveau normal, c'est un reste de zoom → on remet le normal.
 			local normal = self.normalFOV
 			local offset = math.min(self.config.Zoom.FOVOffset or -10, 0)
-			if normal and value < normal - 0.3 and value >= normal + offset - 0.5 then
+			-- Zoom.Enabled = false → UIFocus ne touche JAMAIS au FOV (même pas pour corriger)
+			if normal and self.config.Zoom.Enabled ~= false and value < normal - 0.3 and value >= normal + offset - 0.5 then
 				self.services.TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad,
 					Enum.EasingDirection.Out), { FieldOfView = normal }):Play()
 				return
@@ -271,7 +272,7 @@ function Effects:SetGameplay(on)
 	-- en entrant dans la phase jouable : FOV normal tout de suite
 	if on then
 		local cam = self.services.Workspace.CurrentCamera
-		if cam and self.normalFOV and not self.session then
+		if cam and self.normalFOV and not self.session and self.config.Zoom.Enabled ~= false then
 			pcall(function() cam.FieldOfView = self.normalFOV end)
 		end
 	end
