@@ -3,7 +3,7 @@ from PIL import Image, ImageFilter
 from noise import fbm, worley
 S=1024
 d=np.load('geo.npz'); P=d['P']; UV=d['UV']; NN=d['N']; PID=d['pid']
-NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle']
+NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle','collar']
 ID={k:i for i,k in enumerate(NAMES)}
 R={'hose':(0.0,0.0,0.5,0.125)}
 TY=1.10; GS=1.5; GZ0=-0.385; GX=-0.84
@@ -20,7 +20,7 @@ for f in range(len(P)):
     W=np.stack([w0,w1,w2],-1)[ins]; iy=(ys[ins]-.5).astype(int); ix=(xs[ins]-.5).astype(int)
     pos[iy,ix]=W@P[f]; nrm[iy,ix]=W@NN[f]; pid[iy,ix]=PID[f]
 M=pid>=0
-idx=np.where(M); p=pos[idx]; k=pid[idx]; n=len(p); nr=nrm[idx]; nr/=np.linalg.norm(nr,axis=1,keepdims=True)+1e-9
+idx=np.where(M); p=pos[idx].copy(); k=pid[idx]; p[~np.isin(k,[ID['strapL'],ID['strapR']]),2]-=0.30; n=len(p); nr=nrm[idx]; nr/=np.linalg.norm(nr,axis=1,keepdims=True)+1e-9
 tu=(idx[1]+0.5)/S; tv=1-(idx[0]+0.5)/S
 x,y,z=p[:,0],p[:,1],p[:,2]
 ss=lambda e0,e1,t:(lambda q:q*q*(3-2*q))(np.clip((t-e0)/(e1-e0),0,1))
@@ -100,6 +100,7 @@ for key,zl,zs,za in (('top',(0.50,0.60,0.68,0.72),0.62,0.75),('bottom',(-0.53,-0
     mt=np.where(haz,0.2,1.0)*(1-eT)*(1-0.8*scr)
     rgv=np.where(eT>0.3,0.2,np.where(scr>0.5,0.1,np.where(haz,0.55,rm)))
     setp(m,c,mt,rgv,eT,0.4*edges-0.5*seams-0.4*vent+0.2*accent+0.15*scratches+0.6*rv-0.2*scr)
+m=k==ID['collar']; ccl,rcl=metal(np.array([0.30,0.32,0.36]),edge=np.clip(np.abs(noise1),0,1)); setp(m,ccl,1.0,rcl,0.0,0.1*scratches)
 m=k==ID['bars']; cb,rb=metal(np.array([0.30,0.32,0.36]),edge=np.clip(np.abs(noise1)*0.6,0,1)); setp(m,cb,1.0,rb,0.0,0.15*scratches)
 # ---------------- INNER WALL (seen through the window) ----------------
 m=k==ID['inner']
@@ -107,7 +108,7 @@ t=ss(0.62,-0.45,z)   # 0 top -> 1 bottom
 c1=np.array([0x14,0x26,0x3A])/255; c2=np.array([0x3D,0x7A,0x9E])/255; c3=np.array([0.45,0.88,1.0])
 wall=np.where((t<0.5)[:,None],c1+(c2-c1)*(t/0.5)[:,None],c2+(c3-c2)*((t-0.5)/0.5)[:,None])
 st=lambda c,w: np.exp(-((th-c)/w)**2)
-hl=np.clip(0.7*st(150,5)+0.5*st(165,1.6)+0.6*st(-160,3)+0.4*st(-140,1.5),0,1)*ss(-0.3,-0.15,z)*(1-ss(0.5,0.62,z))
+hl=np.clip(0.7*st(150,5)+0.5*st(165,1.6)+0.6*st(-160,3)+0.4*st(-140,1.5),0,1)*ss(-0.3,-0.15,z)*(1-ss(0.30,0.40,z))*(rr>0.40)
 caus=np.clip(fbm(p*np.array([6,6,1.5]),3,40)*1.2,0,1)*0.18
 wall=wall*(1+caus[:,None])
 wall=wall*(1-0.65*hl[:,None])+np.array([0.85,0.95,1.0])*0.65*hl[:,None]

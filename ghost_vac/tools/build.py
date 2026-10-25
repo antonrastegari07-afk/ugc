@@ -16,7 +16,7 @@ R={
  'stock':(0.5,0.125,0.625,0.25),'gunbody':(0.625,0.125,0.75,0.25),'barrel':(0.75,0.125,0.875,0.25),'fins':(0.875,0.125,1.0,0.25),'funnel':(0.5,0.0,0.625,0.125),
  'handle':(0.625,0.0,0.75,0.125),'clips':(0.75,0.0,0.875,0.125),'chest':(0.875,0.0,1.0,0.125),
 }
-NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle']
+NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle','collar']
 PID={k:i for i,k in enumerate(NAMES)}
 def rmap(rect,u,v):
     u0,v0,u1,v1=rect
@@ -65,13 +65,18 @@ def lathe(bm,uvl,profile,N,rect,cx=0.0,cy=0.0,invert=False,deform=None,skip=None
 
 # ---------- MACHINE BLOCKS (octagonal, flat faces, a flat face toward +Y) ----------
 OCT0=-math.pi+math.pi/8
-TOP=[(0.425,0.44),(0.49,0.455),(0.525,0.50),(0.525,0.60),(0.50,0.64),(0.525,0.68),(0.525,0.72),(0.47,0.77),(0.32,0.80),(0.14,0.82),(0,0.82)]
-BOT=[(0,-0.90),(0.30,-0.90),(0.50,-0.87),(0.55,-0.82),(0.55,-0.70),(0.52,-0.665),(0.55,-0.63),(0.55,-0.53),(0.50,-0.475),(0.425,-0.455)]
+TOP=[(0.47,0.44),(0.49,0.455),(0.525,0.50),(0.525,0.60),(0.50,0.64),(0.525,0.68),(0.525,0.72),(0.47,0.77),(0.32,0.80),(0.14,0.82),(0,0.82)]
+BOT=[(0,-0.90),(0.30,-0.90),(0.50,-0.87),(0.55,-0.82),(0.55,-0.70),(0.52,-0.665),(0.55,-0.63),(0.55,-0.53),(0.52,-0.475),(0.47,-0.455)]
 def top_fn():
     bm,uvl=new_bm(); lathe(bm,uvl,TOP[::-1],8,R['top'],cy=TY,theta0=OCT0,smooth=False); return mkobj('Block_Top','Tank',bm)
 def bottom_fn():
     bm,uvl=new_bm(); lathe(bm,uvl,BOT,8,R['bottom'],cy=TY,theta0=OCT0,smooth=False); return mkobj('Block_Bottom','Tank',bm)
 RIN=0.42
+def collars_fn():   # round rings where the round glass meets the octagonal blocks
+    bm,uvl=new_bm()
+    for z0,z1 in ((-0.475,-0.425),(0.425,0.465)):
+        lathe(bm,uvl,[(RIN,z0),(0.48,z0),(0.48,z1),(RIN,z1),(RIN,z0)],24,R['jamb'],cy=TY,invert=True)
+    return mkobj('Glass_Collars','Tank',bm)
 def bars_fn():
     bm,uvl=new_bm()
     for sx in (-1,1):
@@ -263,8 +268,8 @@ def clips_fn():     # tank clips + top rail + sight
     box(bm,uvl,(GX,TY+0.27,0.42),(0.07,0.06,0.16),R['clips'])                  # sight
     box(bm,uvl,(GX+0.205,TY+0.06,0.30),(0.04,0.20,0.40),R['clips'])            # side armour plate (tank side)
     for k_ in range(3):                                                         # emitter prongs
-        a_=math.radians(90+k_*120); ox,oy=math.sin(a_)*0.16,math.cos(a_)*0.16
-        box(bm,uvl,(GX+ox,TY+oy,-1.05),(0.04,0.04,0.12),R['clips'])
+        a_=math.radians(90+k_*120); ox,oy=math.sin(a_)*0.135,math.cos(a_)*0.135
+        box(bm,uvl,(GX+ox,TY+oy,-1.06),(0.045,0.045,0.15),R['clips'])            # sunk into the emitter rim
     return mkobj('Gun_Rail_Clips','Gun',bm)
 # ---------- STRAPS (backpack style: over the shoulder, down the front, back under the arm) ----------
 D=0.12    # strap centre-line distance from the torso surface (loose fit for other body types)
@@ -282,14 +287,14 @@ def catmull(P,sub=3):
 # backpack straps (reference: classic Roblox backpack): leave the top of the pack, go forward over the shoulder,
 # round the front edge, run down the chest, round the bottom corner and go back under the arm to the bottom of the pack
 SD=0.045; SX=0.71
-Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.25; CR_=0.13
+Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.22; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
-    ctrl=[(sx*0.34,0.80,0.70),(sx*0.50,0.66,0.86),(x,0.50,ZT-0.01),(x,0.20,ZT),(x,-0.10,ZT)]
+    ctrl=[(sx*0.46,0.74,0.98),(sx*0.70,0.64,1.035),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
     ctrl+=[(x,Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
     ctrl+=[(x,Y0,0.55),(x,Y0,0.25)]
     ctrl+=[(x,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner
-    ctrl+=[(x,0.10,ZB),(x,0.42,ZB),(sx*0.56,0.60,-0.40),(sx*0.42,0.74,-0.56)]
+    ctrl+=[(x,0.10,ZB),(x,0.42,ZB),(sx*0.56,0.60,-0.27),(sx*0.44,0.72,-0.26)]
     out=[]; 
     for p in ctrl:
         if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
@@ -298,7 +303,7 @@ def strap_normal(p):
     # flat side of the strap faces away from the shoulder/torso
     q=Vector((0,min(max(p.y,-0.5+CR_),0.5),min(max(p.z,ZB+CR_),1.0-CR_)))
     d=Vector((0,p.y-q.y,p.z-q.z))
-    if p.y>0.5 and p.z<0.9: d=Vector((0,0.2,-1.0)) if p.z<0.2 else Vector((0,0.3,1.0))
+    if p.y>0.5 and p.z<0.9: d=Vector((0,0.2,-1.0))
     return d.normalized() if d.length>1e-6 else Vector((0,0,1))
 def rsec(w,t,m=8):
     out=[]
@@ -322,10 +327,15 @@ def chest_fn():
     return mkobj('Chest_Strap','Straps',bm)
 
 order=[('inner',inner_fn),('cloud',cloud_fn),('bubble',bubbles_fn),('outline',outline_fn),('ghost',ghost_fn),
-       ('top',top_fn),('bottom',bottom_fn),('bars',bars_fn),('hose',hose_fn),('conn',conn_fn),('stock',stock_fn),('gunbody',gunbody_fn),('barrel',barrel_fn),('fins',fins_fn),('funnel',funnel_fn),
+       ('top',top_fn),('bottom',bottom_fn),('collar',collars_fn),('bars',bars_fn),('hose',hose_fn),('conn',conn_fn),('stock',stock_fn),('gunbody',gunbody_fn),('barrel',barrel_fn),('fins',fins_fn),('funnel',funnel_fn),
        ('handle',handle_fn),('clips',clips_fn),('strapL',lambda:strap_fn('Strap_L',-SX,R['strapL'])),
        ('strapR',lambda:strap_fn('Strap_R',SX,R['strapR']))]
 objs=[(k,fn()) for k,fn in order]
+# ---------- raise the whole machine higher on the back (straps are built in place) ----------
+DZ=0.30
+for k_,ob in objs:
+    if k_ not in ('strapL','strapR'):
+        for v in ob.data.vertices: v.co.z+=DZ
 # ---------- fuse ----------
 me=bpy.data.meshes.new('GhostVac_UGC'); fin=bpy.data.objects.new('GhostVac_UGC',me); C['GhostVac_UGC'].objects.link(fin)
 bm=bmesh.new(); pid=[]

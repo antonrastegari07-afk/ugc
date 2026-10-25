@@ -34,7 +34,7 @@ light('Key',(-3,5,5),380,3); light('Fill',(4,3,1),150,3,(0.85,0.92,1.0)); light(
 cam=bpy.data.objects.new('Camera',bpy.data.cameras.new('Camera')); sc.collection.objects.link(cam); sc.camera=cam; cam.data.lens=60
 sc.render.engine='CYCLES'; sc.cycles.device='CPU'; sc.cycles.samples=64; sc.cycles.max_bounces=6
 sc.render.resolution_x=600; sc.render.resolution_y=700
-def shoot(name,az,el,dist=8.5,t=(0,0.7,0.25)):
+def shoot(name,az,el,dist=8.5,t=(0,0.7,0.45)):
     t=mathutils.Vector(t); a=math.radians(az); e=math.radians(el)
     cam.location=t+mathutils.Vector((math.sin(a)*math.cos(e)*dist,math.cos(a)*math.cos(e)*dist,math.sin(e)*dist))
     cam.rotation_euler=(cam.location-t).to_track_quat('Z','Y').to_euler(); sc.render.filepath=f'{D}/r_{name}.png'; bpy.ops.render.render(write_still=True)
@@ -42,7 +42,7 @@ if '--render' in sys.argv:
     shoot('back',0,8); shoot('34L',-40,12); shoot('34R',40,12); shoot('side',90,5); shoot('top',20,50)
     shoot('front',180,8)
     bs.inputs['Emission Strength'].default_value=0.0; shoot('noemis',-25,10); bs.inputs['Emission Strength'].default_value=2.5
-    cam.data.lens=150; shoot('zoom',0,4,8.5,(0,1.1,0.0)); cam.data.lens=60
+    cam.data.lens=150; shoot('zoom',0,4,8.5,(0,1.1,0.3)); cam.data.lens=60
 for c in sc.view_layers[0].layer_collection.children:
     if c.name=='Preview_Mannequin': c.exclude=True
 bpy.ops.object.select_all(action='DESELECT'); fin.select_set(True); bpy.context.view_layer.objects.active=fin
