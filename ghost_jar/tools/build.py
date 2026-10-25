@@ -135,7 +135,7 @@ def ghost_deform(th,i,r,z):
     rr=r; zz=z
     # arms on the sides (x = +-1)
     side=abs(x)
-    arm=math.exp(-((math.atan2(abs(y),side))/0.45)**2)*math.exp(-((z-0.43)/0.05)**2)
+    arm=math.exp(-((math.atan2(abs(y),side))/0.45)**2)*math.exp(-((z-0.43)/0.06)**2)
     rr+=0.085*arm; zz-=0.02*arm
     # wavy hem
     if i==len(GH)-1:
@@ -149,7 +149,32 @@ def ghost_deform(th,i,r,z):
 C={n:coll(n) for n in ['Jar_Outer','Jar_Inner_Inverted','Ghost','Smoke_Layers','Glow_Dome_Inverted','Cork','Sparkles','Ghost_Outline_Inverted','GhostJar_UGC']}
 parts=[]
 parts.append(('inner',build('Jar_Inner_Inverted',C['Jar_Inner_Inverted'],lambda bm,uvl:(lathe(bm,uvl,INNER,28,R['inner'],invert=True)))))
-parts.append(('smoke0',build('Smoke_Mound',C['Smoke_Layers'],lambda bm,uvl:disc_dome(bm,uvl,0.373,0.185,0.15,24,4,R['smoke0'],1,0.028))))
+def cloud_h(x,y):
+    rng=np.random.default_rng(11)
+    blobs=[(0.0,0.0,0.22,0.11)]+[(r*math.cos(a),r*math.sin(a),rng.uniform(0.075,0.11),rng.uniform(0.06,0.095))
+           for a,r in zip(np.linspace(0,2*math.pi,13,endpoint=False)+rng.uniform(-0.2,0.2,13),rng.uniform(0.15,0.30,13))]
+    vals=[hh*max(0.0,1-((x-bx)**2+(y-by)**2)/br**2)**1.5 for bx,by,br,hh in blobs]
+    return sum(v**6 for v in vals)**(1/6)   # soft max -> merged puffs
+def cloud_fn(bm,uvl,R0=0.373,N=36,rings=7,base=0.15):
+    center=bm.verts.new((0,0,(base+cloud_h(0,0))*SC)); allr=[]
+    for k in range(1,rings+1):
+        t=k/rings; ring=[]
+        for j in range(N):
+            th=2*math.pi*j/N; r=R0*t; x,y=r*math.cos(th),r*math.sin(th)
+            z=base+cloud_h(x,y)*(1-t**6)
+            ring.append(bm.verts.new((x*SC,y*SC,z*SC)))
+        allr.append(ring)
+    def setuv(f):
+        for lp in f.loops:
+            p=lp.vert.co; lp[uvl].uv=rmap(R['smoke0'],0.5+p.x/(2*R0*SC),0.5+p.y/(2*R0*SC))
+        f.smooth=True
+    for j in range(N):
+        j1=(j+1)%N; setuv(bm.faces.new([center,allr[0][j],allr[0][j1]]))
+    for k in range(rings-1):
+        A,B=allr[k],allr[k+1]
+        for j in range(N):
+            j1=(j+1)%N; setuv(bm.faces.new([A[j],B[j],B[j1],A[j1]]))
+parts.append(('smoke0',build('Smoke_Cloud',C['Smoke_Layers'],cloud_fn)))
 parts.append(('smokewall',build('Smoke_Side',C['Smoke_Layers'],lambda bm,uvl:lathe(bm,uvl,[(0.373,0.15),(0.373,0.09),(0.373,0.035)],24,R['smoke1']))))
 parts.append(('basering',build('Jar_Base_Glass',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,[(0.373,0.036),(0.386,0.034),(0.386,0.0)],32,R['smoke2']))))
 def puff_fn(bm,uvl):
@@ -174,16 +199,23 @@ def puff_fn(bm,uvl):
             F([top,ring[0][j],ring[0][j1]])
             for i in range(2): F([ring[i][j],ring[i+1][j],ring[i+1][j1],ring[i][j1]])
             F([bot,ring[2][j1],ring[2][j]])
-parts.append(('puff',build('Smoke_Puffs',C['Smoke_Layers'],puff_fn)))
-OFF=0.012
+OFF=0.011
+GZ=-0.04  # ghost sits lower so its hem is buried in the cloud
 GH_OUT=[(0,GH[0][1]+OFF)]+[(r+OFF,z+OFF*0.5) for r,z in GH[1:-1]]+[(GH[-1][0]+OFF,GH[-1][1]-OFF)]
 def outline_fn(bm,uvl):
-    rings=lathe(bm,uvl,GH_OUT,30,R['outline'],invert=True,deform=ghost_deform)
-    fan_cap(bm,uvl,rings[-1],(0,0,(0.29-OFF)*SC),R['outline_cap'],down=True,invert=True)
+    rings=lathe(bm,uvl,GH,40,R['outline'],deform=ghost_deform)  # no bottom cap: hem is buried in the cloud
+    for v in bm.verts: v.co.z+=GZ*SC
+    bm.normal_update()
+    for v in bm.verts: v.co=v.co+v.normal*OFF*SC
+    bmesh.ops.reverse_faces(bm,faces=bm.faces[:])
+    cu=rmap(R['outline'],0.5,0.5)
+    for f in bm.faces:
+        for lp in f.loops: lp[uvl].uv=cu
 parts.append(('outline',build('Ghost_Outline',C['Ghost_Outline_Inverted'],outline_fn)))
 def ghost_fn(bm,uvl):
-    rings=lathe(bm,uvl,GH,30,R['ghost'],deform=ghost_deform)
+    rings=lathe(bm,uvl,GH,40,R['ghost'],deform=ghost_deform)
     fan_cap(bm,uvl,rings[-1],(0,0,0.29*SC),R['ghost_cap'],down=True)
+    for v in bm.verts: v.co.z+=GZ*SC
 parts.append(('ghost',build('Ghost',C['Ghost'],ghost_fn)))
 def spark_fn(bm,uvl):
     rng=np.random.default_rng(7)

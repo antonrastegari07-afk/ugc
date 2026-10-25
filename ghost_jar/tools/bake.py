@@ -43,9 +43,10 @@ put(m,c_out,1.0,0.0,0.06,0.45*base*(1-hl),0.03*fbm(p*6,2,3)+0.3*lipl)
 m=k==0
 low=1-ss(0.05,0.40,z)
 hl2=np.clip(0.8*st(150,4)+0.6*st(162,1.5)+0.6*st(-150,3)+0.5*st(25,3)+0.5*st(-25,2),0,1)*ss(0.10,0.2,z)
-wall=np.array([0.20,0.36,0.46])*(1-low[:,None])+np.array([0.35,0.85,0.98])*low[:,None]
+grad=ss(0.88,0.30,z)[:,None]  # 0 at top (dark) -> 1 lower (lighter)
+wall=(np.array([0.08,0.17,0.27])*(1-grad)+np.array([0.24,0.48,0.62])*grad)*(1-low[:,None])+np.array([0.35,0.85,0.98])*low[:,None]
 wall=wall*(1-0.6*hl2[:,None])+np.array([0.85,0.95,1.0])*0.6*hl2[:,None]
-put(m,wall,1.0,0.0,0.06,0.07+0.35*low**1.5,0.0)
+put(m,wall,1.0,0.0,0.06,0.04+0.10*grad[:,0]+0.35*low**1.5,0.0)
 # ---- smoke layers (2..5)
 for L,(dens,emv) in enumerate([(1.0,1.0),(1.0,0.9),(1.0,0.85)]):
     m=k==(2,13,15)[L]
@@ -54,12 +55,14 @@ for L,(dens,emv) in enumerate([(1.0,1.0),(1.0,0.9),(1.0,0.85)]):
     sw=fbm(q*np.array([7,7,7])+L*3.1,4,10+L)
     wisps=np.abs(np.sin((fbm(q*4+L,3,30)*9)))
     dd=np.clip(0.45+1.6*sw,0,1)**1.3*(0.5+0.5*wisps)
+    if L==2: dd=np.clip(0.75+0.6*sw,0,1)*(0.8+0.2*ss(0.035,0.15,q[:,2]))
+    if L==0: dd=np.clip(0.25*dd+0.85*ss(0.155,0.25,q[:,2])**0.8,0,1)
     a=np.ones(len(dd))
-    c=np.array([0.30,0.70,0.85])*(1-dd[:,None])+np.array([0.75,0.95,1.0])*dd[:,None]
+    c=np.array([0.22,0.50,0.70])*(1-dd[:,None])+np.array([0.82,0.97,1.0])*dd[:,None]
     col[m]=c; A[m]=a; met[m]=0; rgh[m]=1.0; em[m]=np.clip(emv*(0.22+0.35*dd),0,1); h[m]=0.3*dd
 # ---- ghost (6)
 m=k==6
-q=p[m]; gx,gy,gz=q[:,0],q[:,1],q[:,2]
+q=p[m]; gx,gy,gz=q[:,0],q[:,1],q[:,2]+0.04
 front=gy<-0.03
 body=np.array([0.98,0.99,1.0])
 c=np.tile(body,(m.sum(),1)); hem=1-ss(0.27,0.36,gz)
@@ -104,7 +107,7 @@ stn=lambda c,w: np.exp(-((naz-c)/w)**2)
 corkin=ss(0.874,0.880,nz)
 grain=fbm(q*40,3,5)
 corkc=np.array([0.60,0.42,0.25])*(0.9+0.2*grain[:,None])
-glassn=np.array([0.20,0.36,0.46])
+glassn=np.array([0.08,0.17,0.27])
 nc=(corkc*0.72+np.array([0.10,0.24,0.30])*0.28)*corkin[:,None]+glassn*(1-corkin[:,None])
 edge=np.zeros_like(nz)
 nc=nc*(1-0.5*edge[:,None])
@@ -120,7 +123,7 @@ col[m]=np.array([0.45,0.80,0.92])*(1-hb[:,None])+np.ones(3)*hb[:,None]; A[m]=1; 
 m=k==10
 q=p[m]; lz=q[:,2]; laz=np.degrees(np.arctan2(q[:,0],-q[:,1]))
 toph=np.exp(-((lz-1.0)/0.006)**2)*(0.4+0.6*np.exp(-((laz+40)/50)**2))
-lc=np.array([0.26,0.44,0.54])*(1-toph[:,None])+np.ones(3)*toph[:,None]
+lc=np.array([0.14,0.27,0.38])*(1-toph[:,None])+np.ones(3)*toph[:,None]
 col[m]=lc; A[m]=1; met[m]=0; rgh[m]=0.05; em[m]=0; h[m]=0
 # ---- bands (9,10)
 for bk,zlo,zhi,lights in ((9,0.012,0.085,(-14,14)),):

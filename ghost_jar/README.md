@@ -1,6 +1,6 @@
 # Ghost Jar — UGC accessoire
 
-- `GhostJar_UGC.obj` / `.fbx` : mesh final (1 seul mesh, 1 seul matériau), 3 376 triangles, ~0,86 × 1,19 × 0,86 studs, visage du fantôme vers l'avant Roblox (-Z).
+- `GhostJar_UGC.obj` / `.fbx` : mesh final (1 seul mesh, 1 seul matériau), 3 740 triangles, ~0,86 × 1,19 × 0,86 studs, visage du fantôme vers l'avant Roblox (-Z).
 - `GhostJar_UGC.blend` : scène Blender (textures intégrées). Les pièces séparées sont dans des collections masquées (Jar_Outer, Jar_Inner_Inverted, Ghost, Ghost_Outline_Inverted, Smoke_Layers, Cork, Sparkles) ; l'objet final est `GhostJar_UGC`.
 - Textures 1024×1024 pour le SurfaceAppearance :
 
