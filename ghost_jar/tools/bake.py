@@ -41,8 +41,8 @@ c_out=glass*(1-0.85*hl[:,None])+np.ones(3)*0.85*hl[:,None]
 put(m,c_out,1.0,0.0,0.06,0.45*base*(1-hl),0.03*fbm(p*6,2,3)+0.3*lipl)
 # ---- inner inverted wall = visible back glass (0)
 m=k==0
-low=1-ss(0.08,0.40,z)
-hl2=np.clip(0.8*st(150,4)+0.6*st(162,1.5)+0.6*st(-150,3)+0.5*st(25,3)+0.5*st(-25,2),0,1)*ss(0.12,0.2,z)*(1-ss(0.6,0.68,z))
+low=1-ss(0.05,0.40,z)
+hl2=np.clip(0.8*st(150,4)+0.6*st(162,1.5)+0.6*st(-150,3)+0.5*st(25,3)+0.5*st(-25,2),0,1)*ss(0.10,0.2,z)*(1-ss(0.80,0.88,z))
 wall=np.array([0.07,0.12,0.16])*(1-low[:,None])+np.array([0.35,0.85,0.98])*low[:,None]
 wall=wall*(1-0.75*hl2[:,None])+np.array([0.85,0.95,1.0])*0.75*hl2[:,None]
 put(m,wall,1.0,0.0,0.06,0.5*low**1.5,0.0)

@@ -29,6 +29,7 @@ lp=N.new('ShaderNodeLightPath'); mx=N.new('ShaderNodeMath'); mx.operation='MAXIM
 Lk.new(geo.outputs['Backfacing'],mx.inputs[0]); Lk.new(lp.outputs['Is Shadow Ray'],mx.inputs[1]); Lk.new(mx.outputs['Value'],mix.inputs['Fac']); Lk.new(bs.outputs['BSDF'],mix.inputs[1]); Lk.new(tr_.outputs['BSDF'],mix.inputs[2])
 out=N.new('ShaderNodeOutputMaterial'); Lk.new(mix.outputs['Shader'],out.inputs['Surface'])
 fin.data.materials.clear(); fin.data.materials.append(mat)
+fin.visible_glossy=False  # Roblox has no raytraced reflections of the item itself
 # ---- world / lights / camera
 w=bpy.data.worlds.new('World'); scene.world=w; w.use_nodes=True
 bg=w.node_tree.nodes['Background']; v=(30/255)**2.2; bg.inputs['Color'].default_value=(v,(31/255)**2.2,(36/255)**2.2,1); bg.inputs['Strength'].default_value=1.0
