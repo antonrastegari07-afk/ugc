@@ -13,7 +13,7 @@ local pg = player:WaitForChild("PlayerGui")
 local C = require(script:WaitForChild("RookieConfig"))
 local Flow = require(script:WaitForChild("GuideFlow"))
 local Geometry = require(script:WaitForChild("SpotlightGeometry"))
-local VERSION = "v6 (trou inclut le X du UGC shop)"
+local VERSION = "v7 (trou = boutique + X + boutons)"
 if _G.__RookieGuideLoaded then
 	warn("[RookieGuide] Copie IGNORÉE (" .. VERSION .. ") : un autre RookieGuide tourne déjà ("
 		.. tostring(_G.__RookieGuideLoaded) .. "). Supprime l'ancienne copie.")
@@ -98,6 +98,12 @@ setSpotlight = function(s, target, clickable, extras)
 				end
 			end
 			p, z = Vector2.new(x1, y1), Vector2.new(x2 - x1, y2 - y1)
+			if extras and not s.holeLogged then
+				s.holeLogged = true
+				print(("[RookieGuide] Trou boutique : %dx%d (boutique %dx%d), X rouge : %s"):format(
+					math.floor(z.X), math.floor(z.Y), math.floor(o.AbsoluteSize.X), math.floor(o.AbsoluteSize.Y),
+					s.shopClose and s.shopClose:GetFullName() or "INTROUVABLE"))
+			end
 			rect = Geometry.layout(w, h, p.X, p.Y, z.X, z.Y, margin,
 				C.Style.HoleCornerRadius, s.cornerSteps)
 			valid = rect ~= nil
@@ -358,7 +364,16 @@ refresh = function(s)
 		s.note.Position, s.note.Size = UDim2.fromOffset(12, compact and 90 or 146), UDim2.new(1, -24, 0, compact and 24 or 32)
 		s.message.AnchorPoint, s.message.Position = Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -12)
 		s.skip.NextSelectionDown, s.done.NextSelectionUp = s.done, s.skip
-		setSpotlight(s, s.shopPanel, false, s.shopClose and { s.shopClose } or nil)
+		-- Le trou englobe la boutique + ses éléments directs (X rouge, Gift...),
+		-- même s'ils dépassent du cadre. Le contenu défilant n'est pas compté.
+		local extras = {}
+		if s.shopClose then table.insert(extras, s.shopClose) end
+		if s.shopPanel then
+			for _, child in ipairs(s.shopPanel:GetChildren()) do
+				if child:IsA("GuiObject") and child ~= s.shopClose then table.insert(extras, child) end
+			end
+		end
+		setSpotlight(s, s.shopPanel, false, extras)
 		if padActive() then GS.SelectedObject = s.done end
 		if not s.anyClickArmed then
 			s.anyClickArmed = true
