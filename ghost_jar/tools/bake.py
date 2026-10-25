@@ -97,8 +97,14 @@ cc=cc*(1-0.5*spots[:,None])+np.array([0.30,0.19,0.10])*0.5*spots[:,None]
 top=q[:,2]>1.08; edge=ss(0.15,0.185,np.hypot(q[:,0],q[:,1]))*top
 cc=cc*(1-0.3*edge[:,None])
 col[m]=cc; A[m]=1; met[m]=0; rgh[m]=0.85; em[m]=0; h[m]=0.5*grain-0.6*spots
+# ---- glass lip ring (10)
+m=k==10
+q=p[m]; lz=q[:,2]; laz=np.degrees(np.arctan2(q[:,0],-q[:,1]))
+toph=np.exp(-((lz-1.0)/0.006)**2)*(0.4+0.6*np.exp(-((laz+40)/50)**2))
+lc=np.array([0.12,0.22,0.28])*(1-toph[:,None])+np.ones(3)*toph[:,None]
+col[m]=lc; A[m]=1; met[m]=0; rgh[m]=0.05; em[m]=0; h[m]=0
 # ---- bands (9,10)
-for bk,zlo,zhi,lights in ((9,0.012,0.085,(-14,14)),(10,0.900,0.945,(0,))):
+for bk,zlo,zhi,lights in ((9,0.012,0.085,(-14,14)),):
     m=k==bk
     q=p[m]; bz=q[:,2]; baz=np.degrees(np.arctan2(q[:,0],-q[:,1]))
     mid=(zlo+zhi)/2; hgt=zhi-zlo
