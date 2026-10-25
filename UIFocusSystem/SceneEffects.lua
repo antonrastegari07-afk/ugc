@@ -48,6 +48,7 @@ function Effects:_watchCamera()
 	local cam = self.services.Workspace.CurrentCamera
 	if not cam then return end
 	if not self.normalFOV then self.normalFOV = self:_clampFOV(cam.FieldOfView) end
+	self:_publish(cam)
 	self.fovConnection = cam:GetPropertyChangedSignal("FieldOfView"):Connect(function()
 		if self.menu or self.session then return end
 		self.fovToken += 1
@@ -55,9 +56,26 @@ function Effects:_watchCamera()
 		task.delay(STABLE_DELAY, function()
 			if self.destroyed or token ~= self.fovToken or self.menu or self.session then return end
 			if self.services.Workspace.CurrentCamera ~= cam or cam.FieldOfView ~= value then return end
+			-- 🩹 Un FOV resté coincé ENTRE le zoom d'un menu et le normal (ex. 62.6 au lieu
+			--    de 70 : animation de fermeture coupée par un autre script) n'est pas un
+			--    nouveau normal, c'est un reste de zoom → on remet le normal.
+			local normal = self.normalFOV
+			local offset = math.min(self.config.Zoom.FOVOffset or -10, 0)
+			if normal and value < normal - 0.3 and value >= normal + offset - 0.5 then
+				cam.FieldOfView = normal
+				return
+			end
 			self.normalFOV = self:_clampFOV(value)
+			self:_publish(cam)
 		end)
 	end)
+end
+
+-- Le FOV normal est publié sur la caméra (attribut UIFocusNormalFOV) : les autres
+-- scripts qui touchent au FOV (coup de FOV du dash) reviennent à CETTE valeur.
+function Effects:_publish(cam)
+	cam = cam or self.services.Workspace.CurrentCamera
+	if cam and self.normalFOV then pcall(function() cam:SetAttribute("UIFocusNormalFOV", self.normalFOV) end) end
 end
 
 function Effects:_core(on)
@@ -197,6 +215,17 @@ function Effects:_animate()
 		session.fovTween = animate(cam, "FieldOfView", fov,
 			math.max(0, (open and zoomConfig.OpenTime or zoomConfig.CloseTime) or 0))
 	else done() end
+
+	-- 🩹 Fermeture : on ne dépend plus de la fin « normale » de l'animation. Si un
+	--    autre script l'a coupée (dash, cinématique…), on termine quand même :
+	--    FOV normal + flou retiré, à l'heure prévue.
+	if not open then
+		local wait = math.max(blurConfig.CloseTime or 0, zoomConfig.CloseTime or 0) + 0.1
+		task.delay(wait, function()
+			if self.destroyed or self.menu or self.session ~= session or session.version ~= version then return end
+			self:_release()
+		end)
+	end
 end
 
 function Effects:SetGameplay(on)

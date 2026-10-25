@@ -261,10 +261,17 @@ local function buildUI(s)
 	s.overlay.Enabled, s.hud.Enabled = true, true
 end
 
+-- 🟢 FLÈCHES : une file de chevrons qui coule du joueur vers le checkpoint.
+--    Avant : 3 chevrons collés au joueur, recalculés 15 fois/s → saccadé.
+--    Maintenant : position recalculée à CHAQUE image (BulkMoveTo, 1 seul appel
+--    moteur pour tous les morceaux), départ lissé (plus d'effet « aimanté »),
+--    apparition / disparition en fondu aux deux bouts de la file.
+local ARROW_SLOTS = 12   -- plafond de chevrons visibles (la file s'adapte à la distance)
 local function clearWorld(s)
+	if s.arrowConn then s.arrowConn:Disconnect() s.arrowConn = nil end
 	if s.marker then s.marker:Destroy() s.marker = nil end
 	if s.world then s.world:Destroy() s.world = nil end
-	s.arrows = nil
+	s.arrows, s.arrowParts, s.arrowFrom = nil, nil, nil
 end
 local function makeWorld(s)
 	clearWorld(s)
@@ -276,41 +283,66 @@ local function makeWorld(s)
 	l.Size, l.TextColor3 = UDim2.fromScale(1, 1), C.Style.Green
 	if not C.Arrows.Enabled then return end
 	s.world = make("Folder", { Name = "RookieDirections_Local" }, workspace)
-	s.arrows = {}
-	for i = 1, math.clamp(C.Arrows.Count, 1, 7) do
+	s.arrows, s.arrowParts = {}, {}
+	local count = math.clamp(math.max(C.Arrows.Count or 0, 6), 1, ARROW_SLOTS)
+	for i = 1, count do
 		local pair = {}
 		for j = 1, 2 do
 			pair[j] = make("Part", { Anchored = true, CanCollide = false, CanTouch = false,
 				CanQuery = false, CastShadow = false, Material = Enum.Material.Neon,
-				Color = C.Style.Green, Transparency = 1,
+				Color = C.Style.Green, Transparency = 1, Locked = true,
 				Size = Vector3.new(C.Arrows.Width, C.Arrows.Width, C.Arrows.Length) }, s.world)
+			table.insert(s.arrowParts, pair[j])
 		end
 		s.arrows[i] = pair
 	end
+	local cframes = table.create(#s.arrowParts)
+	s.arrowConn = RunService.RenderStepped:Connect(function(dt)
+		local root = s.arrowRoot
+		if not s.arrows or not root or not root.Parent or not s.target or not s.target.Parent then
+			for _, p in ipairs(s.arrowParts) do if p.Transparency ~= 1 then p.Transparency = 1 end end
+			return
+		end
+		local feet = root.Position - Vector3.new(0, 2.1, 0)
+		-- départ lissé : la file suit le joueur en douceur au lieu d'être vissée dessus
+		local k = 1 - math.exp(-math.min(dt, 0.1) * 10)
+		s.arrowFrom = s.arrowFrom and s.arrowFrom:Lerp(feet, k) or feet
+		local from = s.arrowFrom
+		local to = s.target.Position + Vector3.new(0, 1.2, 0)
+		local delta = to - from
+		local distance = delta.Magnitude
+		local direction = distance > 0.01 and delta.Unit or Vector3.new(0, 0, -1)
+		local side = direction:Cross(Vector3.new(0, 1, 0))
+		side = side.Magnitude < 0.01 and Vector3.new(1, 0, 0) or side.Unit
+		local spacing, len = C.Arrows.Spacing, C.Arrows.Length
+		local show = distance > C.ReachRadius * 0.55 and distance < C.MaxSaneDistance
+		local first = 3
+		local last = math.min(distance - 1.5, first + #s.arrows * spacing)
+		local flow = (os.clock() * C.Arrows.Speed) % spacing
+		local base = C.Arrows.Transparency
+		local n = 0
+		for i, pair in ipairs(s.arrows) do
+			local offset = first + (i - 1) * spacing + flow
+			-- fondu : entre en douceur près du joueur, sort en douceur au bout de la file
+			local fade = math.min((offset - first) / spacing, (last - offset) / spacing, 1)
+			local tr = (show and fade > 0) and (1 - (1 - base) * fade) or 1
+			local tip = from + direction * math.min(offset, distance)
+			for j, part in ipairs(pair) do
+				local t = math.floor(tr * 20 + 0.5) / 20         -- évite d'écrire à chaque image
+				if part.Transparency ~= t then part.Transparency = t end
+				local tail = tip - direction * (len * 0.72) + side * ((j == 1 and 1 or -1) * len * 0.70)
+				n += 1
+				cframes[n] = CFrame.lookAt((tip + tail) / 2, tip)
+			end
+		end
+		workspace:BulkMoveTo(s.arrowParts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
+	end)
 end
 local function updateWorld(s, root)
 	if not s.target or not s.target.Parent then return end
-	local from, to = root.Position - Vector3.new(0, 2.1, 0), s.target.Position + Vector3.new(0, 1.2, 0)
-	local delta = to - from
-	local distance = delta.Magnitude
-	local show = distance > C.ReachRadius * 0.55 and distance < C.MaxSaneDistance
+	s.arrowRoot = root
+	local distance = (s.target.Position - root.Position).Magnitude
 	if s.marker then s.marker.Enabled = distance < C.MaxSaneDistance end
-	if not s.arrows then return end
-	local direction = distance > 0.01 and delta.Unit or Vector3.new(0, 0, -1)
-	local side = direction:Cross(Vector3.new(0, 1, 0))
-	if side.Magnitude < 0.01 then side = Vector3.new(1, 0, 0) else side = side.Unit end
-	local flow = (os.clock() * C.Arrows.Speed) % C.Arrows.Spacing
-	for i, pair in ipairs(s.arrows) do
-		local offset = 3 + (i - 1) * C.Arrows.Spacing + flow
-		local tip = from + direction * math.min(offset, distance)
-		for j, part in ipairs(pair) do
-			part.Transparency = (show and offset < distance - 1) and C.Arrows.Transparency or 1
-			if part.Transparency < 1 then
-				local tail = tip - direction * (C.Arrows.Length * 0.72) + side * ((j == 1 and 1 or -1) * C.Arrows.Length * 0.70)
-				part.CFrame = CFrame.lookAt((tip + tail) / 2, tip)
-			end
-		end
-	end
 end
 
 refresh = function(s)
@@ -369,7 +401,16 @@ resolveShop = function(s)
 	if s.overlay then refresh(s) end
 end
 
+-- Stage enregistré du joueur (leaderstats.Stage). Le guide ne vise JAMAIS un
+-- checkpoint égal ou inférieur : seulement le suivant au-dessus.
+local function savedStage()
+	local ls = player:FindFirstChild("leaderstats")
+	local stage = ls and ls:FindFirstChild("Stage")
+	return stage and tonumber(stage.Value) or 0
+end
+
 nextCheckpoint = function(s, minimum)
+	minimum = math.max(minimum or 1, savedStage() + 1)
 	local index, target
 	for n, part in pairs(s.checkpoints) do
 		if n >= minimum and part:IsDescendantOf(workspace) and not s.flow.seen[n] and (not index or n < index) then
@@ -490,10 +531,35 @@ start = function(replay)
 				task.defer(resolveShop, s)
 			end
 		end)
+		nextCheckpoint(s, savedStage() + 1)
+		-- Le Stage arrive parfois après le début du guide (chargement des données),
+		-- ou le joueur saute plusieurs checkpoints : on vise toujours le suivant.
+		local function watchStage(stage)
+			connect(s, stage:GetPropertyChangedSignal("Value"), function()
+				if not alive(s) or s.flow.phase ~= "play" then return end
+				local cur = tonumber(stage.Value) or 0
+				if not s.flow.target or s.flow.target <= cur then
+					if s.flow.target and s.flow.target <= cur then reached(s, s.flow.target) end
+					if alive(s) and s.flow.phase == "play" then nextCheckpoint(s, cur + 1) end
+				end
+			end)
+		end
 		local ls = player:FindFirstChild("leaderstats")
-		local stage = ls and ls:FindFirstChild("Stage")
-		local index = stage and tonumber(stage.Value) or 1
-		nextCheckpoint(s, index > 1 and index + 1 or 1)
+		local stageValue = ls and ls:FindFirstChild("Stage")
+		if stageValue then
+			watchStage(stageValue)
+		else
+			task.spawn(function()
+				local l = player:WaitForChild("leaderstats", C.LoadTimeout)
+				local st = l and l:WaitForChild("Stage", C.LoadTimeout)
+				if st and alive(s) then
+					watchStage(st)
+					if s.flow.phase == "play" and (not s.flow.target or s.flow.target <= (tonumber(st.Value) or 0)) then
+						nextCheckpoint(s, (tonumber(st.Value) or 0) + 1)
+					end
+				end
+			end)
+		end
 		local bound = false
 		local function bindCheckpoint(ev)
 			if not bound and ev.Name == "CheckpointUpdated" and ev:IsA("RemoteEvent") then
@@ -527,6 +593,7 @@ start = function(replay)
 			local root = character and character:FindFirstChild("HumanoidRootPart")
 			local hum = character and character:FindFirstChildOfClass("Humanoid")
 			if not root or not hum or hum.Health <= 0 then
+				s.arrowRoot = nil       -- mort / respawn : la file se cache
 				if s.marker then s.marker.Enabled = false end
 				if s.arrows then for _, pair in ipairs(s.arrows) do for _, p in ipairs(pair) do p.Transparency = 1 end end end
 				return

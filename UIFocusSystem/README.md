@@ -12,6 +12,7 @@ extraits de tes `.rbxm`, corrigés. Dans Studio, ouvre le script du même nom et
 | `UI_FOCUS_CONFIG.lua` | StarterGui ▸ UIFocusSystem ▸ UI_FOCUS_CONFIG |
 | `Client_try_ugc.lua` | StarterGui ▸ UGCshop ▸ ShopFrame ▸ TRYUGCFrame ▸ TryUGC ▸ **Client try ugc** |
 | `../RookieGuide/RookieGuide.lua` | StarterPlayer ▸ StarterPlayerScripts ▸ RookieGuide |
+| `../JackScythe_Client` | StarterPlayer ▸ StarterPlayerScripts ▸ JackScythe_Client |
 
 ## Ce qui est corrigé
 

@@ -99,7 +99,8 @@ local function kickCamera()
 	if (D.FovKick or 0) > 0 then
 		fovKick.id += 1
 		local id = fovKick.id
-		if not fovKick.base then fovKick.base = cam.FieldOfView end
+		-- le FOV normal publié par UIFocusSystem (jamais une valeur en plein zoom de menu)
+		if not fovKick.base then fovKick.base = cam:GetAttribute("UIFocusNormalFOV") or cam.FieldOfView end
 		local base = fovKick.base
 		fovKick.peak = base + D.FovKick
 		TweenService:Create(cam, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { FieldOfView = fovKick.peak }):Play()
