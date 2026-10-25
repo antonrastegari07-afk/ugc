@@ -87,11 +87,11 @@ function S.Load(uid)
 	end
 	loading[uid] = true
 	local ok, v
-	for attempt = 1, 3 do
+	for attempt = 1, 5 do
 		ok, v = get("owner_" .. uid)
 		if ok then break end
-		warn(("⚠️ [Scythe] lecture %d/3 ratée pour %d : %s"):format(attempt, uid, tostring(v)))
-		task.wait(0.8 * attempt)
+		warn(("⚠️ [Scythe] lecture %d/5 ratée pour %d : %s"):format(attempt, uid, tostring(v)))
+		task.wait(math.min(1.5 * attempt, 5) + math.random())
 	end
 	loading[uid] = nil
 	if not ok then return false end
@@ -152,12 +152,13 @@ local granting = {}
 
 -- nouveau numéro (compteur atomique, stock vérifié DANS la même opération) puis écrit pour ce joueur.
 --  hold = true → seulement réservé (pas encore à lui). Renvoie rec | nil, "soldout" | nil, "error"
-local function allocate(player, hold)
+--  ignoreStock = true → faux DÉJÀ PAYÉE (palier acheté) : elle est due, même si le stock est épuisé depuis
+local function allocate(player, hold, ignoreStock)
 	local uid = player.UserId
 	local n, soldOut
 	local okC, errC = update("counter", function(old)
 		local cur = tonumber(old) or 0
-		if stockLimit and cur >= stockLimit then
+		if stockLimit and cur >= stockLimit and not ignoreStock then
 			soldOut, n = true, nil
 			return nil                                        -- annule l'écriture : plus de stock
 		end
@@ -242,7 +243,7 @@ function S.Grant(player, opts)
 		if validRecord(final) then final.hold = nil end
 	end
 	if not validRecord(final) then
-		local rec, why = allocate(player, false)
+		local rec, why = allocate(player, false, opts.ignoreStock == true)
 		if not rec then
 			granting[uid] = nil
 			return nil, why
@@ -271,6 +272,14 @@ end
 local TOOLS = ServerStorage:WaitForChild("JackScythe", 30)
 
 local function isScythe(t) return t and t:IsA("Tool") and t:GetAttribute("JackScythe") == true end
+
+-- ⚔️ en arène (PvP) : le système d'arène vide le sac → on ne donne rien, la faux est rendue à la sortie
+local function inArena(player)
+	if player:GetAttribute("InArena") == true then return true end
+	local pa = _G.PlayersInArena
+	return type(pa) == "table" and pa[player.UserId] ~= nil and pa[player.UserId] ~= false
+end
+S.InArena = inArena
 
 local function has(container)
 	if not container then return false end
@@ -305,6 +314,7 @@ function S.Deliver(player)
 	local rec = owners[player.UserId]
 	if not rec then return false end
 	pending[player.UserId] = nil
+	if inArena(player) then return true end          -- rendue automatiquement à la sortie de l'arène (S.Ensure)
 	local gear = player:FindFirstChild("StarterGear") or player:WaitForChild("StarterGear", 10)
 	if gear and not has(gear) then
 		local t = makeTool(rec)
@@ -319,6 +329,51 @@ function S.Deliver(player)
 end
 
 function S.IsPending(uid) return pending[uid] ~= nil end
+
+-- 🛡️ LA FAUX NE SE PERD JAMAIS : vérifiée en continu pour chaque propriétaire (hors arène)
+--    • exactement UNE dans StarterGear (revient à chaque réapparition)
+--    • exactement UNE dans le sac ou en main (rendue à la sortie du PvP, après un vidage du sac, etc.)
+--    Les doubles (arène qui « rend » la sienne, copie de StarterGear) sont retirés.
+local spawnedAt = {}       -- [uid] = os.clock() de la dernière apparition (Roblox recopie StarterGear juste après)
+
+local function collect(container, out)
+	if container then
+		for _, c in ipairs(container:GetChildren()) do if isScythe(c) then table.insert(out, c) end end
+	end
+	return out
+end
+
+function S.Ensure(player)
+	if Config.Enabled == false or not player.Parent then return end
+	local uid = player.UserId
+	local rec = owners[uid]
+	if not rec or pending[uid] or inArena(player) then return end
+	local gear = player:FindFirstChild("StarterGear")
+	if gear then
+		local g = collect(gear, {})
+		if #g == 0 then
+			local t = makeTool(rec)
+			if t then t.Parent = gear end
+		else
+			for i = 2, #g do g[i]:Destroy() end
+		end
+	end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local bp = player:FindFirstChildOfClass("Backpack")
+	if not (hum and hum.Health > 0 and bp) then return end
+	if os.clock() - (spawnedAt[uid] or 0) < 2 then return end      -- laisse Roblox recopier StarterGear d'abord
+	local held = collect(bp, collect(char, {}))                  -- celle en main d'abord : c'est elle qu'on garde
+	if #held == 0 then
+		local t = makeTool(rec)
+		if t then
+			t.Parent = bp
+			log("🔁 faux rendue à " .. player.Name)
+		end
+	else
+		for i = 2, #held do held[i]:Destroy() end
+	end
+end
 
 -- ════════════════════════════════════════════════════════════════
 -- 🦴 TENUE À DEUX MAINS : Motor6D « ScytheGrip » (Torso → Handle) pour que les animations bougent la faux
@@ -459,10 +514,26 @@ function S.Start()
 
 	local function onPlayer(player)
 		local uid = player.UserId
-		player.CharacterAdded:Connect(hookCharacter)
+		spawnedAt[uid] = os.clock()
+		player.CharacterAdded:Connect(function(char)
+			spawnedAt[uid] = os.clock()
+			hookCharacter(char)
+		end)
 		if player.Character then hookCharacter(player.Character) end
+		-- ⚔️ sortie du PvP : la faux revient tout de suite (l'arène a vidé le sac)
+		player:GetAttributeChangedSignal("InArena"):Connect(function()
+			if player:GetAttribute("InArena") == true then return end
+			for _, d in ipairs({ 0.5, 2, 4 }) do
+				task.delay(d, function() pcall(S.Ensure, player) end)
+			end
+		end)
 		task.spawn(function()
-			while player.Parent and not S.Load(uid) do task.wait(20) end
+			-- lecture ratée → on réessaie sans fin (jamais « pas de faux » à cause d'une panne DataStore)
+			local backoff = 3
+			while player.Parent and not S.Load(uid) do
+				task.wait(backoff)
+				backoff = math.min(backoff * 2, 30)
+			end
 			if player.Parent and owners[uid] and not pending[uid] then S.Deliver(player) end
 		end)
 	end
@@ -471,6 +542,19 @@ function S.Start()
 	Players.PlayerRemoving:Connect(function(p)
 		local uid = p.UserId
 		owners[uid], pending[uid], lastDash[uid], bucket[uid], strikes[uid], holds[uid] = nil, nil, nil, nil, nil, nil
+		spawnedAt[uid] = nil
+	end)
+
+	-- 🛡️ filet de sécurité : toutes les 2 s, chaque propriétaire hors arène a sa faux (sortie de PvP comprise,
+	--    même si ton arène ne met que _G.PlayersInArena et pas l'attribut InArena)
+	task.spawn(function()
+		while true do
+			task.wait(2)
+			for _, p in ipairs(Players:GetPlayers()) do
+				local ok, err = pcall(S.Ensure, p)
+				if not ok then warn("⚠️ [Scythe] vérification de la faux : " .. tostring(err)) end
+			end
+		end
 	end)
 
 	-- 🧪 Studio seulement : tester sans refaire les quêtes (Command Bar en vue « Server »)

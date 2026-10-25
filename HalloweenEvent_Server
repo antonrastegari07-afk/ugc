@@ -463,7 +463,8 @@ end
 local function giveScythe(player)
 	local svc = scytheService()
 	if not svc then warn("❌ [HalloweenEvent] JackScytheService introuvable : la faux sera donnée dès qu'il sera là") return nil end
-	local serial, gold = svc.Grant(player)
+	-- palier DÉJÀ PAYÉ : la faux est due même si le stock s'est épuisé entre-temps (ignoreStock)
+	local serial, gold = svc.Grant(player, { ignoreStock = true })
 	return serial, gold
 end
 
@@ -1720,7 +1721,11 @@ Players.PlayerRemoving:Connect(function(player)
 	local t0 = os.clock()
 	while st.busy and os.clock() - t0 < 15 do task.wait(0.2) end   -- un achat en cours finit d'abord
 	if st.d then
-		if not save(uid, true) then task.wait(2) save(uid, true) end
+		-- dernière sauvegarde : retentée (DataStore saturé au reset des serveurs), sauf si un autre serveur a la main
+		for attempt = 1, 5 do
+			if save(uid, true) or st.frozen then break end
+			task.wait(math.min(2 * attempt, 6) + math.random())
+		end
 	end
 	P[uid], motion[uid], lastPick[uid], rerollTarget[uid], viewDue[uid], lastState[uid] = nil, nil, nil, nil, nil, nil
 	for k in pairs(buckets) do if k:match("^" .. uid .. "_") then buckets[k] = nil end end
@@ -1750,7 +1755,10 @@ game:BindToClose(function()
 			task.spawn(function()
 				local t1 = os.clock()
 				while st.busy and os.clock() - t1 < 10 do task.wait(0.2) end
-				save(uid, true)
+				for attempt = 1, 4 do
+					if save(uid, true) or st.frozen then break end
+					task.wait(1 + math.random())
+				end
 				n -= 1
 			end)
 		end
