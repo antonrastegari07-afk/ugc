@@ -1712,15 +1712,26 @@ Lighting.DescendantAdded:Connect(function()
 	end
 end)
 
--- FPS / Ping
+-- FPS / Ping : compact, sans fond (FPS · icône perf · PING)
 local hud = new("ScreenGui", { Name = "PerfHud", ResetOnSpawn = false, IgnoreGuiInset = true,
 	DisplayOrder = 90, Enabled = false }, playerGui)
-local hudLbl = new("TextLabel", {
-	AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -10), Size = UDim2.fromOffset(170, 28),
-	BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, Font = Enum.Font.FredokaOne, TextSize = 14,
-	TextColor3 = T.White, Text = "FPS --  ·  PING -- ms",
+local hudRow = new("Frame", {
+	AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -8), Size = UDim2.fromOffset(0, 18),
+	AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1,
 }, hud)
-corner(hudLbl, 8)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder,
+	VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 4) }, hudRow)
+local function hudText(order, txt)
+	return new("TextLabel", {
+		LayoutOrder = order, Size = UDim2.fromOffset(0, 18), AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 1, Font = Enum.Font.FredokaOne, TextSize = 13, TextColor3 = T.White,
+		TextStrokeTransparency = 0.4, TextStrokeColor3 = Color3.new(0, 0, 0), Text = txt,
+	}, hudRow)
+end
+local hudLbl = hudText(1, "FPS --")
+new("ImageLabel", { LayoutOrder = 2, Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1,
+	Image = "rbxassetid://127390072755648", ScaleType = Enum.ScaleType.Fit }, hudRow)
+local hudPing = hudText(3, "PING -- ms")
 appliers.SettingPerfStats = function(v) hud.Enabled = (v == true) end
 
 local function toast(head, body)
@@ -1736,13 +1747,13 @@ local function toast(head, body)
 end
 
 -- Ping réel côté joueur (l'ancien compteur "Data Ping" n'existe que côté serveur → toujours 0)
---   1) même valeur que Shift+F3 (PerformanceStats.Ping, en ms)
---   2) secours : GetNetworkPing() (secondes, aller simple) → aller-retour en ms
+--   GetNetworkPing() renvoie déjà l'aller-retour (en secondes) → ×1000 pour des ms
+--   (avant on faisait ×2000 → ping affiché exactement doublé)
 local function readPing()
-	local ok, v = pcall(function() return StatsService.PerformanceStats.Ping:GetValue() end)
-	if ok and type(v) == "number" and v > 0 then return math.floor(v + 0.5) end
-	local ok2, v2 = pcall(function() return player:GetNetworkPing() end)
-	if ok2 and type(v2) == "number" then return math.floor(v2 * 2000 + 0.5) end
+	local ok, v = pcall(function() return player:GetNetworkPing() end)
+	if ok and type(v) == "number" and v > 0 then return math.floor(v * 1000 + 0.5) end
+	local ok2, v2 = pcall(function() return StatsService.PerformanceStats.Ping:GetValue() end)
+	if ok2 and type(v2) == "number" then return math.floor(v2 + 0.5) end
 	return 0
 end
 
@@ -1755,7 +1766,9 @@ task.spawn(function()
 		frames = 0
 		if hud.Enabled then
 			local ping = readPing()
-			hudLbl.Text = string.format("FPS %d  ·  PING %d ms", fps, ping)
+			hudLbl.Text = string.format("FPS %d", fps)
+			hudPing.Text = string.format("PING %d ms", ping)
+			hudPing.TextColor3 = (ping <= 120 and GOOD) or (ping <= 250 and WARN) or BAD
 			hudLbl.TextColor3 = (fps >= 45 and GOOD) or (fps >= 25 and WARN) or BAD
 		end
 		if loaded and not autoDone and get("SettingAutoPerf") == true
