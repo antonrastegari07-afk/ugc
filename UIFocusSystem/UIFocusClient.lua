@@ -26,6 +26,7 @@ local effects = Effects.new(C, {
 	TweenService = game:GetService("TweenService"),
 	StarterGui = game:GetService("StarterGui"),
 	Lighting = game:GetService("Lighting"),
+	RunService = RunService,
 })
 -- Verrou de caméra séparé du choix du menu : un menu ouvert par script
 -- ne peut pas réintroduire le flou/zoom pendant les checkpoints du guide.

@@ -62,7 +62,8 @@ function Effects:_watchCamera()
 			local normal = self.normalFOV
 			local offset = math.min(self.config.Zoom.FOVOffset or -10, 0)
 			if normal and value < normal - 0.3 and value >= normal + offset - 0.5 then
-				cam.FieldOfView = normal
+				self.services.TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad,
+					Enum.EasingDirection.Out), { FieldOfView = normal }):Play()
 				return
 			end
 			self.normalFOV = self:_clampFOV(value)
@@ -139,11 +140,47 @@ function Effects:_release()
 	self.session = nil
 	session.version = session.version + 1
 	if session.blurTween then session.blurTween:Cancel() end
-	if session.fovTween then session.fovTween:Cancel() end
+	if session.fovBound then
+		session.fovBound = false
+		pcall(function() self.services.RunService:UnbindFromRenderStep(session.fovBindName) end)
+	end
 	if session.zoomControlled then
 		pcall(function() session.camera.FieldOfView = session.baseFOV end)
 	end
 	if session.blur then session.blur:Destroy() end
+end
+
+-- 🎥 Le FOV n'est plus animé par un Tween : un autre script (dash de la faux,
+--    cinématique…) pouvait l'annuler en plein milieu, et le FOV restait coincé
+--    (62.6 au lieu de 70) puis se remettait d'un coup après la fermeture.
+--    UIFocus écrit lui-même le FOV à CHAQUE image, juste avant le rendu, tant que
+--    le menu est ouvert et pendant la fermeture : personne ne peut le couper,
+--    l'animation est toujours fluide et finit exactement sur la bonne valeur.
+local fovBindSerial = 0
+function Effects:_driveFOV(session, to, duration, onDone)
+	local cam = session.camera
+	session.fovFrom = session.fovLast or cam.FieldOfView
+	session.fovTo = to
+	session.fovT0 = os.clock()
+	session.fovDur = math.max(0, duration)
+	session.fovOnDone = onDone
+	session.fovFired = false
+	if session.fovBound then return end
+	fovBindSerial += 1
+	session.fovBindName = "UIFocusFOV_" .. fovBindSerial
+	session.fovBound = true
+	self.services.RunService:BindToRenderStep(session.fovBindName, Enum.RenderPriority.Camera.Value + 5, function()
+		if not cam.Parent then return end
+		local a = session.fovDur > 0 and math.clamp((os.clock() - session.fovT0) / session.fovDur, 0, 1) or 1
+		local e = 1 - (1 - a) * (1 - a)                        -- Quad Out, comme avant
+		local v = session.fovFrom + (session.fovTo - session.fovFrom) * e
+		if cam.FieldOfView ~= v then cam.FieldOfView = v end
+		session.fovLast = v
+		if a >= 1 and not session.fovFired then
+			session.fovFired = true
+			if session.fovOnDone then session.fovOnDone() end
+		end
+	end)
 end
 
 function Effects:_animate()
@@ -165,7 +202,6 @@ function Effects:_animate()
 	session.version = session.version + 1
 	local version = session.version
 	if session.blurTween then session.blurTween:Cancel() end
-	if session.fovTween then session.fovTween:Cancel() end
 	local open = self.menu ~= nil
 	local blurConfig, zoomConfig = self.config.Blur, self.config.Zoom
 	local pending = 2
@@ -212,8 +248,8 @@ function Effects:_animate()
 		fov = self:_clampFOV(session.baseFOV + offset)
 	end
 	if session.zoomControlled then
-		session.fovTween = animate(cam, "FieldOfView", fov,
-			math.max(0, (open and zoomConfig.OpenTime or zoomConfig.CloseTime) or 0))
+		self:_driveFOV(session, fov,
+			math.max(0, (open and zoomConfig.OpenTime or zoomConfig.CloseTime) or 0), done)
 	else done() end
 
 	-- 🩹 Fermeture : on ne dépend plus de la fin « normale » de l'animation. Si un

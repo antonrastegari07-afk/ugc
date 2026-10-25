@@ -16,6 +16,20 @@ local Geometry = require(script:WaitForChild("SpotlightGeometry"))
 if _G.__RookieGuideLoaded then return end
 _G.__RookieGuideLoaded = true
 
+-- 📝 Textes de la fin du guide (boutique ouverte). Courts et EXACTS :
+--    ce sont de vrais objets d'avatar Roblox, obtenus avec des points gagnés
+--    en jouant, confirmés par la fenêtre officielle de Roblox, rangés dans
+--    l'inventaire Roblox. Aucune promesse de gratuité, de Robux ou de gain garanti.
+--    (modifiables dans RookieConfig.Text : InfoTitle / InfoBody / InfoNote / InfoClose)
+local INFO_TEXT = {
+	InfoTitle = "UGC ITEMS FOR YOUR AVATAR",
+	InfoBody  = "Earn points by playing, then spend them here on Roblox avatar items.",
+	InfoNote  = "Confirm the Roblox prompt and the item goes to your Roblox inventory. Limited stock.",
+	InfoClose = "Close the shop with the X to keep playing.",
+}
+local function infoText(key) return (C.Text and C.Text[key]) or INFO_TEXT[key] end
+local INFO_AUTO_FINISH = 25   -- s : sans action, le guide se termine tout seul (boutique laissée ouverte)
+
 local generation, current, disposed = 0, nil, false
 local start, finish, refresh, nextCheckpoint, resolveShop, setSpotlight
 local SKIP_ACTION = "RookieGuideSkip"
@@ -63,7 +77,10 @@ end
 
 -- Découpe, arrondi, halo et flèche du tutoriel ; les lettres ont leur contour.
 -- Recalcul seulement quand la cible/la taille d'écran change, coalescé.
-setSpotlight = function(s, target, clickable)
+-- opts.extra = objets à inclure dans le cadre vert (ex. le X de la boutique)
+-- opts.noDim = true → pas de voile noir : rien ne bloque les clics autour
+setSpotlight = function(s, target, clickable, opts)
+	opts = opts or {}
 	disconnect(s.spotConnections)
 	s.spotVersion = (s.spotVersion or 0) + 1
 	local version, queued = s.spotVersion, false
@@ -78,11 +95,20 @@ setSpotlight = function(s, target, clickable)
 		local rect
 		if valid then
 			local p, z, margin = o.AbsolutePosition - origin, o.AbsoluteSize, C.Style.HolePadding
-			rect = Geometry.layout(w, h, p.X, p.Y, z.X, z.Y, margin,
+			-- le cadre englobe aussi les objets « extra » visibles (le X qui dépasse)
+			local x0, y0, x1, y1 = p.X, p.Y, p.X + z.X, p.Y + z.Y
+			for _, e in ipairs(opts.extra or {}) do
+				if e and e.Parent and e.Visible and e.AbsoluteSize.X > 1 then
+					local ep = e.AbsolutePosition - origin
+					x0, y0 = math.min(x0, ep.X), math.min(y0, ep.Y)
+					x1, y1 = math.max(x1, ep.X + e.AbsoluteSize.X), math.max(y1, ep.Y + e.AbsoluteSize.Y)
+				end
+			end
+			rect = Geometry.layout(w, h, x0, y0, x1 - x0, y1 - y0, margin,
 				C.Style.HoleCornerRadius, s.cornerSteps)
 			valid = rect ~= nil
 		end
-		for _, block in ipairs(s.blocks) do block.Visible = valid end
+		for _, block in ipairs(s.blocks) do block.Visible = valid and not opts.noDim end
 		s.border.Visible, s.proxy.Visible = valid, valid and clickable == true
 		s.arrowAnchor.Visible = valid and clickable == true
 		if valid ~= s.spotShown then
@@ -134,6 +160,11 @@ setSpotlight = function(s, target, clickable)
 		watch(target, "AbsoluteSize")
 		watch(target, "Visible")
 		table.insert(s.spotConnections, target.AncestryChanged:Connect(queue))
+	end
+	for _, e in ipairs(opts.extra or {}) do
+		watch(e, "AbsolutePosition")
+		watch(e, "AbsoluteSize")
+		watch(e, "Visible")
 	end
 	layout()
 end
@@ -216,22 +247,23 @@ local function buildUI(s)
 		label.TextScaled = true
 		make("UITextSizeConstraint", { MinTextSize = 22, MaxTextSize = C.Style.MaxTextSize }, label)
 	end
-	s.detail = text(s.message, C.Text.InventoryBody, 18)
-	s.detail.Position, s.detail.Size = UDim2.fromOffset(14, 62), UDim2.new(1, -28, 0, 66)
+	s.detail = text(s.message, infoText("InfoBody"), 24)
 	s.detail.Visible = false
 	s.detail.TextScaled = true
-	make("UITextSizeConstraint", { MinTextSize = 14, MaxTextSize = 18 }, s.detail)
-	s.note = text(s.message, C.Text.InventoryNote, 13)
-	s.note.TextColor3 = Color3.fromRGB(210, 214, 218)
-	s.note.Position, s.note.Size = UDim2.fromOffset(12, 130), UDim2.new(1, -24, 0, 32)
+	make("UITextSizeConstraint", { MinTextSize = 17, MaxTextSize = 24 }, s.detail)
+	s.note = text(s.message, infoText("InfoNote"), 20)
+	s.note.TextColor3 = Color3.fromRGB(225, 228, 232)
 	s.note.Visible = false
-	s.done = button(s.message, C.Text.Finish)
-	s.done.BackgroundColor3, s.done.TextColor3 = C.Style.Green, Color3.fromRGB(10, 25, 16)
-	s.done.AnchorPoint, s.done.Position = Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -10)
-	s.done.Visible = false
+	s.note.TextScaled = true
+	make("UITextSizeConstraint", { MinTextSize = 15, MaxTextSize = 20 }, s.note)
+	-- consigne de sortie, en vert : fermer avec le X = continuer à jouer
+	s.closeHint = text(s.message, infoText("InfoClose"), 22)
+	s.closeHint.TextColor3 = C.Style.Green
+	s.closeHint.Visible = false
+	s.closeHint.TextScaled = true
+	make("UITextSizeConstraint", { MinTextSize = 16, MaxTextSize = 22 }, s.closeHint)
 	s.proxy.NextSelectionDown, s.skip.NextSelectionDown = s.skip, s.proxy
 	connect(s, s.skip.Activated, function() finish(s, true) end)
-	connect(s, s.done.Activated, function() finish(s, true) end)
 	connect(s, s.proxy.Activated, function()
 		if not alive(s) or s.flow.phase ~= "shop" or not s.shopPanel then return end
 		s.shopPanel.Visible = true
@@ -244,7 +276,7 @@ local function buildUI(s)
 		if pad then
 			pcall(function() s.padIcon.Image = UIS:GetImageForKeyCode(C.SkipGamepadKey) end)
 			if s.flow.phase == "shop" and s.proxy.Visible then GS.SelectedObject = s.proxy
-			elseif s.flow.phase == "info" then GS.SelectedObject = s.done end
+			elseif s.flow.phase == "info" then GS.SelectedObject = s.closeButton or s.skip end
 		end
 	end
 	connect(s, UIS.LastInputTypeChanged, inputHint)
@@ -349,24 +381,32 @@ refresh = function(s)
 	if not alive(s) then return end
 	local phase = s.flow.phase
 	pg:SetAttribute("RookieGuidePhase", phase)
-	local message = phase == "info" and C.Text.InventoryTitle or phase == "shop" and C.Text.Shop
+	local message = phase == "info" and infoText("InfoTitle") or phase == "shop" and C.Text.Shop
 		or (not s.target and C.Text.Waiting) or (s.flow.reached == 0 and C.Text.First or C.Text.Next)
 	s.title.Text = message
 	local info = phase == "info"
-	s.detail.Visible, s.note.Visible, s.done.Visible = info, info, info
+	s.detail.Visible, s.note.Visible, s.closeHint.Visible = info, info, info
 	local compact = s.safe.AbsoluteSize.Y < 360 and s.safe.AbsoluteSize.X > 480
-	local height = info and (compact and 180 or 238) or 100
+	local height = info and (compact and 170 or 236) or 100
 	s.message.Size = UDim2.new(1, -24, 0, height)
 	local titleHeight = info and (compact and 36 or 46) or 72
 	s.title.Size = UDim2.new(1, -24, 0, titleHeight)
 	if info then
 		clearWorld(s)
-		s.detail.Position, s.detail.Size = UDim2.fromOffset(14, compact and 46 or 62), UDim2.new(1, -28, 0, compact and 44 or 82)
-		s.note.Position, s.note.Size = UDim2.fromOffset(12, compact and 90 or 146), UDim2.new(1, -24, 0, compact and 24 or 32)
+		s.detail.Position, s.detail.Size = UDim2.fromOffset(14, compact and 40 or 58), UDim2.new(1, -28, 0, compact and 50 or 66)
+		s.note.Position, s.note.Size = UDim2.fromOffset(14, compact and 92 or 128), UDim2.new(1, -28, 0, compact and 34 or 52)
+		s.closeHint.Position, s.closeHint.Size = UDim2.fromOffset(14, compact and 130 or 186), UDim2.new(1, -28, 0, compact and 30 or 38)
 		s.message.AnchorPoint, s.message.Position = Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -12)
-		s.skip.NextSelectionDown, s.done.NextSelectionUp = s.done, s.skip
-		setSpotlight(s, s.shopPanel, false)
-		if padActive() then GS.SelectedObject = s.done end
+		-- cadre vert autour de la boutique ET de son X ; aucun voile : tout reste cliquable
+		setSpotlight(s, s.shopPanel, false, { extra = { s.closeButton }, noDim = true })
+		if padActive() then GS.SelectedObject = s.closeButton or s.skip end
+		-- ⏱️ se termine tout seul si le joueur ne fait rien (la boutique reste ouverte)
+		if not s.infoTimer then
+			s.infoTimer = true
+			task.delay(INFO_AUTO_FINISH, function()
+				if alive(s) and s.flow.phase == "info" then finish(s, true, true) end
+			end)
+		end
 	elseif phase == "shop" then
 		clearWorld(s)
 		setSpotlight(s, s.shopButton, true)
@@ -385,6 +425,9 @@ resolveShop = function(s)
 	if not changed then return end
 	disconnect(s.shopConnections)
 	s.shopGui, s.shopPanel, s.shopButton = gui, panel, opener
+	-- le X rouge de la boutique (UGCshop ▸ ShopFrame ▸ ShopToggle), inclus dans le cadre vert
+	local close = gui and findPath(gui, (C.UGC and C.UGC.ClosePath) or { "ShopFrame", "ShopToggle" })
+	s.closeButton = (close and close:IsA("GuiObject")) and close or nil
 	if panel then
 		local function opened()
 			if not alive(s) then return end
@@ -438,9 +481,12 @@ local function reached(s, index)
 	else nextCheckpoint(s, index + 1) end
 end
 
-finish = function(s, mark)
+-- keepShop = true → la boutique reste ouverte (fin automatique, ou SKIP pendant la boutique)
+finish = function(s, mark, keepShop)
 	if not alive(s) then return end
 	s.finished = true
+	-- SKIP pendant la boutique : on ne referme pas ce que le joueur regarde
+	if s.flow.phase == "info" then keepShop = true end
 	s.flow:Finish()
 	generation = generation + 1
 	CAS:UnbindAction(SKIP_ACTION)
@@ -450,7 +496,7 @@ finish = function(s, mark)
 	if s.haloTween then s.haloTween:Cancel() end
 	if s.arrowTween then s.arrowTween:Cancel() end
 	clearWorld(s)
-	if C.CloseShopOnFinish and s.openedShop and s.shopPanel and s.shopPanel.Parent then s.shopPanel.Visible = false end
+	if not keepShop and C.CloseShopOnFinish and s.openedShop and s.shopPanel and s.shopPanel.Parent then s.shopPanel.Visible = false end
 	local selected = GS.SelectedObject
 	if selected and ((s.overlay and selected:IsDescendantOf(s.overlay)) or (s.hud and selected:IsDescendantOf(s.hud))) then
 		GS.SelectedObject = s.previousSelection and s.previousSelection.Parent and s.previousSelection or nil

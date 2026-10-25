@@ -54,3 +54,22 @@ côtés, derrière le texte. Opacité réglable : ajoute
   TryUGC ▸ Client try ugc.
 - `JackCinematics` et `NpcDialog_Client` ne sont pas dans les fichiers fournis.
   S'ils changent le FOV, ils doivent le remettre eux-mêmes à la fin.
+
+## Mise à jour : FOV sans saut, fin du guide sans friction
+
+**FOV.** Le FOV n'est plus animé par un Tween (qu'un autre script, comme le
+dash de la faux, pouvait couper en plein milieu). UIFocus écrit lui-même le FOV
+à chaque image, juste avant le rendu, pendant l'ouverture, tant que le menu est
+ouvert, et pendant la fermeture. L'animation est fluide et finit exactement sur
+le FOV normal : plus de correction visible après la fermeture.
+
+**Fin du Rookie Guide (boutique ouverte).**
+- Plus de bouton PLAY.
+- Le cadre vert entoure la boutique ET son X rouge (UGCshop ▸ ShopFrame ▸ ShopToggle).
+- Plus de voile noir à cette étape : rien ne bloque les clics.
+- Le guide se termine dès que le joueur ferme la boutique avec le X, avec SKIP
+  (la boutique reste ouverte), ou tout seul après 25 s (la boutique reste ouverte).
+- Textes plus grands, courts et exacts. Modifiables dans RookieConfig.Text :
+  `InfoTitle`, `InfoBody`, `InfoNote`, `InfoClose`.
+- Si le X de ta boutique n'est pas `ShopFrame ▸ ShopToggle`, ajoute dans
+  RookieConfig.UGC : `ClosePath = { "ShopFrame", "NomDuBouton" }`.
