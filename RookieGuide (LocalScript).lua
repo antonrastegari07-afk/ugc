@@ -13,8 +13,14 @@ local pg = player:WaitForChild("PlayerGui")
 local C = require(script:WaitForChild("RookieConfig"))
 local Flow = require(script:WaitForChild("GuideFlow"))
 local Geometry = require(script:WaitForChild("SpotlightGeometry"))
-if _G.__RookieGuideLoaded then return end
-_G.__RookieGuideLoaded = true
+local VERSION = "v5 (bande noire derrière les textes)"
+if _G.__RookieGuideLoaded then
+	warn("[RookieGuide] Copie IGNORÉE (" .. VERSION .. ") : un autre RookieGuide tourne déjà ("
+		.. tostring(_G.__RookieGuideLoaded) .. "). Supprime l'ancienne copie.")
+	return
+end
+_G.__RookieGuideLoaded = VERSION
+print("[RookieGuide] " .. VERSION .. " : " .. script:GetFullName())
 -- État lu par le How to Play : "pending" -> "running" -> "done".
 -- Le How to Play ne s'affiche qu'une fois le guide terminé (ou pas nécessaire).
 pg:SetAttribute("RookieGuideState", "pending")
@@ -206,7 +212,7 @@ local function buildUI(s)
 		Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, 160, 1, 12),
 		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0,
 		BorderSizePixel = 0, Active = false, ZIndex = 4 }, s.message)
-	local dim = C.Style.TextBackdropTransparency or 0.45
+	local dim = C.Style.TextBackdropTransparency or 0.35
 	make("UIGradient", { Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 1),
 		NumberSequenceKeypoint.new(0.22, dim),
