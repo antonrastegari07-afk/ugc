@@ -21,10 +21,11 @@ R={
  'smoke2':(0.0,0.0,0.25,0.25),'smoke3':(0.25,0.0,0.5,0.25),
  'cork':(0.5,0.0,0.75,0.125),
  'cork_top':(0.5,0.75,0.625,0.875),
+ 'outer_top':(0.5,0.5,1.0,0.625),'outer_base':(0.5,0.625,1.0,0.75),'puff':(0.875,0.75,1.0,0.875),
  'outline':(0.625,0.75,0.75,0.875),'outline_cap':(0.75,0.75,0.875,0.875),
  'band0':(0.75,0.0,1.0,0.0625),'band1':(0.75,0.0625,1.0,0.125),
 }
-PART_IDS={k:i for i,k in enumerate(['inner','glow','smoke0','smoke1','smoke2','smoke3','ghost','sparkle','cork','band0','band1','outer','outline'])}
+PART_IDS={k:i for i,k in enumerate(['inner','glow','smoke0','smoke1','smoke2','smoke3','ghost','sparkle','cork','band0','band1','outer','outline','puff'])}
 def rmap(rect,u,v):
     u0,v0,u1,v1=rect
     return (u0+PAD+(u1-u0-2*PAD)*u, v0+PAD+(v1-v0-2*PAD)*v)
@@ -148,10 +149,30 @@ def ghost_deform(th,i,r,z):
 C={n:coll(n) for n in ['Jar_Outer','Jar_Inner_Inverted','Ghost','Smoke_Layers','Glow_Dome_Inverted','Cork','Sparkles','Ghost_Outline_Inverted','GhostJar_UGC']}
 parts=[]
 parts.append(('inner',build('Jar_Inner_Inverted',C['Jar_Inner_Inverted'],lambda bm,uvl:(lathe(bm,uvl,INNER,28,R['inner'],invert=True)))))
-parts.append(('glow',build('Glow_Dome_Inverted',C['Glow_Dome_Inverted'],lambda bm,uvl:lathe(bm,uvl,GLOW,24,R['glow'],invert=True))))
-smk=[(0.366,0.11,0.07,0.02),(0.368,0.16,0.09,0.028),(0.370,0.21,0.12,0.032),(0.372,0.25,0.15,0.035)]
-for k,(r0,zc,ze,amp) in enumerate(smk):
-    parts.append((f'smoke{k}',build(f'Smoke_Layer_{k}',C['Smoke_Layers'],lambda bm,uvl,r0=r0,zc=zc,ze=ze,amp=amp,k=k:disc_dome(bm,uvl,r0,zc,ze,20,3,R[f'smoke{k}'],k,amp))))
+parts.append(('smoke0',build('Smoke_Mound',C['Smoke_Layers'],lambda bm,uvl:disc_dome(bm,uvl,0.373,0.185,0.15,24,4,R['smoke0'],1,0.028))))
+def puff_fn(bm,uvl):
+    rng=np.random.default_rng(3)
+    for k in range(7):
+        a=2*math.pi*k/7+rng.uniform(-0.3,0.3); rr=rng.uniform(0.17,0.27)
+        cx,cy=rr*math.cos(a),rr*math.sin(a); rad=rng.uniform(0.07,0.10); cz=0.165+rng.uniform(0,0.03)
+        ring=[]
+        for i in range(1,4):
+            ph=math.pi*i/4; row=[]
+            for j in range(8):
+                th=2*math.pi*j/8
+                row.append(bm.verts.new(((cx+rad*math.sin(ph)*math.cos(th))*SC,(cy+rad*math.sin(ph)*math.sin(th))*SC,(cz+0.6*rad*math.cos(ph))*SC)))
+            ring.append(row)
+        top=bm.verts.new((cx*SC,cy*SC,(cz+0.6*rad)*SC)); bot=bm.verts.new((cx*SC,cy*SC,(cz-0.6*rad)*SC))
+        def F(vs):
+            f=bm.faces.new(vs); f.smooth=True
+            for lp in f.loops:
+                p=lp.vert.co; lp[uvl].uv=rmap(R['puff'],0.5+(p.x/SC-cx)/(2.2*rad),0.5+(p.y/SC-cy)/(2.2*rad))
+        for j in range(8):
+            j1=(j+1)%8
+            F([top,ring[0][j],ring[0][j1]])
+            for i in range(2): F([ring[i][j],ring[i+1][j],ring[i+1][j1],ring[i][j1]])
+            F([bot,ring[2][j1],ring[2][j]])
+parts.append(('puff',build('Smoke_Puffs',C['Smoke_Layers'],puff_fn)))
 OFF=0.012
 GH_OUT=[(0,GH[0][1]+OFF)]+[(r+OFF,z+OFF*0.5) for r,z in GH[1:-1]]+[(GH[-1][0]+OFF,GH[-1][1]-OFF)]
 def outline_fn(bm,uvl):
@@ -173,9 +194,10 @@ parts.append(('cork',build('Cork',C['Cork'],cork_fn)))
 def band(z0,z1,r_in,r_out,rect):
     prof=[(r_in,z0),(r_out,z0+0.008),(r_out,z1-0.008),(r_in,z1),(r_in,z0)]
     return lambda bm,uvl: lathe(bm,uvl,prof,24,rect)
-def outer_fn(bm,uvl):
-    lathe(bm,uvl,OUTER,32,R['outer'])
-parts.append(('outer',build('Jar_Outer',C['Jar_Outer'],outer_fn)))
+OUTER_TOP=[(0.205,1.008),(0.228,0.995),(0.222,0.975),(0.194,0.965),(0.192,0.93),(0.200,0.895),(0.235,0.87),(0.30,0.835),(0.36,0.78),(0.386,0.725),(0.392,0.70),(0.362,0.70)]
+OUTER_BASE=[(0.376,0.10),(0.392,0.10),(0.390,0.04),(0.365,0.008),(0.30,0.0),(0,0.0)]
+parts.append(('outer',build('Jar_Outer_Top',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,OUTER_TOP,32,R['outer_top']))))
+parts.append(('outer',build('Jar_Outer_Base',C['Jar_Outer'],lambda bm,uvl:lathe(bm,uvl,OUTER_BASE,32,R['outer_base']))))
 
 # ---------- final fused mesh, in draw order (back -> front) ----------
 fin=new_obj('GhostJar_UGC',C['GhostJar_UGC']); bm=bmesh.new()

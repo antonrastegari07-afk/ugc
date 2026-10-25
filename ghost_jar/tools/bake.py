@@ -27,38 +27,36 @@ def put(m,c=None,a=None,mt=None,r=None,e=None,hh=None):
     for arr,v in ((A,a),(met,mt),(rgh,r),(em,e),(h,hh)):
         if v is not None: arr[m]=v[m] if np.ndim(v) else v
 cyan=np.array([0.50,0.91,1.0])
-# ---- outer glass (11)
+# ---- outer opaque glass rim / shoulder / base (11)
 m=k==11
 st=lambda c,w: np.exp(-((az-c)/w)**2)
-stripes=(0.75*st(-46,4)+0.9*st(-34,1.4)+0.6*st(40,2.2)+0.35*st(54,5)+0.5*st(-140,6))*ss(0.08,0.16,z)*(1-ss(0.62,0.70,z))
-arc=np.exp(-((az+38)/24)**2)*np.exp(-((z-0.765)/0.018)**2)
-basel=np.exp(-((z-0.045)/0.010)**2)*(0.5+0.5*np.exp(-((az+40)/40)**2))
+hl=np.clip(0.55*st(-44,5)+0.8*st(-32,1.6)+0.7*st(40,2.2)+0.5*st(-140,6),0,1)
+arc=np.exp(-((az+38)/26)**2)*np.exp(-((z-0.76)/0.02)**2)
 lipl=np.exp(-((z-0.985)/0.008)**2)
-stripes=np.clip(stripes+0.9*arc+0.7*basel+0.6*lipl,0,1)
-shoulder=ss(0.70,0.86,z); base=1-ss(0.03,0.07,z); lip=ss(0.955,0.975,z)
-a_out=np.clip(0.025+0.10*shoulder+0.30*base+0.12*lip+0.85*stripes,0,0.95)
-c_out=np.array([0.14,0.20,0.25])*(1-stripes[:,None])+np.array([1,1,1])*stripes[:,None]
-c_out=c_out*(1-base[:,None]*0.5)+cyan*base[:,None]*0.5
-put(m,c_out,a_out,0.0,0.05,0.35*base*(1-stripes),0.02*fbm(p*6,2,3)+0.3*lip)
-# ---- inner inverted glass (0)
+base=1-ss(0.02,0.10,z)
+hl=np.clip(hl+arc+0.8*lipl,0,1)
+glass=np.array([0.10,0.17,0.22])*(0.85+0.15*fbm(p*5,2,4)[:,None])
+glass=glass*(1-base[:,None])+np.array([0.30,0.75,0.90])*base[:,None]
+c_out=glass*(1-0.85*hl[:,None])+np.ones(3)*0.85*hl[:,None]
+put(m,c_out,1.0,0.0,0.06,0.45*base*(1-hl),0.03*fbm(p*6,2,3)+0.3*lipl)
+# ---- inner inverted wall = visible back glass (0)
 m=k==0
-low=1-ss(0.06,0.38,z); fl=z<0.065
-put(m,np.array([0.20,0.45,0.55]),np.clip(0.025+0.16*low+0.15*fl,0,1),0.0,0.05,0.6*low+0.3*fl,0.0)
-# ---- glow inverted cylinder (1)
-m=k==1
-g=(1-ss(0.06,0.42,z))
-put(m,np.array([0.55,0.93,1.0]),0.30*g**1.6,0.0,0.3,0.75*g,0.0)
+low=1-ss(0.08,0.40,z)
+hl2=np.clip(0.8*st(150,4)+0.6*st(162,1.5)+0.6*st(-150,3)+0.5*st(25,3)+0.5*st(-25,2),0,1)*ss(0.12,0.2,z)*(1-ss(0.6,0.68,z))
+wall=np.array([0.07,0.12,0.16])*(1-low[:,None])+np.array([0.35,0.85,0.98])*low[:,None]
+wall=wall*(1-0.75*hl2[:,None])+np.array([0.85,0.95,1.0])*0.75*hl2[:,None]
+put(m,wall,1.0,0.0,0.06,0.5*low**1.5,0.0)
 # ---- smoke layers (2..5)
-for L,(dens,emv) in enumerate([(0.95,1.0),(0.8,0.95),(0.62,0.85),(0.45,0.75)]):
-    m=k==2+L
+for L,(dens,emv) in enumerate([(1.0,1.0),(1.0,0.9)]):
+    m=k==(2 if L==0 else 13)
     if not m.any(): continue
     q=p[m]
     sw=fbm(q*np.array([7,7,7])+L*3.1,4,10+L)
     wisps=np.abs(np.sin((fbm(q*4+L,3,30)*9)))
     dd=np.clip(0.45+1.6*sw,0,1)**1.3*(0.5+0.5*wisps)
-    a=np.clip(dd*dens,0.0,0.92)
-    c=np.array([0.40,0.78,0.92])*(1-dd[:,None])+np.array([0.70,0.93,1.0])*dd[:,None]
-    col[m]=c; A[m]=a; met[m]=0; rgh[m]=1.0; em[m]=np.clip(0.8*emv*(0.5+0.5*dd),0,1); h[m]=0.3*dd
+    a=np.ones(len(dd))
+    c=np.array([0.30,0.70,0.85])*(1-dd[:,None])+np.array([0.75,0.95,1.0])*dd[:,None]
+    col[m]=c; A[m]=a; met[m]=0; rgh[m]=1.0; em[m]=np.clip(emv*(0.22+0.35*dd),0,1); h[m]=0.3*dd
 # ---- ghost (6)
 m=k==6
 q=p[m]; gx,gy,gz=q[:,0],q[:,1],q[:,2]
@@ -66,7 +64,7 @@ front=gy<-0.03
 body=np.array([0.98,0.99,1.0])
 c=np.tile(body,(m.sum(),1)); hem=1-ss(0.27,0.36,gz)
 c=c*(1-hem[:,None]*0.45)+np.array([0.62,0.90,1.0])*hem[:,None]*0.45
-a=0.94-0.30*hem; e=np.full(m.sum(),0.12)+0.35*hem; r=np.full(m.sum(),0.42); hh=np.zeros(m.sum())
+a=np.ones(m.sum()); e=np.full(m.sum(),0.12)+0.35*hem; r=np.full(m.sum(),0.42); hh=np.zeros(m.sum())
 # cheeks
 for sx in (-1,1):
     dch=np.hypot((gx-sx*0.095)/0.026,(gz-0.468)/0.018)
@@ -133,7 +131,8 @@ def save(name,arr,mode):
     a=(np.clip(arr,0,1)*255+.5).astype(np.uint8)
     Image.fromarray(a if a.shape[-1]>1 else a[...,0],mode).save(f'out/{name}.png')
 import os; os.makedirs('out',exist_ok=True)
-save('GhostJar_Color',dilate(img(np.concatenate([col,A[:,None]],1),4)),'RGBA')
+save('GhostJar_Color',dilate(img(col,3)),'RGB')
+print('alpha all opaque:',bool((A>=1).all()))
 save('GhostJar_Metalness',dilate(img(met,1)),'L')
 save('GhostJar_Roughness',dilate(img(rgh,1)),'L')
 save('GhostJar_Emissive',dilate(img(em,1)),'L')

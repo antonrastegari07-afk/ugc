@@ -19,8 +19,7 @@ def tex(name,cs):
 tc=tex('GhostJar_Color','sRGB'); tn=tex('GhostJar_Normal','Non-Color'); tm=tex('GhostJar_Metalness','Non-Color')
 tr=tex('GhostJar_Roughness','Non-Color'); te=tex('GhostJar_Emissive','Non-Color')
 bs=N.new('ShaderNodeBsdfPrincipled'); nm=N.new('ShaderNodeNormalMap')
-Lk.new(tc.outputs['Color'],bs.inputs['Base Color']); Lk.new(tc.outputs['Alpha'],bs.inputs['Alpha'])
-Lk.new(tm.outputs['Color'],bs.inputs['Metallic']); Lk.new(tr.outputs['Color'],bs.inputs['Roughness'])
+Lk.new(tc.outputs['Color'],bs.inputs['Base Color']); Lk.new(tm.outputs['Color'],bs.inputs['Metallic']); Lk.new(tr.outputs['Color'],bs.inputs['Roughness'])
 Lk.new(tn.outputs['Color'],nm.inputs['Color']); Lk.new(nm.outputs['Normal'],bs.inputs['Normal'])
 mul=N.new('ShaderNodeMix'); mul.data_type='RGBA'; mul.blend_type='MULTIPLY'; mul.inputs['Factor'].default_value=1
 Lk.new(te.outputs['Color'],mul.inputs['A']); mul.inputs['B'].default_value=(127/255)**2.2 and ((127/255)**2.2,(232/255)**2.2,1.0,1)
