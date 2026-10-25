@@ -1,0 +1,988 @@
+-- SYSTÈME CHECKPOINT DÉFINITIVEMENT CORRIGÉ - ServerScriptService
+-- FIX FINAL: Suppression de TOUTES les fuites mémoire + RESPECT DU STATUT D'ARÈNE
+-- + AFFICHAGE STAGE DANS LEADERBOARD (MAJ CONTINUE - MÊME EN DIMINUTION)
+-- + NOTIFICATIONS SKIP CHECKPOINT
+-- + PROTECTION DE LA PROGRESSION (DataStore saturé lors des resets de serveurs)
+
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+-- DataStores
+local spawnStore = DataStoreService:GetDataStore("HasJoinedBefore")
+local checkpointStore = DataStoreService:GetDataStore("LastCheckpoint")
+
+-- 💤 Position AFK reload (MemoryStore, temporaire)
+local MemoryStoreService = game:GetService("MemoryStoreService")
+local reloadPosMap = MemoryStoreService:GetSortedMap("AfkReloadPos")
+local RELOAD_POS_TTL = 300 -- 5 min
+
+
+
+-- Configuration
+local firstSpawn = workspace:WaitForChild("FirstSpawn")
+local CHECKPOINT_PREFIX = "Checkpoint"
+local SKIP_PRODUCT_ID = 3606598301
+
+-- RemoteEvents
+local skipLevelEvent = ReplicatedStorage:FindFirstChild("SkipLevelEvent")
+if not skipLevelEvent then
+	skipLevelEvent = Instance.new("RemoteEvent")
+	skipLevelEvent.Name = "SkipLevelEvent"
+	skipLevelEvent.Parent = ReplicatedStorage
+end
+
+local checkpointLoadedEvent = ReplicatedStorage:FindFirstChild("CheckpointLoaded")
+if not checkpointLoadedEvent then
+	checkpointLoadedEvent = Instance.new("RemoteEvent")
+	checkpointLoadedEvent.Name = "CheckpointLoaded"
+	checkpointLoadedEvent.Parent = ReplicatedStorage
+end
+
+local checkpointEvent = ReplicatedStorage:FindFirstChild("CheckpointUpdated")
+if not checkpointEvent then
+	checkpointEvent = Instance.new("RemoteEvent")
+	checkpointEvent.Name = "CheckpointUpdated"
+	checkpointEvent.Parent = ReplicatedStorage
+end
+
+-- ✅ NOUVEAU: RemoteEvent pour les notifications de skip
+local skipNotificationEvent = ReplicatedStorage:FindFirstChild("SkipNotification")
+if not skipNotificationEvent then
+	skipNotificationEvent = Instance.new("RemoteEvent")
+	skipNotificationEvent.Name = "SkipNotification"
+	skipNotificationEvent.Parent = ReplicatedStorage
+end
+
+-- RemoteEvent pour reset du Stage au rebirth
+local stageResetEvent = ReplicatedStorage:FindFirstChild("StageReset")
+if not stageResetEvent then
+	stageResetEvent = Instance.new("RemoteEvent")
+	stageResetEvent.Name = "StageReset"
+	stageResetEvent.Parent = ReplicatedStorage
+end
+
+-- Tables UNIFIÉES
+local sessionCheckpoints = {} -- [userId] = checkpointName (STRING)
+local playerCheckpoints = {} -- [userId] = checkpointNumber (NUMBER)
+local touchDebounce = {} -- [userId] = timestamp
+local skipDebounce = {} -- [userId] = timestamp - ✅ NOUVEAU: Éviter double skip
+local checkpointMap = {} -- [checkpointName] = BasePart
+local checkpointCache = {} -- [number] = BasePart
+local checkpointConnections = {} -- [checkpoint] = connection
+local checkpointsLoaded = false
+
+-- ✅ EXPOSER LES TABLES POUR LE SYSTÈME DE NAVIGATION
+_G.SessionCheckpoints = sessionCheckpoints
+_G.PlayerCheckpoints = playerCheckpoints
+_G.CheckpointMap = checkpointMap
+_G.CheckpointCache = checkpointCache
+
+-- ✅ Initialiser la table globale si elle n'existe pas
+_G.PlayersInArena = _G.PlayersInArena or {}
+
+-- ✅ Signal pour éviter les boucles while
+local checkpointLoadedSignal = Instance.new("BindableEvent")
+local playersWaitingForCheckpoints = {} -- [userId] = true
+
+print("🚀 SCRIPT CHECKPOINT DÉMARRÉ (VERSION DÉFINITIVE + ARÈNE + LEADERBOARD CONTINU + NOTIFICATIONS)")
+
+-- ========================================
+-- 📊 CRÉATION LEADERBOARD
+-- ========================================
+local function setupLeaderboard(player)
+	-- Attendre que le leaderboard existant soit créé (attendre plus longtemps)
+	task.spawn(function()
+		local maxWait = 5 -- Attendre jusqu'à 5 secondes
+		local startTime = tick()
+		local leaderstats = player:FindFirstChild("leaderstats")
+		-- Attendre que le leaderboard soit créé par un autre script
+		while not leaderstats and (tick() - startTime) < maxWait do
+			task.wait(0.2)
+			leaderstats = player:FindFirstChild("leaderstats")
+		end
+		-- Si toujours pas de leaderstats après 5 secondes, en créer un
+		if not leaderstats then
+			leaderstats = Instance.new("Folder")
+			leaderstats.Name = "leaderstats"
+			leaderstats.Parent = player
+		end
+		-- Vérifier que le joueur est toujours connecté
+		if not player.Parent then return end
+		-- Ajouter Stage SEULEMENT s'il n'existe pas déjà
+		local stageValue = leaderstats:FindFirstChild("Stage")
+		if not stageValue then
+			stageValue = Instance.new("IntValue")
+			stageValue.Name = "Stage"
+			stageValue.Value = 1
+			stageValue.Parent = leaderstats
+		end
+	end)
+end
+
+-- ========================================
+-- 📊 MISE À JOUR LEADERBOARD (TOUJOURS!)
+-- ========================================
+local function updateLeaderboard(player, checkpointNumber)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then return end
+	local stageValue = leaderstats:FindFirstChild("Stage")
+	if stageValue then
+		-- ✅ FIX PRINCIPAL: Toujours mettre à jour, même si la valeur diminue!
+		stageValue.Value = checkpointNumber
+	end
+end
+
+-- ========================================
+-- QUEUE DATASTORE (Optimisée)
+-- ========================================
+local datastoreQueue = {}
+local isProcessingQueue = false
+local queueThread = nil
+
+local function queueDatastore(operation)
+	table.insert(datastoreQueue, operation)
+	if not isProcessingQueue then
+		isProcessingQueue = true
+		-- ✅ Annuler l'ancien thread s'il existe
+		if queueThread then
+			task.cancel(queueThread)
+		end
+		queueThread = task.spawn(function()
+			while #datastoreQueue > 0 do
+				local op = table.remove(datastoreQueue, 1)
+				if op then task.spawn(op) end
+				task.wait(0.2)
+			end
+			isProcessingQueue = false
+			queueThread = nil
+		end)
+	end
+end
+
+-- ========================================
+-- FONCTIONS DATASTORE
+-- ========================================
+local function isFirstTime(userId)
+	local success, result = pcall(function()
+		return spawnStore:GetAsync(tostring(userId))
+	end)
+	return success and not result
+end
+
+local function markJoined(userId)
+	queueDatastore(function()
+		pcall(function()
+			spawnStore:SetAsync(tostring(userId), true)
+		end)
+	end)
+end
+
+-- ========================================
+-- 🛡️ PROTECTION DE LA PROGRESSION (anti-perte lors des resets de serveurs)
+-- ========================================
+-- Problème corrigé : quand les requêtes DataStore sont saturées (reset des serveurs =
+-- tout le monde quitte/rejoint en même temps), une LECTURE qui échoue était comprise
+-- comme "ce joueur n'a aucune progression" → il restait au Checkpoint 1, puis la
+-- première touche d'un checkpoint ÉCRASAIT sa vraie sauvegarde.
+--   • les lectures sont retentées (attente progressive)
+--   • on distingue "lecture ÉCHOUÉE" de "aucune progression"
+--   • on N'ÉCRIT JAMAIS dans le DataStore tant que la lecture n'a pas réussi
+--   • les écritures sont retentées, sans doublons (une seule à la fois par joueur)
+local LOAD_ATTEMPTS = 8  -- tentatives de lecture (≈ 1 minute max d'attente progressive)
+local WRITE_ATTEMPTS = 5 -- échecs d'écriture consécutifs avant d'abandonner (retenté plus tard)
+
+local progressLoaded = {}   -- [userId] = true quand la LECTURE du DataStore a réussi
+local savedCheckpoint = {}  -- [userId] = dernière valeur connue DANS le DataStore
+local wantedCheckpoint = {} -- [userId] = dernière valeur à écrire dans le DataStore
+local writerRunning = {}    -- [userId] = true si une boucle d'écriture tourne déjà
+local leavingPlayers = {}   -- [userId] = true si le joueur est parti (nettoyage après l'écriture finale)
+local activeWrites = 0      -- nombre d'écritures en cours (BindToClose les attend)
+
+-- Retourne (ok, nom)
+--   ok = false           → la lecture a ÉCHOUÉ (on ne sait PAS si le joueur a une progression)
+--   ok = true, nom = nil → lecture réussie, aucune progression (nouveau joueur)
+local function getLastCheckpoint(userId, maxAttempts)
+	maxAttempts = maxAttempts or LOAD_ATTEMPTS
+	for attempt = 1, maxAttempts do
+		local success, result = pcall(function()
+			return checkpointStore:GetAsync(tostring(userId))
+		end)
+		if success then
+			return true, result
+		end
+		if attempt < maxAttempts then
+			-- attente progressive + petit aléa : tous les joueurs ne réessaient pas au même instant
+			task.wait(math.min(attempt * 2, 10) + math.random())
+		else
+			warn(string.format("❌ Lecture checkpoint impossible pour %d après %d essais: %s",
+				userId, maxAttempts, tostring(result)))
+		end
+	end
+	return false, nil
+end
+
+-- Boucle d'écriture : UNE seule par joueur, elle écrit toujours la DERNIÈRE valeur voulue
+-- (un vieil essai retardé ne peut donc jamais écraser une valeur plus récente).
+local function runWriter(userId)
+	if writerRunning[userId] then return end
+	writerRunning[userId] = true
+	activeWrites += 1
+	local failures = 0
+	while true do
+		local target = wantedCheckpoint[userId]
+		-- rien à écrire / lecture jamais confirmée (on n'écrase JAMAIS une progression inconnue) / déjà en base
+		if not target or not progressLoaded[userId] or target == savedCheckpoint[userId] then
+			break
+		end
+		local success, err = pcall(function()
+			checkpointStore:SetAsync(tostring(userId), target)
+		end)
+		if success then
+			savedCheckpoint[userId] = target
+			failures = 0
+			-- si la valeur voulue a changé pendant l'écriture, la boucle écrit la nouvelle
+		else
+			failures += 1
+			if failures >= WRITE_ATTEMPTS then
+				warn(string.format("⚠️ Sauvegarde checkpoint échouée pour %d (sera retentée): %s",
+					userId, tostring(err)))
+				break
+			end
+			task.wait(math.min(failures * 1.5, 6) + math.random())
+		end
+	end
+	writerRunning[userId] = nil
+	activeWrites -= 1
+	-- Le joueur est parti : on nettoie ses états de persistance maintenant que l'écriture finale est terminée
+	if leavingPlayers[userId] then
+		leavingPlayers[userId] = nil
+		progressLoaded[userId] = nil
+		savedCheckpoint[userId] = nil
+		wantedCheckpoint[userId] = nil
+	end
+end
+
+-- Demande l'écriture d'un checkpoint (passe par la queue pour étaler les requêtes)
+local function requestCheckpointWrite(userId, checkpointName)
+	-- ⛔ Lecture pas encore réussie → on n'écrit RIEN (la vraie sauvegarde reste intacte)
+	if not progressLoaded[userId] then return end
+	wantedCheckpoint[userId] = checkpointName
+	if savedCheckpoint[userId] == checkpointName then return end -- déjà en base
+	queueDatastore(function()
+		runWriter(userId)
+	end)
+end
+
+local function saveCheckpoint(player, checkpointName, skipNotify)
+	if not checkpointName then return end
+	local userId = player.UserId
+	-- ✅ Ne PAS sauvegarder si le joueur est en arène
+	if _G.PlayersInArena[userId] then
+		print("⚠️ " .. player.Name .. " est en arène, checkpoint ignoré")
+		return
+	end
+	local current = sessionCheckpoints[userId]
+	-- Éviter sauvegardes redondantes (sauf si c'est un skip)
+	if current == checkpointName and not skipNotify then return end
+	sessionCheckpoints[userId] = checkpointName
+	-- Extraire le numéro pour le système de skip ET le leaderboard
+	local checkpointNum = tonumber(string.match(checkpointName, "%d+"))
+	if checkpointNum then
+		-- ✅ FIX: Toujours mettre à jour le numéro actuel (pas seulement si plus grand)
+		playerCheckpoints[userId] = checkpointNum
+		-- 📊 Mettre à jour le leaderboard (TOUJOURS, même si diminue!)
+		updateLeaderboard(player, checkpointNum)
+	end
+	-- Notifier client
+	task.spawn(function()
+		pcall(function()
+			checkpointEvent:FireClient(player, checkpointName)
+			-- ✅ NOUVEAU: Notification supplémentaire pour les skips
+			if skipNotify then
+				skipNotificationEvent:FireClient(player, checkpointNum)
+			end
+		end)
+	end)
+	-- Sauvegarder en queue
+	-- ✅ FIX: écriture protégée (jamais avant une lecture réussie, retentée, sans doublons)
+	requestCheckpointWrite(userId, checkpointName)
+end
+
+-- ========================================
+-- EXTRACTION NUMÉRO CHECKPOINT
+-- ========================================
+local function getCheckpointNumber(name)
+	return tonumber(string.match(name, "%d+"))
+end
+
+-- ========================================
+-- CONNEXION CHECKPOINTS (UNE SEULE FOIS)
+-- ========================================
+local function connectCheckpoint(part)
+	if not part:IsA("BasePart") then return end
+	if not part.Name:lower():match("^" .. CHECKPOINT_PREFIX:lower()) then return end
+	local checkpointName = part.Name
+	local checkpointNum = getCheckpointNumber(checkpointName)
+	if not checkpointNum then return end
+	-- Éviter double connexion
+	if checkpointMap[checkpointName] then return end
+	-- Ajouter aux deux caches
+	checkpointMap[checkpointName] = part
+	checkpointCache[checkpointNum] = part
+	-- Connecter Touched UNE SEULE FOIS
+	local connection = part.Touched:Connect(function(hit)
+		if not hit or not hit.Parent then return end
+		local humanoid = hit.Parent:FindFirstChildOfClass("Humanoid")
+		if not humanoid or humanoid.Health <= 0 then return end
+		local player = Players:GetPlayerFromCharacter(hit.Parent)
+		if not player then return end
+		local userId = player.UserId
+		-- ✅ Ignorer si le joueur est en arène
+		if _G.PlayersInArena[userId] then
+			return
+		end
+		local now = tick()
+		-- Debounce global de 0.5s
+		local lastTouch = touchDebounce[userId] or 0
+		if now - lastTouch < 0.5 then return end
+		touchDebounce[userId] = now
+		-- Sauvegarder checkpoint (qui met aussi à jour le leaderboard)
+		-- ❌ PAS de notification skip pour les touches normales
+		saveCheckpoint(player, checkpointName, false)
+	end)
+	checkpointConnections[part] = connection
+end
+
+local function disconnectCheckpoint(part)
+	local connection = checkpointConnections[part]
+	if connection then
+		connection:Disconnect()
+		checkpointConnections[part] = nil
+	end
+	local checkpointName = part.Name
+	if checkpointMap[checkpointName] == part then
+		checkpointMap[checkpointName] = nil
+	end
+	local num = getCheckpointNumber(checkpointName)
+	if num and checkpointCache[num] == part then
+		checkpointCache[num] = nil
+	end
+end
+
+-- ========================================
+-- CHARGEMENT INITIAL (Batch)
+-- ========================================
+task.spawn(function()
+	local allCheckpoints = {}
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("BasePart") and obj.Name:lower():match("^" .. CHECKPOINT_PREFIX:lower()) then
+			table.insert(allCheckpoints, obj)
+		end
+	end
+	-- Connecter par batch
+	local BATCH_SIZE = 15
+	for i = 1, #allCheckpoints, BATCH_SIZE do
+		for j = i, math.min(i + BATCH_SIZE - 1, #allCheckpoints) do
+			connectCheckpoint(allCheckpoints[j])
+		end
+		if i + BATCH_SIZE <= #allCheckpoints then
+			task.wait(0.08)
+		end
+	end
+	checkpointsLoaded = true
+	-- ✅ Fire le signal
+	checkpointLoadedSignal:Fire()
+	-- ✅ Notifier SEULEMENT les joueurs qui attendent
+	for userId in pairs(playersWaitingForCheckpoints) do
+		local player = Players:GetPlayerByUserId(userId)
+		if player and player.Parent then
+			task.spawn(function()
+				pcall(function()
+					checkpointLoadedEvent:FireClient(player)
+				end)
+			end)
+		end
+		playersWaitingForCheckpoints[userId] = nil
+	end
+	print("✅ Checkpoints loaded:", #allCheckpoints)
+end)
+
+workspace.DescendantAdded:Connect(function(obj)
+	if obj:IsA("BasePart") and obj.Name:lower():match("^" .. CHECKPOINT_PREFIX:lower()) then
+		task.wait(0.05)
+		connectCheckpoint(obj)
+	end
+end)
+
+workspace.DescendantRemoving:Connect(function(obj)
+	if checkpointConnections[obj] then
+		disconnectCheckpoint(obj)
+	end
+end)
+
+-- ========================================
+-- TÉLÉPORTATION
+-- ========================================
+-- 🛬 TÉLÉPORT SÛR v2
+--   Le serveur place le perso puis prévient le client (SafeTPHold).
+--   C'est le CLIENT qui le tient en place, et SEULEMENT tant que le sol
+--   n'est pas encore chargé chez lui → zone déjà chargée = zéro attente.
+local safeTeleport, floorTarget
+do
+	local holdEvent = game:GetService("ReplicatedStorage"):FindFirstChild("SafeTPHold")
+	if not holdEvent then
+		holdEvent = Instance.new("RemoteEvent")
+		holdEvent.Name = "SafeTPHold"
+		holdEvent.Parent = game:GetService("ReplicatedStorage")
+	end
+
+	-- Hauteur du HRP au-dessus des pieds (R15 : HipHeight + ½ HRP, R6 : 2 + ½ HRP)
+	local function standOffset(character)
+		local hum = character:FindFirstChildOfClass("Humanoid")
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if not (hum and hrp) then return 3 end
+		if hum.RigType == Enum.HumanoidRigType.R15 then
+			return hum.HipHeight + hrp.Size.Y / 2
+		end
+		return 2 + hrp.Size.Y / 2
+	end
+
+	-- Position debout PILE sur le sol réel du checkpoint (plus jamais dans la part)
+	floorTarget = function(character, part)
+		if not part:IsA("BasePart") then
+			return part:GetPivot() * CFrame.new(0, 3, 0) -- secours si c'est un Model
+		end
+		local top = part.CFrame * CFrame.new(0, part.Size.Y / 2, 0)
+		local ignore = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p.Character then table.insert(ignore, p.Character) end
+		end
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = ignore
+		params.RespectCanCollide = true
+		local hit = workspace:Raycast(top.Position + Vector3.new(0, 0.1, 0),
+			Vector3.new(0, -(part.Size.Y + 12), 0), params)
+		local floorY = hit and hit.Position.Y or top.Position.Y
+		local pos = Vector3.new(top.Position.X, floorY + standOffset(character), top.Position.Z)
+		return CFrame.new(pos) * part.CFrame.Rotation
+	end
+
+	safeTeleport = function(character, targetCF)
+		if not character or typeof(targetCF) ~= "CFrame" then return false end
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+			or character:WaitForChild("HumanoidRootPart", 3)
+		if not hrp then return false end
+		targetCF = targetCF + Vector3.new(0, 0.3, 0) -- petite marge : jamais les pieds dans le sol
+		local plr = Players:GetPlayerFromCharacter(character)
+		if plr and _G.AntiFlyTP and _G.AntiFlyTP.MarkTeleport then
+			pcall(_G.AntiFlyTP.MarkTeleport, plr, 5)
+		end
+		pcall(function()
+			character:PivotTo(targetCF)
+			hrp.AssemblyLinearVelocity = Vector3.zero
+		end)
+		if plr then
+			holdEvent:FireClient(plr, character, targetCF)
+			task.spawn(function()
+				pcall(function() plr:RequestStreamAroundAsync(targetCF.Position, 8) end)
+			end)
+		end
+		return true
+	end
+end
+_G.SafeTeleport = safeTeleport
+
+local function moveCharacter(character, targetPart)
+	if not character or not targetPart or not targetPart.Parent then return false end
+	return safeTeleport(character, floorTarget(character, targetPart))
+end
+
+-- ========================================
+-- ✅ FONCTION: Attendre chargement SANS boucle while
+-- ========================================
+local function waitForCheckpointsLoaded(player, timeout)
+	if checkpointsLoaded then 
+		return true 
+	end
+	local userId = player.UserId
+	playersWaitingForCheckpoints[userId] = true
+	-- Attendre le signal avec timeout
+	local completed = false
+	local connection
+	connection = checkpointLoadedSignal.Event:Once(function()
+		completed = true
+	end)
+	-- Timeout
+	local startTime = tick()
+	while not completed and (tick() - startTime) < timeout do
+		task.wait(0.5)
+		-- Vérifier si le joueur a quitté
+		if not player.Parent then
+			playersWaitingForCheckpoints[userId] = nil
+			return false
+		end
+	end
+	playersWaitingForCheckpoints[userId] = nil
+	return completed or checkpointsLoaded
+end
+
+-- ========================================
+-- GESTION SPAWN (AUCUNE BOUCLE WHILE!)
+-- ========================================
+local spawnThreads = {} -- Track active spawn threads
+local spawnConnections = {} -- Track character connections
+
+-- ========================================
+-- 🔄 RESET STAGE ON REBIRTH
+-- ========================================
+_G.ResetPlayerStage = function(player)
+	if not player or not player.Parent then return end
+	local userId = player.UserId
+	print(string.format("🔄 Reset Stage pour %s (rebirth)", player.Name))
+	if spawnThreads[userId] then
+		task.cancel(spawnThreads[userId])
+		spawnThreads[userId] = nil
+	end
+	local cp1 = checkpointCache[1]
+	local FIRST_CP = (cp1 and cp1.Name) or (CHECKPOINT_PREFIX .. "1")
+	-- ✅ Progression remise au Checkpoint 1 IMMÉDIATEMENT (session)
+	sessionCheckpoints[userId] = FIRST_CP
+	playerCheckpoints[userId]  = 1
+	touchDebounce[userId]      = nil
+	skipDebounce[userId]       = nil
+	updateLeaderboard(player, 1)
+	-- ✅ DataStore : on ÉCRIT Checkpoint1 (au lieu de RemoveAsync).
+	--    Rebirth = reset voulu → écrire Checkpoint1 est toujours correct, même si la lecture n'avait pas réussi.
+	--    progressLoaded = true → un respawn ne relit PLUS le DataStore (plus de retour de l'ancienne progression).
+	progressLoaded[userId]  = true
+	savedCheckpoint[userId] = nil
+	requestCheckpointWrite(userId, FIRST_CP)
+	-- ✅ TP DIRECT sur le Checkpoint 1 (pas de chute)
+	local character = player.Character
+	local hum = character and character:FindFirstChildOfClass("Humanoid")
+	if hum and hum.Health > 0 and not _G.PlayersInArena[userId] then
+		if cp1 and cp1.Parent then
+			moveCharacter(character, cp1)
+		else
+			moveCharacter(character, firstSpawn)
+		end
+	end
+	pcall(function()
+		stageResetEvent:FireClient(player)
+	end)
+	print(string.format("✅ Stage reset OK pour %s", player.Name))
+end
+
+-- ========================================
+-- 💤 AFK RELOAD : sauvegarde / restauration de la position exacte
+-- ========================================
+-- Appelée par le script principal JUSTE AVANT l'ACK du reload (reload accepté uniquement)
+-- Écriture synchrone → la position est en mémoire AVANT que le client téléporte
+_G.SaveReloadPosition = function(player)
+	if not player or not player.Parent then return end
+	if _G.PlayersInArena[player.UserId] then return end
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not hrp or not hum or hum.Health <= 0 then return end
+	local data = { hrp.CFrame:GetComponents() }
+	local ok, err = pcall(function()
+		reloadPosMap:SetAsync(tostring(player.UserId), data, RELOAD_POS_TTL)
+	end)
+	if not ok then
+		warn("⚠️ Position AFK non sauvegardée pour " .. player.Name .. " (fallback checkpoint): " .. tostring(err))
+	end
+end
+
+-- Retourne le CFrame sauvegardé si le joueur revient d'un AFK reload (et le consomme)
+local function consumeReloadPosition(player)
+	local okJoin, join = pcall(function() return player:GetJoinData() end)
+	if not okJoin or not join or join.SourcePlaceId ~= game.PlaceId then return nil end
+	local key = tostring(player.UserId)
+	local data
+	for attempt = 1, 3 do
+		local s, r = pcall(function() return reloadPosMap:GetAsync(key) end)
+		if s then data = r break end
+		task.wait(attempt)
+	end
+	if type(data) ~= "table" or #data ~= 12 then return nil end
+	task.spawn(function()
+		pcall(function() reloadPosMap:RemoveAsync(key) end)
+	end)
+	return CFrame.new(table.unpack(data))
+end
+
+local function handleCharacterSpawn(player, character)
+	local userId = player.UserId
+	-- ✅ Si le joueur est en arène, ne rien faire (le système d'arène gère le spawn)
+	if _G.PlayersInArena[userId] then
+		print("🎮 " .. player.Name .. " est en arène, spawn géré par le système 1v1")
+		return
+	end
+	-- ✅ CLEANUP: Annuler les threads de spawn précédents
+	if spawnThreads[userId] then
+		task.cancel(spawnThreads[userId])
+		spawnThreads[userId] = nil
+	end
+	-- Supprimer ForceField
+	local function removeFF(child)
+		if child:IsA("ForceField") then
+			child:Destroy()
+		end
+	end
+	for _, child in ipairs(character:GetChildren()) do
+		removeFF(child)
+	end
+	local ffConnection = character.ChildAdded:Connect(removeFF)
+	-- Gestion mort
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	if humanoid then
+		humanoid.Died:Connect(function()
+			-- Nettoyer la connection ForceField
+			if ffConnection then
+				ffConnection:Disconnect()
+			end
+			task.wait(Players.RespawnTime)
+			if player and player.Parent then
+				player:LoadCharacter()
+			end
+		end)
+	end
+	-- ✅ Checkpoint déjà connu et chargé → on y va DIRECTEMENT
+	--    (plus de double TP FirstSpawn → checkpoint à chaque respawn)
+	local savedName = sessionCheckpoints[userId]
+	-- ✅ FIX: la progression a-t-elle été CONFIRMÉE par une lecture réussie du DataStore ?
+	local loaded = progressLoaded[userId]
+	local directCp = savedName and checkpointsLoaded and checkpointMap[savedName]
+	local directReady = directCp and directCp.Parent
+	if loaded and directReady then
+		moveCharacter(character, directCp)
+		local directNum = getCheckpointNumber(savedName)
+		if directNum then
+			updateLeaderboard(player, directNum)
+		end
+		return
+	end
+	-- SPAWN PHASE 1: FirstSpawn immédiat
+	if directReady then
+		-- ✅ FIX: progression pas encore confirmée (lecture en échec / en cours) → on remet le joueur
+		--    sur son checkpoint de session (pas au début) et on RETENTE la lecture en PHASE 3
+		moveCharacter(character, directCp)
+		local directNum = getCheckpointNumber(savedName)
+		if directNum then
+			updateLeaderboard(player, directNum)
+		end
+	else
+		moveCharacter(character, firstSpawn)
+	end
+	-- SPAWN PHASE 2: Checkpoint en session
+	if loaded and savedName then
+		spawnThreads[userId] = task.spawn(function()
+			-- Attendre avec le signal (PAS de boucle while!)
+			waitForCheckpointsLoaded(player, 10)
+			-- Vérifier que le joueur est toujours là ET pas en arène
+			if not player.Parent or player.Character ~= character or _G.PlayersInArena[userId] then
+				spawnThreads[userId] = nil
+				return
+			end
+			-- Téléporter
+			local checkpoint = checkpointMap[savedName]
+			if checkpoint then
+				moveCharacter(character, checkpoint)
+				-- ✅ Mettre à jour le leaderboard après le spawn
+				local checkpointNum = getCheckpointNumber(savedName)
+				if checkpointNum then
+					updateLeaderboard(player, checkpointNum)
+				end
+			end
+			spawnThreads[userId] = nil
+		end)
+		return
+	end
+	-- SPAWN PHASE 3: Charger depuis DataStore
+	spawnThreads[userId] = task.spawn(function()
+		task.wait(1.5)
+		-- Vérifier que le joueur est toujours là ET pas en arène
+		if not player.Parent or _G.PlayersInArena[userId] then
+			spawnThreads[userId] = nil
+			return
+		end
+		-- ✅ FIX: lecture avec retries. ok=false = lecture ÉCHOUÉE (≠ "aucune progression")
+		local ok, loadedName = getLastCheckpoint(userId)
+		-- La lecture peut avoir pris du temps → revérifier
+		if not player.Parent or _G.PlayersInArena[userId] then
+			spawnThreads[userId] = nil
+			return
+		end
+		if not ok then
+			-- ⛔ On ne marque PAS la progression comme chargée → AUCUNE écriture ne sera faite,
+			--    la vraie sauvegarde du joueur reste intacte. Nouvelle tentative au prochain respawn.
+			warn(string.format("⛔ %s - progression non lue, sauvegarde bloquée pour la protéger", player.Name))
+			spawnThreads[userId] = nil
+			return
+		end
+		-- ✅ Lecture réussie : les écritures sont maintenant autorisées pour ce joueur
+		progressLoaded[userId] = true
+		-- 💤 Retour d'AFK reload ? → position exacte
+		local reloadCF = consumeReloadPosition(player)
+		savedCheckpoint[userId] = loadedName
+		if loadedName then
+			sessionCheckpoints[userId] = loadedName
+			local savedNum = getCheckpointNumber(loadedName)
+			if savedNum then
+				playerCheckpoints[userId] = savedNum
+				-- 📊 Mettre à jour le leaderboard avec le checkpoint sauvegardé
+				updateLeaderboard(player, savedNum)
+			end
+			task.spawn(function()
+				pcall(function()
+					checkpointEvent:FireClient(player, loadedName)
+				end)
+			end)
+			-- ✅ Utiliser le signal au lieu de while
+			waitForCheckpointsLoaded(player, 10)
+			-- Vérifier à nouveau ET pas en arène
+			if player.Parent and player.Character == character and not _G.PlayersInArena[userId] then
+				if reloadCF then
+					safeTeleport(character, reloadCF)
+				else
+					local checkpoint = checkpointMap[loadedName]
+					if checkpoint then
+						moveCharacter(character, checkpoint)
+					end
+				end
+			end
+		elseif sessionCheckpoints[userId] then
+			-- Aucune sauvegarde en base, mais le joueur a touché des checkpoints pendant l'attente
+			-- (écritures bloquées jusque-là) → on les enregistre maintenant que c'est sûr
+			requestCheckpointWrite(userId, sessionCheckpoints[userId])
+		end
+		spawnThreads[userId] = nil
+	end)
+end
+
+-- ========================================
+-- ✅ RETOUR CHECKPOINT (appelé par le système d'arène à la sortie)
+-- ========================================
+_G.GetCheckpointForExit = function(player)
+	local userId = player.UserId
+	local savedName = sessionCheckpoints[userId]
+	-- Pas en session (ex: arrivé via ServerBrowser) → charger depuis le DataStore
+	if not savedName then
+		-- ✅ FIX: lecture avec retries (3 essais ici, on est appelé à la sortie d'arène)
+		local ok, loadedName = getLastCheckpoint(userId, 3)
+		if ok and player.Parent then
+			progressLoaded[userId] = true
+			savedCheckpoint[userId] = loadedName
+			savedName = loadedName
+			if savedName then
+				sessionCheckpoints[userId] = savedName
+				local num = getCheckpointNumber(savedName)
+				if num then
+					playerCheckpoints[userId] = num
+					updateLeaderboard(player, num)
+				end
+			end
+		end
+	end
+	if savedName then
+		if not checkpointsLoaded then
+			waitForCheckpointsLoaded(player, 5)
+		end
+		local part = checkpointMap[savedName]
+		if part then return part end
+	end
+	-- Aucun checkpoint → début de l'obby
+	return firstSpawn
+end
+
+-- ========================================
+-- ✅ SKIP LEVEL (AVEC NOTIFICATIONS!)
+-- ========================================
+local function skipToNextCheckpoint(player)
+	local userId = player.UserId
+	-- ✅ NOUVEAU: Debounce de 2 secondes pour éviter double skip
+	local now = tick()
+	local lastSkip = skipDebounce[userId] or 0
+	if now - lastSkip < 2 then
+		warn(string.format("⚠️ %s - Skip trop rapide (debounce %.1fs)", player.Name, now - lastSkip))
+		return false
+	end
+	-- ✅ Impossible de skip dans l'arène
+	if _G.PlayersInArena[userId] then
+		warn("⚠️ " .. player.Name .. " - Impossible de skip dans l'arène")
+		return false
+	end
+	local character = player.Character
+	if not character then 
+		warn("⚠️ " .. player.Name .. " - Pas de personnage")
+		return false 
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp or not humanoid or humanoid.Health <= 0 then 
+		warn("⚠️ " .. player.Name .. " - HRP ou Humanoid manquant/mort")
+		return false 
+	end
+	local currentNumber = playerCheckpoints[userId] or 1
+	local nextNumber = currentNumber + 1
+	local nextCheckpoint = checkpointCache[nextNumber]
+	if nextCheckpoint and nextCheckpoint.Parent then
+		-- ✅ NOUVEAU: Marquer le debounce AVANT le skip
+		skipDebounce[userId] = now
+		-- Téléporter le joueur
+		moveCharacter(character, nextCheckpoint)
+		-- Mettre à jour les tables
+		playerCheckpoints[userId] = nextNumber
+		sessionCheckpoints[userId] = "Checkpoint" .. nextNumber
+		-- 📊 Mettre à jour le leaderboard
+		updateLeaderboard(player, nextNumber)
+		-- ✅ Sauvegarder avec notification de skip (3ème paramètre = true)
+		saveCheckpoint(player, "Checkpoint" .. nextNumber, true)
+		print(string.format("✅ %s skipped to Checkpoint%d (notification envoyée)", player.Name, nextNumber))
+		return true
+	else
+		warn(string.format("❌ Checkpoint%d not found for %s", nextNumber, player.Name))
+		return false
+	end
+end
+
+_G.SkipToNextCheckpoint = skipToNextCheckpoint
+
+-- ========================================
+-- MARKETPLACE
+-- ========================================
+
+
+-- ========================================
+-- ÉVÉNEMENTS JOUEURS
+-- ========================================
+Players.PlayerAdded:Connect(function(player)
+	-- 📊 Créer le leaderboard
+	setupLeaderboard(player)
+	task.spawn(function()
+		task.wait(0.5)
+		if isFirstTime(player.UserId) then
+			markJoined(player.UserId)
+		end
+	end)
+	playerCheckpoints[player.UserId] = 1
+	-- ✅ FIX: nouvelle session → la progression n'est PAS encore confirmée (aucune écriture avant la lecture)
+	progressLoaded[player.UserId] = nil
+	leavingPlayers[player.UserId] = nil
+	-- ✅ Stocker la connection pour cleanup
+	local charConnection
+	charConnection = player.CharacterAdded:Connect(function(character)
+		handleCharacterSpawn(player, character)
+	end)
+	spawnConnections[player.UserId] = charConnection
+	player.Chatted:Connect(function(msg)
+		if msg:lower() == "/checkpoint" and player.UserId == game.CreatorId then
+			local currentName = sessionCheckpoints[player.UserId] or "None"
+			local currentNum = playerCheckpoints[player.UserId] or 1
+			local inArena = _G.PlayersInArena[player.UserId] and "YES" or "NO"
+			print(string.format("📍 %s: Session=%s, Number=%d, InArena=%s", player.Name, currentName, currentNum, inArena))
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	local userId = player.UserId
+	-- ✅ CLEANUP: Annuler thread de spawn
+	if spawnThreads[userId] then
+		task.cancel(spawnThreads[userId])
+		spawnThreads[userId] = nil
+	end
+	-- ✅ CLEANUP: Déconnecter CharacterAdded
+	if spawnConnections[userId] then
+		spawnConnections[userId]:Disconnect()
+		spawnConnections[userId] = nil
+	end
+	-- ✅ CLEANUP: Retirer de la liste d'attente
+	playersWaitingForCheckpoints[userId] = nil
+	-- ✅ Ne sauvegarder que si le joueur N'EST PAS en arène
+	-- ✅ FIX: UNE seule écriture finale (retentée, sans doublon avec BindToClose),
+	--    et JAMAIS si la progression n'a pas été confirmée par une lecture réussie
+	leavingPlayers[userId] = true
+	if not _G.PlayersInArena[userId] then
+		local lastCheckpoint = sessionCheckpoints[userId]
+		if lastCheckpoint and progressLoaded[userId] then
+			wantedCheckpoint[userId] = lastCheckpoint
+		elseif lastCheckpoint then
+			warn("⛔ " .. player.Name .. " - progression jamais lue, checkpoint non sauvegardé (sauvegarde existante protégée)")
+		end
+	else
+		print("🎮 " .. player.Name .. " a quitté en étant dans l'arène, checkpoint non sauvegardé")
+	end
+	-- Lance l'écriture finale (si une boucle d'écriture tourne déjà, elle écrira la dernière valeur).
+	-- Les états de persistance du joueur sont nettoyés à la fin de l'écriture.
+	task.spawn(runWriter, userId)
+	-- ✅ CLEANUP complet
+	touchDebounce[userId] = nil
+	skipDebounce[userId] = nil
+	sessionCheckpoints[userId] = nil
+	playerCheckpoints[userId] = nil
+	_G.PlayersInArena[userId] = nil
+end)
+
+-- ========================================
+-- NETTOYAGE PÉRIODIQUE (Anti-leak)
+-- ========================================
+task.spawn(function()
+	while true do
+		task.wait(300) -- Toutes les 5 minutes
+		local now = tick()
+		local cleaned = 0
+		-- Nettoyer les debounce anciens (touch)
+		for userId, timestamp in pairs(touchDebounce) do
+			if now - timestamp > 60 then -- Plus de 1 minute
+				touchDebounce[userId] = nil
+				cleaned = cleaned + 1
+			end
+		end
+		-- Nettoyer les debounce anciens (skip)
+		for userId, timestamp in pairs(skipDebounce) do
+			if now - timestamp > 60 then -- Plus de 1 minute
+				skipDebounce[userId] = nil
+				cleaned = cleaned + 1
+			end
+		end
+		if cleaned > 0 then
+			print(string.format("🧹 Cleaned %d old debounce entries", cleaned))
+		end
+	end
+end)
+
+-- ========================================
+-- CLEANUP À LA FERMETURE
+-- ========================================
+game:BindToClose(function()
+	print("🔒 Fermeture du serveur - Cleanup checkpoint...")
+	for userId, thread in pairs(spawnThreads) do
+		if thread then task.cancel(thread) end
+	end
+	for userId, connection in pairs(spawnConnections) do
+		if connection then connection:Disconnect() end
+	end
+	if queueThread then task.cancel(queueThread) end
+	-- ✅ FIX : UNE écriture finale par joueur (retentée), puis on ATTEND la fin.
+	--    runWriter évite les doublons avec PlayerRemoving (moitié moins de requêtes au reset)
+	--    et n'écrit jamais pour un joueur dont la progression n'a pas été lue.
+	for userId, checkpointName in pairs(sessionCheckpoints) do
+		if not _G.PlayersInArena[userId] and progressLoaded[userId] then
+			wantedCheckpoint[userId] = checkpointName
+			task.spawn(runWriter, userId)
+		end
+	end
+	local waited = 0
+	while activeWrites > 0 and waited < 250 do  -- max 25s (BindToClose accepte jusqu'à 30s)
+		task.wait(0.1)
+		waited += 1
+	end
+	print(string.format("✅ Cleanup checkpoint terminé (%d écriture(s) non terminée(s))", activeWrites))
+end)
+
+print("✅ Système Checkpoint chargé - VERSION DÉFINITIVE + NOTIFICATIONS SKIP")
