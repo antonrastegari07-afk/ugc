@@ -1,0 +1,2214 @@
+-- ============================================================
+-- 🎨 LOOK "PARTYPAD" (même style que ton UI de téléporteur)
+--
+--    true  = Settings + Streak en verre sombre, filet bleu, boutons 3D,
+--            police BuilderSans, barre de raccourcis de sections dans
+--            l'onglet Settings, icônes de tes leaderboards dans Stats
+--    false = EXACTEMENT le rendu d'avant (tous les blocs 🎨 PARTYPAD
+--            du script ne s'exécutent plus du tout)
+--
+--    ⚠️ 1 seul local ajouté (limite des 200 registres : il en reste).
+-- ============================================================
+local PARTYPAD_STYLE = false
+
+local Players            = game:GetService("Players")
+local MarketplaceService = require(game.ReplicatedStorage.MarketplaceServiceFX)
+local TweenService       = game:GetService("TweenService")
+local UserInputService   = game:GetService("UserInputService")
+
+local UserInputService   = game:GetService("UserInputService")
+local ReplicatedStorage  = game:GetService("ReplicatedStorage")
+
+local RECOVER_PRODUCT_ID = 3606598373
+
+-- Remplace ce lien par ton icône de recover streak (ImageLabel / décorateImage)
+local RECOVER_ICON_ID = "rbxassetid://94036527586517"
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- ⚙️ Persistance des paramètres (round-trip serveur)
+local updateSettingEvent = ReplicatedStorage:WaitForChild("UpdateSetting")
+local function pushSetting(name, value)
+	pcall(function() updateSettingEvent:FireServer(name, value) end)
+end
+-- Rafraîchit un contrôle quand le serveur charge/applique la valeur sauvegardée
+local function bindSetting(name, control, isSlider)
+	player:GetAttributeChangedSignal(name):Connect(function()
+		local v = player:GetAttribute(name)
+		if v == nil then return end
+		if isSlider then control.setValue(v, true) else control.setState(v, true) end
+	end)
+end
+
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- ── Responsive : le frame rétrécit pour toujours tenir à l'écran ──
+-- (UIScale auto, même principe que le script 1v1 cross-server)
+local function fitToScreen(frame, margin)
+	margin = margin or 24
+	local sc = frame:FindFirstChildOfClass("UIScale")
+	if not sc then sc = Instance.new("UIScale"); sc.Parent = frame end
+	local function apply()
+		local cam = workspace.CurrentCamera
+		local vp = (cam and cam.ViewportSize.Y > 1) and cam.ViewportSize or Vector2.new(1280, 720)
+		local w, h = frame.Size.X.Offset, frame.Size.Y.Offset
+		if w <= 0 or h <= 0 then sc.Scale = 1; return end
+		sc.Scale = math.min(1, (vp.X - margin) / w, (vp.Y - margin) / h)
+	end
+	apply()
+	frame:GetPropertyChangedSignal("Size"):Connect(apply)
+	local function hookCam()
+		local cam = workspace.CurrentCamera
+		if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(apply) end
+	end
+	hookCam()
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		hookCam(); apply()
+	end)
+	return sc
+end
+
+-- Tailles identiques pour les deux boutons
+local BTN_W  = isMobile and 80  or 110
+local BTN_H  = isMobile and 28  or 36
+local BTN_Y  = isMobile and 8   or 14
+local GAP    = 8
+
+-- ScreenGui unique pour les deux boutons top bar
+local topBarGui = Instance.new("ScreenGui")
+topBarGui.Name           = "TopBarGui"
+topBarGui.ResetOnSpawn   = false
+topBarGui.DisplayOrder   = 100
+topBarGui.IgnoreGuiInset = true
+topBarGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+topBarGui.Parent         = playerGui
+
+-- Positions
+-- PC  : HTP à gauche (x=185), Streak à droite (x=185+110+8=303)
+-- Mobile : Streak à gauche (x=1,-90-80-8=-178), HTP à droite (x=1,-90)
+local htpX      = isMobile and UDim2.new(1, -90,            0, BTN_Y)
+	or                UDim2.new(0, 185,            0, BTN_Y)
+local streakBtnX = isMobile and UDim2.new(1, -90-BTN_W-GAP, 0, BTN_Y)
+	or                UDim2.new(0, 185+BTN_W+GAP,  0, BTN_Y)
+
+-- ============================================================
+-- BOUTON HOW TO PLAY
+-- ============================================================
+
+local bouton = Instance.new("TextButton")
+bouton.Name                  = "HtpToggleButton"
+bouton.Size                  = UDim2.new(0, BTN_W, 0, BTN_H)
+bouton.Position              = htpX
+bouton.AnchorPoint           = Vector2.new(0, 0)
+bouton.BackgroundColor3      = Color3.fromRGB(20,20,20)
+bouton.BackgroundTransparency = 0.3
+bouton.BorderSizePixel       = 0
+bouton.Text                  = "How To Play"
+bouton.TextColor3            = Color3.fromRGB(255,255,255)
+bouton.Font                  = Enum.Font.FredokaOne
+bouton.TextSize              = isMobile and 11 or 14
+bouton.TextScaled            = false
+bouton.Parent                = topBarGui
+Instance.new("UICorner", bouton).CornerRadius = UDim.new(0,10)
+local htpStroke = Instance.new("UIStroke", bouton)
+htpStroke.Color     = Color3.fromRGB(80,80,80)
+htpStroke.Thickness = 1
+
+-- 🎛️ survol/appui gérés par le bloc "LOOK NATIF TOPBAR" en fin de script
+bouton.MouseButton1Click:Connect(function()
+	local htpScreenGui = playerGui:WaitForChild("How to Play", 5)
+	if htpScreenGui then
+		local htpButton = htpScreenGui:FindFirstChild("HtpButton2")
+		if htpButton then
+			htpButton.Visible = not htpButton.Visible
+		else
+			warn("HtpButton2 introuvable dans How to Play")
+		end
+	else
+		warn("ScreenGui 'How to Play' introuvable")
+	end
+end)
+
+-- ============================================================
+-- BADGE STREAK (anciennement Flame)
+-- ============================================================
+
+local badge = Instance.new("TextButton")
+badge.Size                   = UDim2.new(0, BTN_W, 0, BTN_H)
+badge.Position               = streakBtnX
+badge.AnchorPoint            = Vector2.new(0, 0)
+badge.BackgroundColor3       = Color3.fromRGB(20,20,20)
+badge.BackgroundTransparency = 0.3
+badge.Text                   = ""
+badge.AutoButtonColor        = false
+badge.ZIndex                 = 2
+badge.Parent                 = topBarGui
+Instance.new("UICorner", badge).CornerRadius = UDim.new(0,10)
+local badgeStroke = Instance.new("UIStroke", badge)
+badgeStroke.Color     = Color3.fromRGB(255,160,30)
+badgeStroke.Thickness = 1
+
+local streakIcon = Instance.new("TextLabel")
+streakIcon.Size               = UDim2.new(0, isMobile and 22 or 28, 1, 0)
+streakIcon.Position           = UDim2.new(0, 4, 0, 0)
+streakIcon.Text               = "🔥"
+streakIcon.TextSize           = isMobile and 13 or 16
+streakIcon.BackgroundTransparency = 1
+streakIcon.ZIndex             = 3
+streakIcon.Parent             = badge
+
+local streakLabel = Instance.new("TextLabel")
+streakLabel.Size             = UDim2.new(1, isMobile and -26 or -32, 0.55, 0)
+streakLabel.Position = UDim2.new(0, isMobile and 22 or 28, 0, isMobile and 2 or 3)
+streakLabel.Text             = "0 days"
+streakLabel.TextSize = isMobile and 12 or 15
+streakLabel.Font             = Enum.Font.FredokaOne
+streakLabel.TextColor3       = Color3.fromRGB(255,255,255)
+streakLabel.TextXAlignment   = Enum.TextXAlignment.Center
+streakLabel.BackgroundTransparency = 1
+streakLabel.ZIndex           = 3
+streakLabel.Parent           = badge
+
+local subLabel = Instance.new("TextLabel")
+subLabel.Size                = UDim2.new(1, isMobile and -26 or -32, 0.4, 0)
+subLabel.Position    = UDim2.new(0, isMobile and 22 or 28, 0.58, 0)
+subLabel.Text                = "🔥 streak"
+subLabel.TextSize = isMobile and 10 or 11
+subLabel.Font                = Enum.Font.FredokaOne
+subLabel.TextColor3          = Color3.fromRGB(255,190,80)
+subLabel.TextXAlignment      = Enum.TextXAlignment.Center
+subLabel.BackgroundTransparency = 1
+subLabel.ZIndex              = 3
+subLabel.Parent              = badge
+
+-- ============================================================
+-- REMPLACEMENT DE LA FRAME STREAK (côté client)  — v2
+-- ============================================================
+-- Dans ton LocalScript (Document 1), remplace TOUT le bloc :
+--      "-- OVERLAY + PANEL STREAK (anciennement FlameGui)"
+--   jusqu'à la ligne  refreshUI()  (juste avant la section SETTINGS)
+-- par ce qui suit.
+--
+-- Nouveautés v2 :
+--   • Panel format paysage (rectangulaire, plus large, plus court)
+--   • Piste + cercles + textes agrandis et lisibles
+--   • Emoji 🔥 remplacé par Config.ICON (header + badge d'ouverture + jours)
+--   • Bouton OK → vert "CLAIM" quand au moins 1 récompense est dispo (claim all)
+--   • Notification de claim (style "Purchase Complete")
+--   • Même rendu adapté mobile / PC
+--
+-- Réutilise (déjà définis plus haut) : player, playerGui, isMobile,
+--   TweenService, UserInputService, MarketplaceService, ReplicatedStorage,
+--   RECOVER_ICON_ID, RECOVER_PRODUCT_ID, badge, badgeStroke, streakLabel, subLabel
+-- ============================================================
+
+local RunService    = game:GetService("RunService")
+local SoundService  = game:GetService("SoundService")
+
+-- Config + remotes du système de récompenses
+local _cfgMod = ReplicatedStorage:WaitForChild("StreakRewardsConfig", 15)
+local StreakRewardsConfig = _cfgMod and require(_cfgMod)
+local srClaim   = ReplicatedStorage:WaitForChild("StreakRewardClaim", 15)
+local srSync    = ReplicatedStorage:WaitForChild("StreakRewardSync", 15)
+local srResult  = ReplicatedStorage:WaitForChild("StreakRewardResult", 15)
+local srRequest = ReplicatedStorage:WaitForChild("StreakRewardRequest", 15)
+
+local ICON = (StreakRewardsConfig and StreakRewardsConfig.ICON) or ""
+
+local function f(m, d) return isMobile and m or d end
+
+-- Largeur dispo (clamp pour ne jamais déborder, mobile compris)
+local function getVpW()
+	local cam = workspace.CurrentCamera
+	if cam then
+		local vp = cam.ViewportSize
+		if vp.X > 100 then return vp.X end
+	end
+	return 1280
+end
+local vpW = getVpW()
+
+-- Forward declarations (utilisées par refreshTrack avant leur création)
+local okBtn, okText, okStroke
+local claimMode = false
+
+-- ============================================================
+-- BADGE (top bar) : remplace l'emoji 🔥 par l'icône image
+-- ============================================================
+do
+	for _, ch in ipairs(badge:GetChildren()) do
+		if ch:IsA("TextLabel") and ch.Text == "🔥" then
+			ch.Visible = false
+		end
+	end
+	local badgeIcon = Instance.new("ImageLabel")
+	badgeIcon.Name                 = "StreakBadgeIcon"
+	badgeIcon.BackgroundTransparency = 1
+	badgeIcon.Image                = ICON
+	badgeIcon.Size                 = UDim2.new(0, f(20, 26), 0, f(20, 26))
+	badgeIcon.Position             = UDim2.new(0, f(5, 6), 0.5, 0)
+	badgeIcon.AnchorPoint          = Vector2.new(0, 0.5)
+	badgeIcon.ZIndex               = 4
+	badgeIcon.Parent               = badge
+end
+
+-- ============================================================
+-- SCREENGUI + OVERLAY
+-- ============================================================
+local screen = Instance.new("ScreenGui")
+screen.Name           = "StreakGui"
+screen.ResetOnSpawn   = false
+screen.IgnoreGuiInset = true
+screen.DisplayOrder   = 10
+screen.Parent         = playerGui
+
+local overlayBtn = Instance.new("TextButton")
+overlayBtn.Size                   = UDim2.new(1, 0, 1, 0)
+overlayBtn.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+overlayBtn.BackgroundTransparency = 0.5
+overlayBtn.Text                   = ""
+overlayBtn.AutoButtonColor        = false
+overlayBtn.Visible                = false
+overlayBtn.ZIndex                 = 20
+overlayBtn.Parent                 = screen
+
+-- ============================================================
+-- PANEL (format paysage)
+-- ============================================================
+local PW = math.min(f(560, 640), vpW - 20)
+local PH = f(312, 360)
+
+local panel = Instance.new("Frame")
+panel.Size                   = UDim2.new(0, PW, 0, PH)
+panel.AnchorPoint            = Vector2.new(0.5, 0.5)
+panel.Position               = UDim2.new(0.5, 0, 0.5, 0)
+panel.BackgroundColor3       = Color3.fromRGB(15, 15, 15)
+panel.BackgroundTransparency = 0.3
+panel.Visible                = false
+panel.Active                 = true
+panel.ZIndex                 = 30
+panel.Parent                 = screen
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 22)
+local panelStroke = Instance.new("UIStroke", panel)
+panelStroke.Color     = Color3.fromRGB(255, 160, 30)
+panelStroke.Thickness = 2
+fitToScreen(panel)
+
+-- ============================================================
+-- HEADER (icône à gauche, streak + best à droite)
+-- ============================================================
+local HEAD_H = f(58, 70)
+
+local bigIcon = Instance.new("ImageLabel")
+bigIcon.BackgroundTransparency = 1
+bigIcon.Image                  = ICON
+bigIcon.Size                   = UDim2.new(0, HEAD_H, 0, HEAD_H)
+bigIcon.Position               = UDim2.new(0, 18, 0, 14)
+bigIcon.AnchorPoint            = Vector2.new(0, 0)
+bigIcon.ZIndex                 = 31
+bigIcon.Parent                 = panel
+
+local headTextX = 18 + HEAD_H + 14
+
+local panelStreak = Instance.new("TextLabel")
+panelStreak.BackgroundTransparency = 1
+panelStreak.Size           = UDim2.new(1, -headTextX - 16, 0, f(30, 36))
+panelStreak.Position       = UDim2.new(0, headTextX, 0, f(16, 18))
+panelStreak.Text           = "0 day streak"
+panelStreak.Font           = Enum.Font.FredokaOne
+panelStreak.TextSize = f(26, 33)
+panelStreak.TextColor3     = Color3.fromRGB(255, 190, 60)
+panelStreak.TextXAlignment = Enum.TextXAlignment.Left
+panelStreak.ZIndex         = 31
+panelStreak.Parent         = panel
+
+local bestLabel = Instance.new("TextLabel")
+bestLabel.BackgroundTransparency = 1
+bestLabel.Size           = UDim2.new(1, -headTextX - 16, 0, f(22, 26))
+bestLabel.Position       = UDim2.new(0, headTextX, 0, f(46, 54))
+bestLabel.Text           = "Best: 0"
+bestLabel.Font           = Enum.Font.FredokaOne
+bestLabel.TextSize = f(16, 18)
+bestLabel.TextColor3     = Color3.fromRGB(185, 185, 190)
+bestLabel.TextXAlignment = Enum.TextXAlignment.Left
+bestLabel.TextWrapped    = true
+bestLabel.ZIndex         = 31
+bestLabel.Parent         = panel
+
+-- ============================================================
+-- TITRE + PISTE
+-- ============================================================
+local TITLE_Y = 14 + HEAD_H + f(8, 10)
+
+local rewardTitle = Instance.new("TextLabel")
+rewardTitle.BackgroundTransparency = 1
+rewardTitle.Size           = UDim2.new(1, -36, 0, f(20, 24))
+rewardTitle.Position       = UDim2.new(0, 18, 0, TITLE_Y)
+rewardTitle.Text           = "🎁  STREAK REWARDS"
+rewardTitle.Font           = Enum.Font.FredokaOne
+rewardTitle.TextSize = f(16, 18)
+rewardTitle.TextColor3     = Color3.fromRGB(255, 195, 90)
+rewardTitle.TextXAlignment = Enum.TextXAlignment.Left
+rewardTitle.ZIndex         = 31
+rewardTitle.Parent         = panel
+
+local TRACK_Y = TITLE_Y + f(24, 28)
+local TRACK_H = f(132, 150)
+
+local track = Instance.new("ScrollingFrame")
+track.Size                   = UDim2.new(1, -24, 0, TRACK_H)
+track.Position               = UDim2.new(0, 12, 0, TRACK_Y)
+track.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+track.BackgroundTransparency = 1
+track.BorderSizePixel        = 0
+track.ScrollBarThickness     = 0
+track.ScrollingDirection     = Enum.ScrollingDirection.X
+track.CanvasSize             = UDim2.new(0, 0, 0, 0)
+track.ZIndex                 = 31
+track.Active                 = true
+track.Parent                 = panel
+Instance.new("UICorner", track).CornerRadius = UDim.new(0, 14)
+
+local NODE     = f(56, 66)
+local SPACING  = f(92, 108)
+local LEFT_PAD = f(54, 64)
+local TOTAL    = StreakRewardsConfig and StreakRewardsConfig.TOTAL_DAYS or 0
+local CANVAS_W = LEFT_PAD * 2 + math.max(0, TOTAL - 1) * SPACING + NODE
+track.CanvasSize = UDim2.new(0, CANVAS_W, 0, 0)
+
+-- Barre de fond
+local barBg = Instance.new("Frame")
+barBg.AnchorPoint      = Vector2.new(0, 0.5)
+barBg.Position         = UDim2.new(0, LEFT_PAD, 0.5, 0)
+barBg.Size             = UDim2.new(0, math.max(0, TOTAL - 1) * SPACING, 0, f(10, 12))
+barBg.BackgroundColor3 = Color3.fromRGB(58, 58, 64)
+barBg.BorderSizePixel  = 0
+barBg.ZIndex           = 31
+barBg.Parent           = track
+Instance.new("UICorner", barBg).CornerRadius = UDim.new(1, 0)
+
+-- Barre de remplissage (feu)
+local barFill = Instance.new("Frame")
+barFill.AnchorPoint      = Vector2.new(0, 0.5)
+barFill.Position         = UDim2.new(0, 0, 0.5, 0)
+barFill.Size             = UDim2.new(0, 0, 1, 0)
+barFill.BackgroundColor3 = Color3.fromRGB(255, 150, 40)
+barFill.BorderSizePixel  = 0
+barFill.ZIndex           = 32
+barFill.Parent           = barBg
+Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
+
+local fireGrad = Instance.new("UIGradient")
+fireGrad.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0.0, Color3.fromRGB(255, 90, 20)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 215, 70)),
+	ColorSequenceKeypoint.new(1.0, Color3.fromRGB(255, 90, 20)),
+})
+fireGrad.Parent = barFill
+
+local fireTip = Instance.new("ImageLabel")
+fireTip.AnchorPoint            = Vector2.new(0.5, 0.5)
+fireTip.Size                   = UDim2.new(0, f(30, 36), 0, f(30, 36))
+fireTip.Position               = UDim2.new(0, 0, 0.5, 0)
+fireTip.BackgroundTransparency = 1
+fireTip.Image                  = ICON
+fireTip.ZIndex                 = 34
+fireTip.Visible                = false
+fireTip.Parent                 = barBg
+
+-- ============================================================
+-- CONSTRUCTION DES CERCLES
+-- ============================================================
+local nodeRefs      = {}
+local claimableList = {}
+
+local function buildNode(day)
+	local cx = LEFT_PAD + (day - 1) * SPACING
+
+	local node = Instance.new("Frame")
+	node.AnchorPoint      = Vector2.new(0.5, 0.5)
+	node.Position         = UDim2.new(0, cx, 0.5, 0)
+	node.Size             = UDim2.new(0, NODE, 0, NODE)
+	node.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+	node.BorderSizePixel  = 0
+	node.ZIndex           = 33
+	node.Parent           = track
+	Instance.new("UICorner", node).CornerRadius = UDim.new(1, 0)
+	local nStroke = Instance.new("UIStroke", node)
+	nStroke.Color     = Color3.fromRGB(80, 80, 88)
+	nStroke.Thickness = 2
+
+	local reward = StreakRewardsConfig.getReward(day)
+	local mainImg, dayBadge, dayText, check
+
+	if reward then
+		-- IMAGE de la récompense (grande, sans fond)
+		mainImg = Instance.new("ImageLabel")
+		mainImg.AnchorPoint            = Vector2.new(0.5, 0.5)
+		mainImg.Position               = UDim2.new(0.5, 0, 0.5, 0)
+		mainImg.Size                   = UDim2.new(0, NODE - f(10, 12), 0, NODE - f(10, 12))
+		mainImg.BackgroundTransparency = 1
+		mainImg.Image                  = reward.image or ""
+		mainImg.ZIndex                 = 34
+		mainImg.Parent                 = node
+
+		-- numéro du jour discret (badge en haut)
+		dayBadge = Instance.new("TextLabel")
+		dayBadge.AnchorPoint            = Vector2.new(0.5, 0.5)
+		dayBadge.Position               = UDim2.new(0.5, 0, 0, 0)
+		dayBadge.Size                   = UDim2.new(0, f(24, 28), 0, f(16, 18))
+		dayBadge.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+		dayBadge.BackgroundTransparency = 0.15
+		dayBadge.Text                   = tostring(day)
+		dayBadge.Font                   = Enum.Font.FredokaOne
+		dayBadge.TextSize = f(12, 14)
+		dayBadge.TextColor3             = Color3.fromRGB(255, 215, 150)
+		dayBadge.ZIndex                 = 35
+		dayBadge.Parent                 = node
+		Instance.new("UICorner", dayBadge).CornerRadius = UDim.new(1, 0)
+
+		-- check (réclamé)
+		check = Instance.new("TextLabel")
+		check.AnchorPoint      = Vector2.new(1, 1)
+		check.Position         = UDim2.new(1, 4, 1, 4)
+		check.Size             = UDim2.new(0, f(20, 22), 0, f(20, 22))
+		check.BackgroundColor3 = Color3.fromRGB(40, 175, 75)
+		check.Text             = "✓"
+		check.Font             = Enum.Font.FredokaOne
+		check.TextSize         = f(12, 13)
+		check.TextColor3       = Color3.fromRGB(255, 255, 255)
+		check.ZIndex           = 36
+		check.Visible          = false
+		check.Parent           = node
+		Instance.new("UICorner", check).CornerRadius = UDim.new(1, 0)
+
+		-- bouton claim (couvre le cercle)
+		local btn = Instance.new("TextButton")
+		btn.Size                   = UDim2.new(1, 0, 1, 0)
+		btn.BackgroundTransparency = 1
+		btn.Text                   = ""
+		btn.ZIndex                 = 37
+		btn.Parent                 = node
+		btn.MouseButton1Click:Connect(function()
+			local ref = nodeRefs[day]
+			if ref and ref.claimable and not ref.pending and srClaim then
+				ref.pending   = true   -- verrou local immédiat
+				ref.claimable = false
+				refreshTrack()         -- retire le pulse tout de suite
+				srClaim:FireServer(day)
+			end
+		end)
+
+		-- nom de la récompense (sous le cercle)
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.AnchorPoint            = Vector2.new(0.5, 0)
+		nameLbl.Position               = UDim2.new(0.5, 0, 1, f(6, 8))
+		nameLbl.Size                   = UDim2.new(0, SPACING - 8, 0, f(30, 34))
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Text                   = reward.label or ""
+		nameLbl.Font                   = Enum.Font.FredokaOne
+		nameLbl.TextSize = f(13, 14)
+		nameLbl.TextColor3             = Color3.fromRGB(215, 215, 220)
+		nameLbl.TextWrapped            = true
+		nameLbl.ZIndex                 = 34
+		nameLbl.Parent                 = node
+	else
+		-- JOUR SANS RÉCOMPENSE : icône + numéro
+		mainImg = Instance.new("ImageLabel")
+		mainImg.AnchorPoint            = Vector2.new(0.5, 0.5)
+		mainImg.Position               = UDim2.new(0.5, 0, 0.5, 0)
+		mainImg.Size                   = UDim2.new(0, NODE - f(14, 16), 0, NODE - f(14, 16))
+		mainImg.BackgroundTransparency = 1
+		mainImg.Image                  = ICON
+		mainImg.ZIndex                 = 34
+		mainImg.Parent                 = node
+
+		dayText = Instance.new("TextLabel")
+		dayText.Size                   = UDim2.new(1, 0, 1, 0)
+		dayText.BackgroundTransparency = 1
+		dayText.Text                   = tostring(day)
+		dayText.Font                   = Enum.Font.FredokaOne
+		dayText.TextSize               = f(18, 22)
+		dayText.TextColor3             = Color3.fromRGB(255, 255, 255)
+		dayText.TextStrokeColor3       = Color3.fromRGB(0, 0, 0)
+		dayText.TextStrokeTransparency = 0.35
+		dayText.ZIndex                 = 35
+		dayText.Parent                 = node
+	end
+
+	nodeRefs[day] = {
+		node = node, stroke = nStroke, reward = reward,
+		mainImg = mainImg, dayBadge = dayBadge, dayText = dayText,
+		check = check, claimable = false,
+	}
+end
+
+if StreakRewardsConfig then
+	for day = 1, TOTAL do buildNode(day) end
+end
+
+-- ============================================================
+-- ÉTAT CLIENT + RAFRAÎCHISSEMENT
+-- ============================================================
+local clientStreak  = 0
+local clientClaimed = {}
+-- ⚠️ Pas de nouveaux locals (limite Luau 200 atteinte) : l'état des claims
+-- vit sur la table existante nodeRefs :
+--   nodeRefs[day].pending   → claim en attente de réponse serveur
+--   nodeRefs.claimingAll    → claim-all en cours
+--   nodeRefs.lastClaimClick → anti-spam du bouton CLAIM
+
+local function updateClaimButton()
+	if not okBtn then return end
+	claimMode = #claimableList > 0
+	if claimMode then
+		okText.Text            = "CLAIM"
+		okText.TextColor3      = Color3.fromRGB(255, 255, 255)
+		okBtn.BackgroundColor3 = Color3.fromRGB(40, 175, 75)
+		okStroke.Color         = Color3.fromRGB(120, 255, 150)
+		okStroke.Transparency  = 0
+	else
+		okText.Text            = "OK"
+		okText.TextColor3      = Color3.fromRGB(245, 245, 245)
+		okBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		okStroke.Color         = Color3.fromRGB(140, 140, 140)
+		okStroke.Transparency  = 0.3
+	end
+end
+
+local function refreshTrack()
+	if not StreakRewardsConfig then return end
+	local streak = clientStreak
+
+	local frac = 0
+	if TOTAL > 1 then frac = math.clamp((streak - 1) / (TOTAL - 1), 0, 1) end
+	TweenService:Create(barFill, TweenInfo.new(0.4, Enum.EasingStyle.Quad),
+		{ Size = UDim2.new(frac, 0, 1, 0) }):Play()
+	fireTip.Visible  = streak >= 1
+	fireTip.Position = UDim2.new(frac, 0, 0.5, 0)
+
+	claimableList = {}
+	for day = 1, TOTAL do
+		local ref       = nodeRefs[day]
+		local reached   = day <= streak
+		local isReward  = ref.reward ~= nil
+		local claimed   = clientClaimed[day] == true
+		local claimable = isReward and reached and not claimed and not ref.pending
+		ref.claimable   = claimable
+
+		if isReward then
+			ref.check.Visible = claimed
+			if claimed then
+				ref.stroke.Color          = Color3.fromRGB(40, 175, 75)
+				ref.stroke.Thickness      = 2.5
+				ref.node.BackgroundColor3 = Color3.fromRGB(24, 40, 28)
+				ref.mainImg.ImageTransparency = 0.25
+			elseif claimable then
+				ref.stroke.Color          = Color3.fromRGB(255, 170, 30)
+				ref.stroke.Thickness      = 3
+				ref.node.BackgroundColor3 = Color3.fromRGB(45, 34, 16)
+				ref.mainImg.ImageTransparency = 0
+				table.insert(claimableList, ref)
+			else
+				ref.stroke.Color          = Color3.fromRGB(70, 70, 76)
+				ref.stroke.Thickness      = 2
+				ref.node.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+				ref.mainImg.ImageTransparency = 0.55
+			end
+		else
+			if reached then
+				ref.stroke.Color              = Color3.fromRGB(255, 150, 40)
+				ref.node.BackgroundColor3     = Color3.fromRGB(48, 32, 14)
+				ref.mainImg.ImageTransparency = 0.1
+				ref.dayText.TextColor3        = Color3.fromRGB(255, 255, 255)
+			else
+				ref.stroke.Color              = Color3.fromRGB(70, 70, 76)
+				ref.node.BackgroundColor3     = Color3.fromRGB(28, 28, 34)
+				ref.mainImg.ImageTransparency = 0.7
+				ref.dayText.TextColor3        = Color3.fromRGB(170, 170, 176)
+			end
+		end
+	end
+
+	updateClaimButton()
+end
+
+-- Animation feu + pulse (Heartbeat, seulement quand le panel est ouvert)
+local tAccum = 0
+RunService.Heartbeat:Connect(function(dt)
+	if not panel.Visible then return end
+	tAccum += dt
+	fireGrad.Offset   = Vector2.new((tAccum * 0.7) % 1, 0)
+	fireGrad.Rotation = math.sin(tAccum * 2) * 6
+	fireTip.Rotation  = math.sin(tAccum * 4) * 8
+
+	local pulse = 0.5 + 0.5 * math.sin(tAccum * 5)
+	for _, ref in ipairs(claimableList) do
+		ref.stroke.Thickness    = 2.5 + pulse * 2
+		ref.stroke.Transparency = 0.1 - pulse * 0.1
+	end
+
+	if claimMode and okStroke then
+		local p2 = 0.5 + 0.5 * math.sin(tAccum * 4)
+		okStroke.Thickness = 1.5 + p2 * 2.5
+		okBtn.BackgroundColor3 = Color3.fromRGB(40, 175, 75):Lerp(Color3.fromRGB(58, 205, 95), p2)
+	end
+end)
+
+local function scrollToStreak()
+	if not StreakRewardsConfig or TOTAL <= 0 then return end
+	local streak = math.max(1, clientStreak)
+	local cx = LEFT_PAD + (streak - 1) * SPACING
+	local target = cx - track.AbsoluteWindowSize.X / 2 + NODE / 2
+	target = math.clamp(target, 0, math.max(0, CANVAS_W - track.AbsoluteWindowSize.X))
+	track.CanvasPosition = Vector2.new(target, 0)
+end
+
+-- ============================================================
+-- NOTIFICATION DE CLAIM (style "Purchase Complete")
+-- ============================================================
+local NOTIF_W = math.min(f(400, 470), vpW - 30)
+local NOTIF_H = f(96, 112)
+local activeNotifs = 0
+local buySound = SoundService:FindFirstChild("buysound")
+
+local function showClaimNotification(title, sub, accent)
+	accent = accent or Color3.fromRGB(85, 255, 127)
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name           = "StreakClaimNotif"
+	gui.ResetOnSpawn   = false
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder   = 50
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent         = playerGui
+
+	local slot = activeNotifs
+	activeNotifs += 1
+
+	local frame = Instance.new("Frame")
+	frame.AnchorPoint            = Vector2.new(0.5, 0)
+	frame.Position               = UDim2.new(0.5, 0, 0.16, slot * (NOTIF_H + 10))
+	frame.Size                   = UDim2.new(0, 0, 0, 0)
+	frame.BackgroundColor3       = Color3.fromRGB(20, 20, 20)
+	frame.BackgroundTransparency = 0.25
+	frame.BorderSizePixel        = 0
+	frame.Parent                 = gui
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 16)
+	local border = Instance.new("UIStroke", frame)
+	border.Color     = accent
+	border.Thickness = 3
+
+	local titleLbl = Instance.new("TextLabel")
+	titleLbl.BackgroundTransparency = 1
+	titleLbl.Size                   = UDim2.new(1, -24, 0, NOTIF_H * 0.46)
+	titleLbl.Position               = UDim2.new(0, 12, 0, f(8, 10))
+	titleLbl.Text                   = title
+	titleLbl.Font                   = Enum.Font.FredokaOne
+	titleLbl.TextSize               = f(19, 23)
+	titleLbl.TextColor3             = Color3.fromRGB(255, 255, 255)
+	titleLbl.TextStrokeColor3       = Color3.new(0, 0, 0)
+	titleLbl.TextStrokeTransparency = 0.5
+	titleLbl.TextWrapped            = true
+	titleLbl.Parent                 = frame
+
+	local subLbl = Instance.new("TextLabel")
+	subLbl.BackgroundTransparency = 1
+	subLbl.Size                   = UDim2.new(1, -24, 0, NOTIF_H * 0.4)
+	subLbl.Position               = UDim2.new(0, 12, 0, NOTIF_H * 0.5)
+	subLbl.Text                   = sub
+	subLbl.Font                   = Enum.Font.FredokaOne
+	subLbl.TextSize               = f(15, 18)
+	subLbl.TextColor3             = accent
+	subLbl.TextWrapped            = true
+	subLbl.Parent                 = frame
+
+	if buySound then pcall(function() buySound:Play() end) end
+
+	TweenService:Create(frame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Size = UDim2.new(0, NOTIF_W, 0, NOTIF_H) }):Play()
+
+	task.delay(3.4, function()
+		local fi = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		TweenService:Create(frame,    fi, { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(border,   fi, { Transparency = 1 }):Play()
+		TweenService:Create(titleLbl, fi, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		local t = TweenService:Create(subLbl, fi, { TextTransparency = 1 })
+		t:Play()
+		t.Completed:Connect(function()
+			activeNotifs = math.max(0, activeNotifs - 1)
+			gui:Destroy()
+		end)
+	end)
+end
+
+-- ============================================================
+-- SYNC + RÉSULTAT (serveur → client)
+-- ============================================================
+if srSync then
+	srSync.OnClientEvent:Connect(function(state)
+		if type(state) ~= "table" then return end
+		clientStreak  = tonumber(state.streak) or 0
+		clientClaimed = {}
+		if type(state.claimed) == "table" then
+			for _, d in ipairs(state.claimed) do
+				clientClaimed[d] = true
+				if nodeRefs[d] then nodeRefs[d].pending = nil end   -- confirmé côté serveur
+			end
+		end
+		refreshTrack()
+	end)
+end
+
+if srResult then
+	srResult.OnClientEvent:Connect(function(res)
+		if type(res) ~= "table" then return end
+		if res.day and nodeRefs[res.day] then nodeRefs[res.day].pending = nil end  -- fin du vol
+		if res.success and res.day and nodeRefs[res.day] then
+			local ref = nodeRefs[res.day]
+			TweenService:Create(ref.node, TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+				{ Size = UDim2.new(0, NODE * 1.28, 0, NODE * 1.28) }):Play()
+			task.delay(0.18, function()
+				TweenService:Create(ref.node, TweenInfo.new(0.16), { Size = UDim2.new(0, NODE, 0, NODE) }):Play()
+			end)
+			if res.temp then
+				showClaimNotification("Weapon Unlocked!",
+					(res.label or "Weapon") .. " — yours for 1 day!",
+					Color3.fromRGB(255, 200, 90))
+			else
+				showClaimNotification("Reward Claimed!",
+					"+ " .. (res.label or "Reward"),
+					Color3.fromRGB(85, 255, 127))
+			end
+		elseif not res.success then
+			refreshTrack()  -- réactive le jour pour un retry manuel
+			showClaimNotification("Couldn't claim", "Please try again", Color3.fromRGB(255, 120, 120))
+		end
+	end)
+end
+
+-- Claim all : réclame tous les jours dispo (espacés pour le lock serveur)
+local function claimAll()
+	if not StreakRewardsConfig or nodeRefs.claimingAll then return end
+	nodeRefs.claimingAll = true
+	local days = {}
+	for day = 1, TOTAL do
+		local ref = nodeRefs[day]
+		if ref and ref.claimable and not ref.pending then
+			table.insert(days, day)
+		end
+	end
+	table.sort(days)
+	for _, d in ipairs(days) do
+		if nodeRefs[d] then nodeRefs[d].pending = true end
+	end
+	refreshTrack()  -- éteint tout le pulse d'un coup
+	task.spawn(function()
+		for _, d in ipairs(days) do
+			if srClaim then srClaim:FireServer(d) end
+			task.wait(0.35)   -- ≥ debounce serveur (0.15s) avec marge
+		end
+		task.wait(0.6)
+		nodeRefs.claimingAll = false
+	end)
+end
+
+-- ============================================================
+-- MESSAGE + RECOVER + OK/CLAIM (bas du panel)
+-- ============================================================
+local msgLabel = Instance.new("TextLabel")
+msgLabel.BackgroundTransparency = 1
+msgLabel.Size        = UDim2.new(1, -28, 0, f(40, 44))
+msgLabel.Position    = UDim2.new(0, 14, 1, -f(150, 162))
+msgLabel.Text        = ""
+msgLabel.Font        = Enum.Font.FredokaOne
+msgLabel.TextSize    = f(15, 16)
+msgLabel.TextColor3  = Color3.fromRGB(255, 80, 80)
+msgLabel.TextWrapped = true
+msgLabel.ZIndex      = 32
+msgLabel.Visible     = false
+msgLabel.Parent      = panel
+
+-- ⏰ Countdown "reconnecte-toi dans X pour augmenter ta streak"
+local nextDayLabel = Instance.new("TextLabel")
+nextDayLabel.Name                 = "NextDayLabel"
+nextDayLabel.BackgroundTransparency = 1
+nextDayLabel.AnchorPoint           = Vector2.new(0.5, 1)
+nextDayLabel.Position              = UDim2.new(0.5, 0, 1, -f(58, 66))
+nextDayLabel.Size                  = UDim2.new(1, -32, 0, f(22, 26))
+nextDayLabel.Font                  = Enum.Font.FredokaOne
+nextDayLabel.TextSize              = f(13, 15)
+nextDayLabel.TextColor3            = Color3.fromRGB(255, 205, 110)
+nextDayLabel.Text                  = ""
+nextDayLabel.TextXAlignment        = Enum.TextXAlignment.Center
+nextDayLabel.TextWrapped           = true
+nextDayLabel.ZIndex                = 32
+nextDayLabel.Visible               = false
+nextDayLabel.Parent                = panel
+
+local function fmtCountdown(sec)
+	sec = math.max(0, math.floor(sec))
+	local h = math.floor(sec / 3600)
+	local m = math.floor((sec % 3600) / 60)
+	local s = sec % 60
+	if h > 0 then return string.format("%dh %02dm", h, m) end
+	if m > 0 then return string.format("%dm %02ds", m, s) end
+	return string.format("%ds", s)
+end
+
+local function updateNextDayCountdown()
+	local canRecover = player:GetAttribute("FlameCanRecover") or false
+	local nextDay    = player:GetAttribute("FlameNextDay")
+	local streak     = player:GetAttribute("FlameStreak") or 0
+
+	-- masqué en mode recover, si pas encore chargé, ou streak au max
+	if canRecover or nextDay == nil or (TOTAL > 0 and streak >= TOTAL) then
+		nextDayLabel.Visible = false
+		return
+	end
+
+	local remaining = nextDay - os.time()
+	if remaining <= 0 then
+		nextDayLabel.Text      = "🔥 Reconnect now to extend your streak!"
+		nextDayLabel.TextColor3 = Color3.fromRGB(120, 255, 150)
+	else
+		nextDayLabel.Text      = "🔥 Reconnect in " .. fmtCountdown(remaining) .. " to extend your streak"
+		nextDayLabel.TextColor3 = Color3.fromRGB(255, 205, 110)
+	end
+	nextDayLabel.Visible = true
+end
+
+-- rafraîchit le compte à rebours chaque seconde tant que le panel est ouvert
+task.spawn(function()
+	while true do
+		task.wait(1)
+		if panel.Visible then updateNextDayCountdown() end
+	end
+end)
+
+local recoverBtn = Instance.new("TextButton")
+recoverBtn.Size             = UDim2.new(1, -32, 0, f(50, 56))
+recoverBtn.Position         = UDim2.new(0, 16, 1, -f(106, 116))
+recoverBtn.BackgroundColor3 = Color3.fromRGB(34, 130, 55)
+recoverBtn.Text             = ""
+recoverBtn.AutoButtonColor  = false
+recoverBtn.Visible          = false
+recoverBtn.ZIndex           = 32
+recoverBtn.Parent           = panel
+Instance.new("UICorner", recoverBtn).CornerRadius = UDim.new(0, 14)
+local recoverStroke = Instance.new("UIStroke", recoverBtn)
+recoverStroke.Color     = Color3.fromRGB(100, 220, 120)
+recoverStroke.Thickness = 1.5
+
+local recoverIconImg = Instance.new("ImageLabel")
+recoverIconImg.Size                   = UDim2.new(0, f(46, 52), 0, f(46, 52))
+recoverIconImg.Position               = UDim2.new(0, f(8, 10), 0.5, 0)
+recoverIconImg.AnchorPoint            = Vector2.new(0, 0.5)
+recoverIconImg.Image                  = RECOVER_ICON_ID
+recoverIconImg.BackgroundTransparency = 1
+recoverIconImg.ZIndex                 = 33
+recoverIconImg.Parent                 = recoverBtn
+
+local recoverText = Instance.new("TextLabel")
+recoverText.Size                   = UDim2.new(1, -f(64, 72), 1, 0)
+recoverText.Position               = UDim2.new(0, f(62, 70), 0, 0)
+recoverText.Text                   = "Recover Streak"
+recoverText.Font                   = Enum.Font.FredokaOne
+recoverText.TextSize               = f(20, 23)
+recoverText.TextColor3             = Color3.fromRGB(255, 255, 255)
+recoverText.TextXAlignment         = Enum.TextXAlignment.Left
+recoverText.BackgroundTransparency = 1
+recoverText.ZIndex                 = 33
+recoverText.Parent                 = recoverBtn
+
+if not isMobile then
+	recoverBtn.MouseEnter:Connect(function() recoverBtn.BackgroundColor3 = Color3.fromRGB(45, 160, 68) end)
+	recoverBtn.MouseLeave:Connect(function() recoverBtn.BackgroundColor3 = Color3.fromRGB(34, 130, 55) end)
+end
+recoverBtn.MouseButton1Down:Connect(function() recoverBtn.BackgroundColor3 = Color3.fromRGB(25, 100, 42) end)
+recoverBtn.MouseButton1Up:Connect(function() recoverBtn.BackgroundColor3 = Color3.fromRGB(34, 130, 55) end)
+recoverBtn.MouseButton1Click:Connect(function()
+	MarketplaceService:PromptProductPurchase(player, RECOVER_PRODUCT_ID)
+end)
+
+okBtn = Instance.new("TextButton")
+okBtn.Size             = UDim2.new(1, -32, 0, f(46, 52))
+okBtn.Position         = UDim2.new(0, 16, 1, -f(54, 62))
+okBtn.Text             = ""
+okBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+okBtn.AutoButtonColor  = false
+okBtn.ZIndex           = 32
+okBtn.Parent           = panel
+Instance.new("UICorner", okBtn).CornerRadius = UDim.new(0, 14)
+okStroke = Instance.new("UIStroke", okBtn)
+okStroke.Color        = Color3.fromRGB(140, 140, 140)
+okStroke.Thickness    = 1
+okStroke.Transparency = 0.3
+
+okText = Instance.new("TextLabel")
+okText.Size                   = UDim2.new(1, 0, 1, 0)
+okText.BackgroundTransparency = 1
+okText.Text                   = "OK"
+okText.Font                   = Enum.Font.FredokaOne
+okText.TextSize               = f(16, 18)
+okText.TextColor3             = Color3.fromRGB(245, 245, 245)
+okText.ZIndex                 = 33
+okText.Parent                 = okBtn
+
+-- ============================================================
+-- LOGIQUE PANEL
+-- ============================================================
+local panelOpen = false
+
+local function openPanel()
+	-- Recalcul dynamique de la largeur au moment de l'ouverture
+	local currentVpW = getVpW()
+	local newPW = math.min(f(560, 640), currentVpW - 20)
+	panel.Size = UDim2.new(0, newPW, 0, PH)
+
+	panelOpen = true
+	overlayBtn.Visible = true
+	panel.Visible      = true
+	panel.Position     = UDim2.new(0.5, 0, 0.62, 0)
+	TweenService:Create(panel,
+		TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ Position = UDim2.new(0.5, 0, 0.5, 0) }):Play()
+	if srRequest then pcall(function() srRequest:FireServer() end) end
+	task.spawn(function() task.wait(0.05); scrollToStreak() end)
+end
+
+local function closePanel()
+	if not panelOpen then return end
+	panelOpen = false
+	TweenService:Create(panel,
+		TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ Position = UDim2.new(0.5, 0, 0.65, 0) }):Play()
+	task.delay(0.18, function()
+		overlayBtn.Visible = false
+		panel.Visible      = false
+	end)
+end
+
+local function refreshUI()
+	local rawStreak  = player:GetAttribute("FlameStreak")
+	local dataLoaded = rawStreak ~= nil            -- serveur a-t-il répondu ?
+	local streak     = rawStreak or 0
+	local highScore  = player:GetAttribute("FlameHighScore")  or 0
+	local canRecover = player:GetAttribute("FlameCanRecover")  or false
+	local dayWord    = streak == 1 and "day" or "days"
+
+	-- ⏳ Tant que le serveur n'a pas confirmé, ne JAMAIS afficher 0 comme une vraie valeur
+	if not dataLoaded then
+		streakLabel.Text       = "…"
+		streakLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		subLabel.Text          = "loading…"
+		subLabel.TextColor3    = Color3.fromRGB(255, 190, 80)
+		badgeStroke.Color      = Color3.fromRGB(255, 160, 30)
+		panelStreak.Text       = "loading…"
+		panelStreak.TextColor3 = Color3.fromRGB(255, 190, 60)
+		return
+	end
+
+	-- badge top bar
+	if canRecover then
+		streakLabel.Text       = "Streak lost!"
+		streakLabel.TextColor3 = Color3.fromRGB(255, 75, 75)
+		subLabel.Text          = "tap to recover"
+		subLabel.TextColor3    = Color3.fromRGB(255, 120, 120)
+		badgeStroke.Color      = Color3.fromRGB(220, 50, 50)
+	else
+		streakLabel.Text       = streak .. " " .. dayWord
+		streakLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+		subLabel.Text          = streak == 0 and "start your streak!" or ("best: " .. highScore)
+		subLabel.TextColor3    = Color3.fromRGB(255, 190, 80)
+		badgeStroke.Color      = Color3.fromRGB(255, 160, 30)
+	end
+
+	-- header panel
+	panelStreak.Text       = canRecover and "Streak lost!" or (streak .. " " .. dayWord .. " streak")
+	panelStreak.TextColor3 = canRecover and Color3.fromRGB(255, 75, 75) or Color3.fromRGB(255, 190, 60)
+	panelStroke.Color      = canRecover and Color3.fromRGB(220, 50, 50) or Color3.fromRGB(255, 160, 30)
+	bestLabel.Text         = "Best: " .. highScore
+
+	if canRecover then
+		msgLabel.Text       = "You missed a day.\nRecover now — you have 24h!"
+		msgLabel.Visible    = true
+		recoverBtn.Visible  = true
+		rewardTitle.Visible = false
+		track.Visible       = false
+		bestLabel.Visible   = false
+		-- bouton en mode OK (fermer)
+		claimMode              = false
+		okText.Text            = "OK"
+		okText.TextColor3      = Color3.fromRGB(245, 245, 245)
+		okBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		okStroke.Color         = Color3.fromRGB(140, 140, 140)
+		okStroke.Transparency  = 0.3
+	else
+		msgLabel.Visible    = false
+		recoverBtn.Visible  = false
+		rewardTitle.Visible = true
+		track.Visible       = true
+		bestLabel.Visible   = true
+		clientStreak = streak
+		refreshTrack()
+	end
+
+	updateNextDayCountdown()
+end
+
+-- ============================================================
+-- BINDINGS
+-- ============================================================
+badge.MouseButton1Click:Connect(function()
+	if not panelOpen then refreshUI(); openPanel() end
+end)
+
+okBtn.MouseButton1Click:Connect(function()
+	if claimMode then
+		local now = os.clock()
+		if nodeRefs.lastClaimClick and (now - nodeRefs.lastClaimClick) < 0.6 then return end
+		nodeRefs.lastClaimClick = now
+		claimAll()
+	else
+		closePanel()
+	end
+end)
+
+player.AttributeChanged:Connect(function(attr)
+	if attr == "FlameStreak" or attr == "FlameCanRecover" or attr == "FlameHighScore" then
+		refreshUI()
+	end
+	if attr == "FlameRecoverResult" and player:GetAttribute("FlameRecoverResult") == "success" then
+		TweenService:Create(bigIcon, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Size = UDim2.new(0, HEAD_H * 1.3, 0, HEAD_H * 1.3) }):Play()
+		task.delay(0.4, function()
+			TweenService:Create(bigIcon, TweenInfo.new(0.2), { Size = UDim2.new(0, HEAD_H, 0, HEAD_H) }):Play()
+		end)
+		closePanel()
+	end
+end)
+
+refreshUI()
+task.defer(function() if srRequest then pcall(function() srRequest:FireServer() end) end end)
+
+-- ============================================================
+-- ✨ RESTYLE — bouton RECOVER STREAK + bouton OK / CLAIM
+--    + badge « streak perdue » + badge topbar réduit à "Lost"
+-- ------------------------------------------------------------
+-- 📍 OÙ LE COLLER
+--    Juste APRÈS ces deux lignes, à la fin de la section Streak :
+--
+--        refreshUI()
+--        task.defer(function() if srRequest then ... end end)
+--
+--    ...et AVANT la ligne :
+--        -- ⚙️  SETTINGS PANEL + 📊 STATS  (refonte complète)
+--
+--    C'est obligatoire : ce bloc réécrit updateClaimButton et
+--    refreshUI, qui sont définis juste au-dessus. Et il doit rester
+--    AVANT le panneau Settings, qui redéclare un `panel` à lui.
+--
+-- 🧠 ZÉRO nouveau local au niveau du script : tout vit dans cette
+--    fonction anonyme. Aucun risque pour la limite Luau des 200
+--    registres, comme pour tes autres blocs.
+--
+-- 🎨 PRINCIPE : les dégradés n'ajoutent QUE de la luminance
+--    (blanc → gris). Un UIGradient se MULTIPLIE par BackgroundColor3,
+--    donc le pulse vert du Heartbeat, le hover du recover et les
+--    couleurs posées par refreshUI continuent de marcher — ils sont
+--    simplement mieux habillés. Rien à désactiver, rien à dupliquer.
+--
+-- ⚠️ Le ";" au début de ";(function()" est OBLIGATOIRE.
+-- ============================================================
+;(function()
+
+	-- ────────────────────────────────────────────────────────
+	-- Helpers de style
+	-- ────────────────────────────────────────────────────────
+
+	--  Relief : clair en haut, sombre en bas. Multiplié par la couleur
+	--  du bouton, donc valable pour le vert du claim, le vert du
+	--  recover et le gris du OK, sans une seule ligne par cas.
+	local function relief(inst, bottom)
+		local g = Instance.new("UIGradient")
+		g.Rotation = 90
+		g.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 255, 255)),
+			ColorSequenceKeypoint.new(0.52, Color3.fromRGB(236, 236, 236)),
+			ColorSequenceKeypoint.new(1.00, Color3.new(bottom, bottom, bottom)),
+		})
+		g.Parent = inst
+		return g
+	end
+
+	--  Reflet qui balaie le bouton. Il vit sur un calque enfant : un
+	--  GuiObject ne peut porter qu'UN seul UIGradient, et celui du
+	--  bouton sert déjà au relief.
+	local function sheenOn(btn, radius, zIndex)
+		btn.ClipsDescendants = true
+		local layer = Instance.new("Frame")
+		layer.Name                   = "Sheen"
+		layer.Size                   = UDim2.new(1, 0, 1, 0)
+		layer.BackgroundColor3       = Color3.fromRGB(255, 255, 255)
+		layer.BorderSizePixel        = 0
+		layer.ZIndex                 = zIndex
+		layer.Parent                 = btn
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, radius)
+		c.Parent = layer
+		local g = Instance.new("UIGradient")
+		g.Rotation = 18
+		g.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0.00, 1),
+			NumberSequenceKeypoint.new(0.40, 1),
+			NumberSequenceKeypoint.new(0.50, 0.80),
+			NumberSequenceKeypoint.new(0.60, 1),
+			NumberSequenceKeypoint.new(1.00, 1),
+		})
+		g.Offset = Vector2.new(-1.2, 0)
+		g.Parent = layer
+		return g
+	end
+
+	--  Survol + enfoncement.
+	--
+	--  Le survol passe par un VOILE BLANC posé sur le bouton, jamais par
+	--  BackgroundColor3 ni par le UIStroke. C'est ce qui lui permet de
+	--  coexister avec tout le reste sans une seule condition : le pulse
+	--  vert du Heartbeat écrit la couleur de fond en continu, paintOk
+	--  écrit la couleur du contour, et le recover a déjà ses propres
+	--  handlers de couleur. Le voile se superpose à tout ça.
+	--
+	--  L'échelle passe par UIScale : la mise en page du panneau n'est
+	--  jamais recalculée.
+	local function interactive(btn, radius, zIndex, low, high)
+		local veil = Instance.new("Frame")
+		veil.Name                   = "HoverVeil"
+		veil.Size                   = UDim2.new(1, 0, 1, 0)
+		veil.BackgroundColor3       = Color3.fromRGB(255, 255, 255)
+		veil.BackgroundTransparency = 1
+		veil.BorderSizePixel        = 0
+		veil.ZIndex                 = zIndex
+		veil.Parent                 = btn
+		local vc = Instance.new("UICorner")
+		vc.CornerRadius = UDim.new(0, radius)
+		vc.Parent = veil
+
+		local s = btn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+		s.Parent = btn
+
+		local function to(scale, veilT)
+			local i = TweenInfo.new(0.11, Enum.EasingStyle.Quad)
+			TweenService:Create(s,    i, { Scale = scale }):Play()
+			TweenService:Create(veil, i, { BackgroundTransparency = veilT }):Play()
+		end
+
+		--  MouseEnter ne se déclenche pas au doigt. Au relâchement on
+		--  revient donc au repos sur mobile (le curseur n'est nulle part)
+		--  et à l'état survolé sur PC (le curseur est encore dessus) —
+		--  sans ça, un bouton tapé sur mobile restait éclairci pour
+		--  toujours, MouseLeave n'arrivant jamais.
+		btn.MouseEnter:Connect(function() to(high, 0.88) end)
+		btn.MouseLeave:Connect(function() to(1, 1) end)
+		btn.MouseButton1Down:Connect(function() to(low, 0.78) end)
+		btn.MouseButton1Up:Connect(function()
+			if isMobile then to(1, 1) else to(high, 0.88) end
+		end)
+		return s
+	end
+
+	-- ────────────────────────────────────────────────────────
+	-- 1. RECOVER STREAK
+	-- ────────────────────────────────────────────────────────
+
+	--  Le message remonte pour laisser la place au badge de streak
+	--  perdue, qui vient se loger juste au-dessus du bouton.
+	msgLabel.Position   = UDim2.new(0, 14, 1, -f(230, 260))
+	msgLabel.Size       = UDim2.new(1, -28, 0, f(44, 48))
+	msgLabel.TextSize   = f(15, 17)
+
+	recoverBtn.Size     = UDim2.new(1, -32, 0, f(58, 66))
+	recoverBtn.Position = UDim2.new(0, 16, 1, -f(122, 138))
+
+	local recCorner = recoverBtn:FindFirstChildOfClass("UICorner")
+	if recCorner then recCorner.CornerRadius = UDim.new(0, 16) end
+
+	recoverStroke.Color        = Color3.fromRGB(150, 245, 170)
+	recoverStroke.Thickness    = 1.5
+	recoverStroke.Transparency = 0.25
+
+	relief(recoverBtn, 0.70)
+	--  Ordre des calques dans le bouton : reflet (31) < voile de survol
+	--  (32) < contenu (33+). Deux calques au même ZIndex se départagent
+	--  par l'ordre de création — on ne laisse pas ça au hasard.
+	local recSheen = sheenOn(recoverBtn, 16, 31)
+	interactive(recoverBtn, 16, 32, 0.975, 1.012)
+
+	--  L'icône reçoit une pastille sombre : elle reste lisible quelle
+	--  que soit la couleur de l'image, et le bouton gagne un point
+	--  d'ancrage visuel à gauche.
+	local chipSize = f(44, 50)
+	local chip = Instance.new("Frame")
+	chip.Name                   = "IconChip"
+	chip.AnchorPoint            = Vector2.new(0, 0.5)
+	chip.Position               = UDim2.new(0, f(7, 9), 0.5, 0)
+	chip.Size                   = UDim2.new(0, chipSize, 0, chipSize)
+	chip.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+	chip.BackgroundTransparency = 0.72
+	chip.BorderSizePixel        = 0
+	chip.ZIndex                 = 33
+	chip.Parent                 = recoverBtn
+	local chipC = Instance.new("UICorner")
+	chipC.CornerRadius = UDim.new(0, 12)
+	chipC.Parent = chip
+
+	recoverIconImg.Size        = UDim2.new(0, chipSize - f(8, 10), 0, chipSize - f(8, 10))
+	recoverIconImg.Position    = UDim2.new(0.5, 0, 0.5, 0)
+	recoverIconImg.AnchorPoint = Vector2.new(0.5, 0.5)
+	recoverIconImg.ZIndex      = 34
+	recoverIconImg.Parent      = chip
+
+	--  Titre resserré + sous-titre : on dit ce que ça fait, pas juste
+	--  le nom du bouton.
+	local textX = f(7, 9) + chipSize + f(10, 12)
+	recoverText.Position       = UDim2.new(0, textX, 0, f(9, 11))
+	recoverText.Size           = UDim2.new(1, -(textX + f(30, 34)), 0, f(22, 25))
+	recoverText.TextSize       = f(18, 21)
+	recoverText.TextYAlignment = Enum.TextYAlignment.Center
+	recoverText.ZIndex         = 33
+
+	local recSub = Instance.new("TextLabel")
+	recSub.Name                   = "RecoverSub"
+	recSub.BackgroundTransparency = 1
+	recSub.Position               = UDim2.new(0, textX, 0, f(30, 35))
+	recSub.Size                   = UDim2.new(1, -(textX + f(30, 34)), 0, f(18, 20))
+	recSub.Text                   = "Get your streak back instantly"
+	recSub.Font                   = Enum.Font.FredokaOne
+	recSub.TextSize               = f(11, 13)
+	recSub.TextColor3             = Color3.fromRGB(200, 255, 210)
+	recSub.TextXAlignment         = Enum.TextXAlignment.Left
+	recSub.TextTruncate           = Enum.TextTruncate.AtEnd
+	recSub.ZIndex                 = 33
+	recSub.Parent                 = recoverBtn
+
+	--  Chevron dessiné (2 barres) : FredokaOne n'a pas le glyphe ›,
+	--  comme pour la flèche du sélecteur de feedback.
+	local chev = Instance.new("Frame")
+	chev.AnchorPoint            = Vector2.new(1, 0.5)
+	chev.Position               = UDim2.new(1, -f(14, 16), 0.5, 0)
+	chev.Size                   = UDim2.new(0, 14, 0, 18)
+	chev.BackgroundTransparency = 1
+	chev.ZIndex                 = 33
+	chev.Parent                 = recoverBtn
+	for _, cfg in ipairs({ { 45, -4 }, { -45, 4 } }) do
+		local bar = Instance.new("Frame")
+		bar.AnchorPoint      = Vector2.new(0.5, 0.5)
+		bar.Position         = UDim2.new(0.5, 0, 0.5, cfg[2])
+		bar.Size             = UDim2.new(0, 11, 0, 3)
+		bar.Rotation         = cfg[1]
+		bar.BackgroundColor3 = Color3.fromRGB(220, 255, 228)
+		bar.BorderSizePixel  = 0
+		bar.ZIndex           = 34
+		bar.Parent           = chev
+		local bc = Instance.new("UICorner")
+		bc.CornerRadius = UDim.new(1, 0)
+		bc.Parent = bar
+	end
+
+	-- ────────────────────────────────────────────────────────
+	-- 2. BADGE « STREAK PERDUE » (au-dessus du bouton recover)
+	-- ────────────────────────────────────────────────────────
+	--  L'icône de streak, éteinte par un dégradé gris, avec le nombre
+	--  perdu écrit dessus. C'est ce que le joueur récupère s'il paie :
+	--  il doit le voir, pas le déduire du texte.
+	--
+	--  Il est parenté au PANEL et non au bouton : recoverBtn est passé
+	--  en ClipsDescendants pour le reflet, un enfant qui dépasse serait
+	--  rogné.
+	local LOST = f(48, 58)
+
+	local lostWrap = Instance.new("Frame")
+	lostWrap.Name                   = "LostStreakBadge"
+	lostWrap.AnchorPoint            = Vector2.new(0.5, 1)
+	lostWrap.Position               = UDim2.new(0.5, 0, 1, -f(130, 146))
+	lostWrap.Size                   = UDim2.new(0, LOST, 0, LOST)
+	lostWrap.BackgroundTransparency = 1
+	lostWrap.Visible                = false
+	lostWrap.ZIndex                 = 32
+	lostWrap.Parent                 = panel
+
+	local lostIcon = Instance.new("ImageLabel")
+	lostIcon.Name                   = "LostIcon"
+	lostIcon.Size                   = UDim2.new(1, 0, 1, 0)
+	lostIcon.BackgroundTransparency = 1
+	lostIcon.Image                  = ICON
+	lostIcon.ZIndex                 = 32
+	lostIcon.Parent                 = lostWrap
+
+	--  🩶 LE dégradé gris : il multiplie la couleur de l'image, donc la
+	--  flamme devient cendre sans avoir besoin d'une deuxième texture.
+	local lostGrad = Instance.new("UIGradient")
+	lostGrad.Rotation = 90
+	lostGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.00, Color3.fromRGB(198, 198, 206)),
+		ColorSequenceKeypoint.new(0.55, Color3.fromRGB(136, 136, 146)),
+		ColorSequenceKeypoint.new(1.00, Color3.fromRGB( 84,  84,  94)),
+	})
+	lostGrad.Parent = lostIcon
+
+	local lostNum = Instance.new("TextLabel")
+	lostNum.Name                   = "LostNumber"
+	lostNum.Size                   = UDim2.new(1, 0, 1, 0)
+	lostNum.BackgroundTransparency = 1
+	lostNum.Text                   = "0"
+	lostNum.Font                   = Enum.Font.FredokaOne
+	lostNum.TextSize               = f(22, 27)
+	lostNum.TextColor3             = Color3.fromRGB(245, 245, 250)
+	lostNum.TextStrokeColor3       = Color3.fromRGB(0, 0, 0)
+	lostNum.TextStrokeTransparency = 0.15
+	lostNum.ZIndex                 = 33
+	lostNum.Parent                 = lostWrap
+
+	--  D'où vient le nombre ? On essaie les noms d'attribut les plus
+	--  probables avant de retomber sur le record. Si ton serveur expose
+	--  la streak perdue sous un autre nom, ajoute-le en tête de liste —
+	--  c'est la seule ligne à changer.
+	local function lostStreakValue()
+		for _, attr in ipairs({
+			"FlameLostStreak", "FlameRecoverStreak",
+			"FlamePendingStreak", "FlameLastStreak",
+			}) do
+			local v = tonumber(player:GetAttribute(attr))
+			if v and v > 0 then return v end
+		end
+		local cur = tonumber(player:GetAttribute("FlameStreak")) or 0
+		if cur > 0 then return cur end
+		return tonumber(player:GetAttribute("FlameHighScore")) or 0
+	end
+
+	-- ────────────────────────────────────────────────────────
+	-- 3. OK / CLAIM
+	-- ────────────────────────────────────────────────────────
+
+	okBtn.Size     = UDim2.new(1, -32, 0, f(48, 54))
+	okBtn.Position = UDim2.new(0, 16, 1, -f(56, 64))
+
+	local okCorner = okBtn:FindFirstChildOfClass("UICorner")
+	if okCorner then okCorner.CornerRadius = UDim.new(0, 14) end
+
+	relief(okBtn, 0.74)
+	local okSheen = sheenOn(okBtn, 14, 31)
+	interactive(okBtn, 14, 32, 0.97, 1.015)
+
+	--  okText passe au-dessus du reflet et gagne un contour noir léger :
+	--  en mode CLAIM le fond pulse, le texte doit rester net à chaque
+	--  image du pulse.
+	okText.ZIndex                 = 34
+	okText.TextSize               = f(17, 20)
+	okText.TextStrokeColor3       = Color3.fromRGB(0, 0, 0)
+	okText.TextStrokeTransparency = 0.7
+
+	--  Le compte à rebours remonte : le bouton OK a grandi.
+	nextDayLabel.Position = UDim2.new(0.5, 0, 1, -f(62, 72))
+
+	--  Un seul endroit décide de l'allure du bouton, pour les trois
+	--  situations : OK, CLAIM, et streak perdue (où refreshUI force OK).
+	--  Avant, la couleur était écrite à trois endroits différents et
+	--  ils finissaient toujours par diverger.
+	local function paintOk()
+		if claimMode then
+			local n = #claimableList
+			okText.Text            = (n > 1) and ("✓  CLAIM ALL   (" .. n .. ")") or "✓  CLAIM"
+			okText.TextColor3      = Color3.fromRGB(255, 255, 255)
+			okBtn.BackgroundColor3 = Color3.fromRGB(40, 175, 75)
+			okStroke.Color         = Color3.fromRGB(150, 255, 180)
+			okStroke.Transparency  = 0
+			okStroke.Thickness     = 2.5
+		else
+			okText.Text            = "OK"
+			okText.TextColor3      = Color3.fromRGB(238, 238, 242)
+			okBtn.BackgroundColor3 = Color3.fromRGB(46, 46, 52)
+			--  Contour BLANC franc : à 1,5 px et 35 % de transparence, le
+			--  bouton se noyait dans le fond du panneau. Blanc pur, opaque
+			--  et 2,5 px, il se détache sans avoir besoin d'un fond plus
+			--  clair — et le gris du fond reste sombre, donc le contraste
+			--  vient entièrement du contour.
+			okStroke.Color         = Color3.fromRGB(255, 255, 255)
+			okStroke.Transparency  = 0
+			okStroke.Thickness     = 2.5
+		end
+	end
+
+	--  On remplace updateClaimButton : `claimMode` et `okText` sont des
+	--  upvalues, la réassignation est vue par refreshTrack qui l'appelle.
+	updateClaimButton = function()
+		if not okBtn then return end
+		claimMode = #claimableList > 0
+		paintOk()
+	end
+
+	-- ────────────────────────────────────────────────────────
+	-- 4. BADGE TOPBAR : juste "Lost"
+	-- ────────────────────────────────────────────────────────
+	--  Le badge fait 65 px de large sur mobile : "Streak lost!" +
+	--  "tap to recover" y rentraient en TextScaled minuscule. Un seul
+	--  mot, en grand, sur toute la hauteur.
+	--
+	--  La géométrie normale est capturée au vol plutôt que lue au
+	--  chargement : le bloc "LOOK NATIF TOPBAR", en fin de script,
+	--  repositionne ces labels APRÈS nous. En capturant à la première
+	--  bascule, on restaure toujours les bonnes valeurs, quel que soit
+	--  l'ordre d'exécution.
+	local badgeGeo = nil
+	local function setBadgeLost(lost)
+		if lost then
+			if not badgeGeo then
+				badgeGeo = { streakLabel.Position, streakLabel.Size, subLabel.Visible }
+			end
+			subLabel.Visible = false
+			streakLabel.Position = UDim2.new(
+				streakLabel.Position.X.Scale, streakLabel.Position.X.Offset, 0, 0)
+			streakLabel.Size = UDim2.new(
+				streakLabel.Size.X.Scale, streakLabel.Size.X.Offset, 1, 0)
+			streakLabel.Text       = "Lost"
+			streakLabel.TextColor3 = Color3.fromRGB(255, 90, 90)
+		elseif badgeGeo then
+			streakLabel.Position = badgeGeo[1]
+			streakLabel.Size     = badgeGeo[2]
+			subLabel.Visible     = badgeGeo[3]
+			badgeGeo = nil
+		end
+	end
+
+	-- ────────────────────────────────────────────────────────
+	-- 5. BRANCHEMENT
+	-- ────────────────────────────────────────────────────────
+	--  refreshUI repeint OK « à la main » dans la branche streak perdue
+	--  et écrit "Streak lost!" dans le badge. On le laisse faire, puis
+	--  on repasse derrière : mode recover et mode normal partagent ainsi
+	--  exactement le même bouton.
+	local realRefreshUI = refreshUI
+	refreshUI = function()
+		realRefreshUI()
+
+		local lost = player:GetAttribute("FlameCanRecover") == true
+		if lost then
+			local n = lostStreakValue()
+			lostNum.Text     = tostring(n)
+			lostNum.TextSize = (n >= 100) and f(18, 22) or f(22, 27)
+		end
+		lostWrap.Visible = lost
+
+		setBadgeLost(lost)
+		paintOk()
+	end
+
+	--  Si le serveur publie la streak perdue après coup, le badge se met
+	--  à jour tout seul au lieu d'afficher un chiffre périmé.
+	player.AttributeChanged:Connect(function(attr)
+		if type(attr) == "string" and attr:sub(1, 5) == "Flame" and lostWrap.Visible then
+			lostNum.Text = tostring(lostStreakValue())
+		end
+	end)
+
+	-- ────────────────────────────────────────────────────────
+	-- 6. REFLETS ANIMÉS
+	-- ────────────────────────────────────────────────────────
+	--  Une seule boucle pour les deux boutons, et elle ne tourne que
+	--  quand le panneau est ouvert : rien ne s'anime en arrière-plan
+	--  pendant que le joueur joue.
+	task.spawn(function()
+		while true do
+			task.wait(2.6)
+			if panel.Visible then
+				local info = TweenInfo.new(0.85, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+				if claimMode then
+					okSheen.Offset = Vector2.new(-1.2, 0)
+					TweenService:Create(okSheen, info, { Offset = Vector2.new(1.2, 0) }):Play()
+				end
+				if recoverBtn.Visible then
+					recSheen.Offset = Vector2.new(-1.2, 0)
+					TweenService:Create(recSheen, info, { Offset = Vector2.new(1.2, 0) }):Play()
+				end
+			end
+		end
+	end)
+
+	paintOk()
+	refreshUI()
+end)()
+-- ============================================================
+-- 🎨 PARTYPAD — habillage du panneau STREAK
+--    Ne fait RIEN si PARTYPAD_STYLE = false (tout en haut du script).
+--    Uniquement de l'apparence : claim, recover, compte à rebours,
+--    couleurs d'état (orange / rouge) → inchangés.
+--    ⚠️ Le ";" au début de ";(function()" est OBLIGATOIRE.
+-- ============================================================
+;(function()
+	if not PARTYPAD_STYLE then return end
+
+	local WHITE = Color3.new(1, 1, 1)
+
+	-- Verre sombre du téléporteur
+	panel.BackgroundColor3       = Color3.fromRGB(12, 15, 22)
+	panel.BackgroundTransparency = 0.2
+
+	-- Le contour garde sa couleur d'état (orange / rouge) mais en dégradé
+	local sg = Instance.new("UIGradient")
+	sg.Rotation = 90
+	sg.Transparency = NumberSequence.new(0.1, 0.75)
+	sg.Parent = panelStroke
+	panelStroke.Thickness = 1.5
+
+	-- Filet d'accent en haut (orange = couleur de la streak)
+	local line = Instance.new("Frame")
+	line.BackgroundColor3 = WHITE
+	line.BorderSizePixel  = 0
+	line.Size             = UDim2.new(1, -40, 0, 3)
+	line.Position         = UDim2.new(0, 20, 0, 0)
+	line.ZIndex           = 31
+	line.Parent           = panel
+	local lg = Instance.new("UIGradient")
+	lg.Color = ColorSequence.new(Color3.fromRGB(255, 120, 30), Color3.fromRGB(255, 210, 90))
+	lg.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
+	})
+	lg.Parent = line
+
+	-- Police BuilderSans (gras pour les petits textes, extra-gras pour les gros)
+	local function refont(o)
+		if (o:IsA("TextLabel") or o:IsA("TextButton")) and o.Font == Enum.Font.FredokaOne then
+			o.Font = (o.TextSize >= 18) and Enum.Font.BuilderSansExtraBold or Enum.Font.BuilderSansBold
+		end
+	end
+	for _, d in ipairs(screen:GetDescendants()) do refont(d) end
+	screen.DescendantAdded:Connect(function(d) task.defer(refont, d) end)
+
+	-- Socle 3D sous un bouton (ombre + épaisseur), qui suit sa couleur,
+	-- sa taille, sa position et sa visibilité
+	local function socle(btn, depth)
+		local rad = btn:FindFirstChildOfClass("UICorner")
+		local shadow = Instance.new("Frame")
+		shadow.BackgroundColor3       = Color3.new(0, 0, 0)
+		shadow.BackgroundTransparency = 0.65
+		shadow.BorderSizePixel        = 0
+		shadow.ZIndex                 = btn.ZIndex - 1
+		shadow.Parent                 = btn.Parent
+		local base = Instance.new("Frame")
+		base.BorderSizePixel = 0
+		base.ZIndex          = btn.ZIndex - 1
+		base.Parent          = btn.Parent
+		if rad then rad:Clone().Parent = shadow; rad:Clone().Parent = base end
+		local function sync()
+			base.AnchorPoint, shadow.AnchorPoint = btn.AnchorPoint, btn.AnchorPoint
+			base.Size, shadow.Size = btn.Size, btn.Size
+			base.Position   = btn.Position + UDim2.new(0, 0, 0, depth)
+			shadow.Position = btn.Position + UDim2.new(0, 0, 0, depth + 3)
+			base.Visible, shadow.Visible = btn.Visible, btn.Visible
+			base.BackgroundColor3 = btn.BackgroundColor3:Lerp(Color3.new(0, 0, 0), 0.5)
+		end
+		sync()
+		for _, prop in ipairs({ "BackgroundColor3", "Size", "Position", "Visible" }) do
+			btn:GetPropertyChangedSignal(prop):Connect(sync)
+		end
+	end
+	socle(okBtn, f(4, 5))
+	socle(recoverBtn, f(4, 5))
+
+	-- ✖ Bouton fermer rouge du téléporteur (en plus du OK)
+	local CS = f(30, 36)
+	local x = Instance.new("TextButton")
+	x.Name                   = "PPClose"
+	x.AnchorPoint            = Vector2.new(1, 0)
+	x.Position               = UDim2.new(1, -14, 0, 14)
+	x.Size                   = UDim2.new(0, CS, 0, CS)
+	x.BackgroundTransparency = 1
+	x.Text                   = ""
+	x.AutoButtonColor        = false
+	x.ZIndex                 = 36
+	x.Parent                 = panel
+	local depth = 4
+	local layers = {}
+	for i, spec in ipairs({
+		{ Color3.new(0, 0, 0), 0.65, depth + 3 },          -- ombre
+		{ Color3.fromRGB(124, 28, 32), 0, depth },          -- socle
+		{ Color3.fromRGB(222, 64, 64), 0, 0 },              -- face
+		}) do
+		local fr = Instance.new("Frame")
+		fr.BackgroundColor3       = spec[1]
+		fr.BackgroundTransparency = spec[2]
+		fr.BorderSizePixel        = 0
+		fr.Size                   = UDim2.new(1, 0, 1, -depth)
+		fr.Position               = UDim2.new(0, 0, 0, spec[3])
+		fr.ZIndex                 = 36 + i
+		fr.Parent                 = x
+		Instance.new("UICorner", fr).CornerRadius = UDim.new(0, 10)
+		layers[i] = fr
+	end
+	local face = layers[3]
+	local fgr = Instance.new("UIGradient")
+	fgr.Rotation = 90
+	fgr.Color = ColorSequence.new(WHITE, Color3.fromRGB(200, 200, 200))
+	fgr.Parent = face
+	for _, r in ipairs({ 45, -45 }) do
+		local bar = Instance.new("Frame")
+		bar.BackgroundColor3 = WHITE
+		bar.BorderSizePixel  = 0
+		bar.AnchorPoint      = Vector2.new(0.5, 0.5)
+		bar.Position         = UDim2.fromScale(0.5, 0.5)
+		bar.Size             = UDim2.new(0.5, 0, 0, 3)
+		bar.Rotation         = r
+		bar.ZIndex           = 40
+		bar.Parent           = face
+		Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+	end
+	x.MouseButton1Down:Connect(function()
+		TweenService:Create(face, TweenInfo.new(0.07), { Position = UDim2.new(0, 0, 0, 3) }):Play()
+	end)
+	local function lift()
+		TweenService:Create(face, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Position = UDim2.new(0, 0, 0, 0) }):Play()
+	end
+	x.MouseButton1Up:Connect(lift)
+	x.MouseLeave:Connect(lift)
+	x.MouseButton1Click:Connect(function() closePanel() end)
+
+	-- Les textes du header laissent la place au X
+	panelStreak.Size = panelStreak.Size - UDim2.new(0, CS + 8, 0, 0)
+	bestLabel.Size   = bestLabel.Size - UDim2.new(0, CS + 8, 0, 0)
+end)()
+-- ============================================================
+-- ============================================================
+-- ⚙️  SETTINGS PANEL + 📊 STATS  (refonte complète)
+--    Remplace TOUT à partir de l'ancien bloc "BOUTON SETTINGS"
+--    jusqu'à la fin du fichier. Le haut (HTP / Streak / Recover)
+--    n'est PAS touché.
+--
+--    Réutilise : player, playerGui, isMobile, BTN_W, BTN_H, BTN_Y,
+--    GAP, bouton, badge, topBarGui, pushSetting, bindSetting,
+--    TweenService, UserInputService, ReplicatedStorage.
+--
+--    Tout le texte du panneau : anglais + police FredokaOne.
+-- ============================================================
+-- ============================================================
+
+local Lighting = game:GetService("Lighting")
+
+local FONT = Enum.Font.FredokaOne   -- police de tout le panneau
+
+-- ── Palette (sobre : quasi mono + 1 seul accent) ───────────
+local ACCENT       = Color3.fromRGB(96, 165, 250)
+local ACCENT_DEEP  = Color3.fromRGB(59, 130, 246)
+local ACCENT_SOFT  = Color3.fromRGB(147, 197, 253)
+local C_PANEL      = Color3.fromRGB(15, 16, 21)
+local C_CARD       = Color3.fromRGB(27, 29, 37)
+local C_CARD_HOV   = Color3.fromRGB(35, 38, 48)
+local C_TEXT       = Color3.fromRGB(238, 240, 245)
+local C_SUB        = Color3.fromRGB(148, 152, 162)
+local C_LINE       = Color3.fromRGB(46, 49, 58)
+local C_TRACK_OFF  = Color3.fromRGB(56, 59, 68)
+
+-- ============================================================
+-- 🎚️ TRANSPARENCE DU PANNEAU SETTINGS  —  0 = opaque, 1 = invisible
+-- ============================================================
+local PANEL_T = {
+	bg      = 0.06,   -- fond du panneau
+	overlay = 0.45,   -- voile noir derrière le panneau
+	card    = 0.15,   -- cartes intérieures (toggles, sliders, stats, feedback)
+	tabs    = 0.20,   -- barre d'onglets
+}
+
+-- 🎨 PARTYPAD : palette + police (ignoré si PARTYPAD_STYLE = false)
+if PARTYPAD_STYLE then
+	FONT         = Enum.Font.BuilderSansBold
+	ACCENT       = Color3.fromRGB(88, 208, 255)
+	ACCENT_DEEP  = Color3.fromRGB(40, 130, 220)
+	ACCENT_SOFT  = Color3.fromRGB(150, 222, 255)
+	C_PANEL      = Color3.fromRGB(12, 15, 22)
+	C_CARD       = Color3.fromRGB(30, 36, 50)
+	C_CARD_HOV   = Color3.fromRGB(42, 50, 68)
+	C_TEXT       = Color3.fromRGB(245, 247, 250)
+	C_SUB        = Color3.fromRGB(150, 162, 182)
+	C_LINE       = Color3.fromRGB(58, 67, 86)
+	C_TRACK_OFF  = Color3.fromRGB(60, 70, 90)
+	PANEL_T.bg   = 0.16
+	PANEL_T.card = 0.2
+end
+
+local S = isMobile
+local function fs(m, d) return S and m or d end
+
+-- ── helpers UI ─────────────────────────────────────────────
+local function corner(inst, r)
+	local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r); c.Parent = inst; return c
+end
+local function stroke(inst, col, th, tr)
+	local s = Instance.new("UIStroke"); s.Color = col; s.Thickness = th or 1
+	s.Transparency = tr or 0; s.Parent = inst; return s
+end
+local function pad(inst, t, b, l, r)
+	local p = Instance.new("UIPadding")
+	p.PaddingTop = UDim.new(0, t or 0); p.PaddingBottom = UDim.new(0, b or t or 0)
+	p.PaddingLeft = UDim.new(0, l or t or 0); p.PaddingRight = UDim.new(0, r or l or t or 0)
+	p.Parent = inst; return p
+end
+
+-- ============================================================
+-- DÉCALAGE DES BOUTONS TOP BAR (pour loger ⚙️) — inchangé
+-- ============================================================
+local SET_SIZE     = S and 28 or 36
+local MOBILE_SHIFT = SET_SIZE + GAP
+local PC_SHIFT     = 30
+
+if S then
+	bouton.Position = UDim2.new(1, -90 - MOBILE_SHIFT,               0, BTN_Y)
+	badge.Position  = UDim2.new(1, -90 - BTN_W - GAP - MOBILE_SHIFT, 0, BTN_Y)
+else
+	bouton.Position = UDim2.new(0, 185 + PC_SHIFT,                   0, BTN_Y)
+	badge.Position  = UDim2.new(0, 185 + BTN_W + GAP + PC_SHIFT,     0, BTN_Y)
+end
+
+local settingsPos = S
+	and UDim2.new(1, -SET_SIZE - 10,                  0, BTN_Y)
+	or  UDim2.new(0, 185 + PC_SHIFT - SET_SIZE - GAP, 0, BTN_Y)
+
+-- ── Bouton ⚙️ ───────────────────────────────────────────────
+local settingsBtn = Instance.new("TextButton")
+settingsBtn.Name                   = "SettingsButton"
+settingsBtn.Size                   = UDim2.new(0, SET_SIZE, 0, SET_SIZE)
+settingsBtn.Position               = settingsPos
+settingsBtn.BackgroundColor3       = Color3.fromRGB(20, 20, 26)
+settingsBtn.BackgroundTransparency = 0.25
+settingsBtn.BorderSizePixel        = 0
+settingsBtn.Text                   = ""
+settingsBtn.AutoButtonColor        = false
+settingsBtn.Parent                 = topBarGui
+corner(settingsBtn, 999)
+local settingsStroke = stroke(settingsBtn, Color3.fromRGB(70, 73, 82), 1)
+
+-- Icône image (sans fond)
+local settingsIcon = Instance.new("ImageLabel")
+settingsIcon.Name                   = "SettingsIcon"
+settingsIcon.BackgroundTransparency = 1
+settingsIcon.Image                  = "rbxassetid://82254085545992"
+settingsIcon.Size                   = UDim2.new(0, S and 18 or 22, 0, S and 18 or 22)
+settingsIcon.Position               = UDim2.new(0.5, 0, 0.5, 0)
+settingsIcon.AnchorPoint            = Vector2.new(0.5, 0.5)
+settingsIcon.ZIndex                 = 2
+settingsIcon.Parent                 = settingsBtn
+
+-- 🎛️ survol/appui gérés par le bloc "LOOK NATIF TOPBAR" en fin de script
+
+-- ⚙️ Le panneau Settings est maintenant dans le LocalScript « SettingsUI »
+settingsBtn.MouseButton1Click:Connect(function()
+	if _G.ToggleSettings then _G.ToggleSettings() end
+end)
+
+-- ============================================================
+-- 🎛️ LOOK NATIF "TOPBAR ROBLOX"  (v2 — plus gros, ⚙️ carré)
+-- À coller à la toute fin du LocalScript.
+-- ============================================================
+;(function()
+	local GuiService = game:GetService("GuiService")
+
+	-- 🔧 LES 5 SEULES VALEURS À TOUCHER SI TU VEUX AJUSTER
+	local BAR_H  = isMobile and 28 or 36        -- ⬅️ taille d'ORIGINE (HTP / streak)
+	local SET_H  = isMobile and 40 or 44        -- ⚙️ inchangé
+	local WIDE   = isMobile and 80 or 110       -- ⬅️ largeur d'ORIGINE
+	local TOP    = isMobile and 10 or 12        -- marge depuis le haut de l'écran
+	local RADIUS = 999                          -- arrondi du ⚙️ (999 = rond, 12 = carré arrondi)
+
+	local ICO   = isMobile and 20 or 26         -- ⬅️ icône du badge d'origine
+	local GAP   = 8
+	local items = { bouton, badge, settingsBtn }
+
+	-- 1) style de base : noir @0.5, zéro bordure
+	for _, b in ipairs(items) do
+		for _, ch in ipairs(b:GetChildren()) do
+			if ch:IsA("UIStroke") then ch.Enabled = false end
+		end
+		local c = b:FindFirstChildOfClass("UICorner") or Instance.new("UICorner", b)
+		c.CornerRadius           = UDim.new(1, 0)      -- pilule pour les boutons texte
+		b.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+		b.BackgroundTransparency = 0.4
+		b.BorderSizePixel        = 0
+		b.AutoButtonColor        = false
+	end
+
+	-- ⚙️ lui, c'est un CARRÉ à coins arrondis, pas un cercle
+	local setCorner = settingsBtn:FindFirstChildOfClass("UICorner")
+	if setCorner then setCorner.CornerRadius = UDim.new(0, RADIUS) end
+
+	-- 2) tailles
+	local WIDE_S = isMobile and 65 or 85   -- 👈 largeur du badge Streak (avant : 72 / 96)
+	bouton.Size      = UDim2.new(0, WIDE,   0, BAR_H)
+	badge.Size       = UDim2.new(0, WIDE_S, 0, BAR_H)
+	settingsBtn.Size = UDim2.new(0, SET_H,  0, SET_H)
+	bouton.TextSize  = isMobile and 13 or 16
+
+	-- 3) POSITION : le HAUT est fixe → tout grossit vers le BAS
+	--
+	--    🔔 La cloche « Event Info » (créée par EventInfo_Client) se glisse
+	--       entre le ⚙️ et « How To Play ». On la cherche à chaque passage :
+	--       l'autre script peut charger après celui-ci.
+	local function findBell()
+		local b = topBarGui:FindFirstChild("EventInfoButton")
+		return (b and b:IsA("GuiButton")) and b or nil
+	end
+
+	local function place()
+		local inset = GuiService:GetGuiInset().Y
+		if inset < 8 then inset = 36 end
+		local yBig = TOP
+		if SET_H < inset then yBig = math.floor((inset - SET_H) / 2) end   -- recentre si ça rentre
+		local ySmall = yBig + math.floor((SET_H - BAR_H) / 2)              -- textes centrés sur le ⚙️
+
+		-- Place que la cloche prend dans la barre (0 si elle n'existe pas :
+		-- sans EventInfo_Client, la barre est identique à avant)
+		local bell  = findBell()
+		local shift = bell and (SET_H + GAP) or 0
+
+		if isMobile then
+			for _, b in ipairs(items) do b.AnchorPoint = Vector2.new(1, 0) end
+			settingsBtn.Position = UDim2.new(1, -GAP, 0, yBig)
+			if bell then
+				bell.AnchorPoint = Vector2.new(1, 0)
+				bell.Size        = UDim2.new(0, SET_H, 0, SET_H)
+				bell.Position    = UDim2.new(1, -GAP - SET_H - GAP, 0, yBig)
+			end
+			bouton.Position = UDim2.new(1, -GAP - SET_H - GAP - shift, 0, ySmall)
+			badge.Position  = UDim2.new(1, -GAP - SET_H - GAP - shift - WIDE - GAP, 0, ySmall)
+		else
+			local x0 = 180   -- 👈 décale si ça chevauche les icônes natives Roblox
+			pcall(function()
+				local ti = GuiService.TopbarInset
+				if ti and ti.Min.X > 0 then x0 = ti.Min.X + GAP end
+			end)
+			for _, b in ipairs(items) do b.AnchorPoint = Vector2.new(0, 0) end
+			settingsBtn.Position = UDim2.new(0, x0, 0, yBig)
+			if bell then
+				bell.AnchorPoint = Vector2.new(0, 0)
+				bell.Size        = UDim2.new(0, SET_H, 0, SET_H)
+				bell.Position    = UDim2.new(0, x0 + SET_H + GAP, 0, yBig)
+			end
+			bouton.Position = UDim2.new(0, x0 + SET_H + GAP + shift, 0, ySmall)
+			badge.Position  = UDim2.new(0, x0 + SET_H + GAP + shift + WIDE + GAP, 0, ySmall)
+		end
+	end
+	place()
+	task.delay(1, place)      -- l'inset vaut parfois 0 à la 1re frame
+	task.delay(4, place)
+	pcall(function() GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(place) end)
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(place)
+
+	-- 🔔 La barre se replace TOUTE SEULE dès que la cloche est créée
+	topBarGui.ChildAdded:Connect(function(ch)
+		if ch.Name == "EventInfoButton" then task.defer(place) end
+	end)
+	-- …et EventInfo_Client peut la réveiller lui-même si besoin
+	_G.RefreshTopbar = place
+
+	-- 4) recentrage du contenu dans les nouvelles tailles
+	local ICO_X = isMobile and 5 or 6      -- marge gauche de l'icône
+	local TXT_X = ICO + ICO_X + 3          -- début de la colonne texte
+	local bi = badge:FindFirstChild("StreakBadgeIcon")
+	if bi then
+		bi.Size     = UDim2.new(0, ICO, 0, ICO)
+		bi.Position = UDim2.new(0, ICO_X, 0.5, 0)
+	end
+	streakLabel.Position = UDim2.new(0, TXT_X, 0, isMobile and 4 or 5)
+	streakLabel.Size     = UDim2.new(1, -(TXT_X + 4), 0.5, 0)
+	subLabel.Position    = UDim2.new(0, TXT_X, 0.5, 0)
+	subLabel.Size        = UDim2.new(1, -(TXT_X + 4), 0.42, 0)
+
+	-- Le texte rétrécit tout seul s'il ne rentre plus (zéro débordement)
+	for lbl, maxSize in pairs({ [streakLabel] = isMobile and 14 or 16,
+		[subLabel]    = isMobile and 11 or 12 }) do
+		lbl.TextScaled = true
+		local c = lbl:FindFirstChildOfClass("UITextSizeConstraint")
+		if not c then
+			c = Instance.new("UITextSizeConstraint")
+			c.Parent = lbl
+		end
+		c.MaxTextSize = maxSize
+		c.MinTextSize = 7
+	end
+
+	local si = math.floor(SET_H * 0.52)
+	settingsIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+	settingsIcon.Size        = UDim2.new(0, si, 0, si)
+	settingsIcon.Position    = UDim2.new(0.5, 0, 0.5, 0)
+
+	-- 5) survol / appui façon Roblox : voile blanc, forme respectée
+	for _, b in ipairs(items) do
+		local bc = b:FindFirstChildOfClass("UICorner")
+		local rad = bc and bc.CornerRadius or UDim.new(1, 0)
+
+		local hl = Instance.new("Frame")
+		hl.Name                   = "RbxHighlight"
+		hl.Size                   = UDim2.new(1, 0, 1, 0)
+		hl.BackgroundColor3       = Color3.fromRGB(255, 255, 255)
+		hl.BackgroundTransparency = 1
+		hl.BorderSizePixel        = 0
+		hl.ZIndex                 = 1
+		hl.Parent                 = b
+		local hc = Instance.new("UICorner"); hc.CornerRadius = rad; hc.Parent = hl
+
+		local function fade(v)
+			TweenService:Create(hl, TweenInfo.new(0.12), { BackgroundTransparency = v }):Play()
+		end
+		if not isMobile then
+			b.MouseEnter:Connect(function() fade(0.88) end)
+			b.MouseLeave:Connect(function() fade(1) end)
+		end
+		b.MouseButton1Down:Connect(function() fade(0.76) end)
+		b.MouseButton1Up:Connect(function() fade(1) end)
+	end
+end)()
+
+-- ============================================================
+-- 🎨 PARTYPAD — habillage du panneau SETTINGS (+ onglet Stats)
+--    Ne fait RIEN si PARTYPAD_STYLE = false (tout en haut du script).
+--    Uniquement de l'apparence + une barre de raccourcis :
+--    réglages, sauvegarde, Save/Cancel, feedback → inchangés.
+--    ⚠️ Doit rester TOUT EN BAS du script (après LOOK NATIF TOPBAR).
+--    ⚠️ Le ";" au début de ";(function()" est OBLIGATOIRE.
+-- ============================================================
+;(function()
+	if not PARTYPAD_STYLE then return end
+
+	local WHITE = Color3.new(1, 1, 1)
+	local BLACK = Color3.new(0, 0, 0)
+
+	local function relief(inst)
+		if inst:FindFirstChildOfClass("UIGradient") then return end
+		local g = Instance.new("UIGradient")
+		g.Rotation = 90
+		g.Color = ColorSequence.new(WHITE, Color3.fromRGB(200, 200, 200))
+		g.Parent = inst
+	end
+
+	-- Socle 3D (ombre + épaisseur) sous un bouton ; suit couleur/taille/position/visibilité
+	local function socle(btn, depth)
+		local rad = btn:FindFirstChildOfClass("UICorner")
+		local shadow = Instance.new("Frame")
+		shadow.BackgroundColor3       = BLACK
+		shadow.BackgroundTransparency = 0.65
+		shadow.BorderSizePixel        = 0
+		shadow.ZIndex                 = btn.ZIndex - 1
+		shadow.Parent                 = btn.Parent
+		local base = Instance.new("Frame")
+		base.BorderSizePixel = 0
+		base.ZIndex          = btn.ZIndex - 1
+		base.Parent          = btn.Parent
+		if rad then rad:Clone().Parent = shadow; rad:Clone().Parent = base end
+		local function sync()
+			base.AnchorPoint, shadow.AnchorPoint = btn.AnchorPoint, btn.AnchorPoint
+			base.Size, shadow.Size = btn.Size, btn.Size
+			base.Position   = btn.Position + UDim2.new(0, 0, 0, depth)
+			shadow.Position = btn.Position + UDim2.new(0, 0, 0, depth + 3)
+			base.Visible, shadow.Visible = btn.Visible, btn.Visible
+			base.BackgroundColor3 = btn.BackgroundColor3:Lerp(BLACK, 0.5)
+		end
+		sync()
+		for _, prop in ipairs({ "BackgroundColor3", "Size", "Position", "Visible" }) do
+			btn:GetPropertyChangedSignal(prop):Connect(sync)
+		end
+		relief(btn)
+	end
+
+	-- ── 1. Panneau : verre + contour blanc dégradé + filet bleu ──
+	local ps = panel:FindFirstChildOfClass("UIStroke")
+	if ps then
+		ps.Color, ps.Transparency, ps.Thickness = WHITE, 0, 1.5
+		local g = Instance.new("UIGradient")
+		g.Rotation = 90
+		g.Transparency = NumberSequence.new(0.72, 0.92)
+		g.Parent = ps
+	end
+	local line = Instance.new("Frame")
+	line.BackgroundColor3 = WHITE
+	line.BorderSizePixel  = 0
+	line.Size             = UDim2.new(1, -36, 0, 3)
+	line.Position         = UDim2.new(0, 18, 0, 0)
+	line.ZIndex           = 31
+	line.Parent           = panel
+	local lg = Instance.new("UIGradient")
+	lg.Color = ColorSequence.new(ACCENT_DEEP, ACCENT)
+	lg.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1),
+	})
+	lg.Parent = line
+
+	title.Font = Enum.Font.BuilderSansExtraBold
+	title.TextSize = S and 20 or 24
+
+	-- ── 2. X rouge du téléporteur ──
+	closeBtn.BackgroundColor3 = Color3.fromRGB(222, 64, 64)
+	local cs = closeBtn:FindFirstChildOfClass("UIStroke")
+	if cs then cs.Color, cs.Transparency = Color3.fromRGB(124, 28, 32), 0.2 end
+	closeX.TextTransparency = 1
+	for _, r in ipairs({ 45, -45 }) do
+		local bar = Instance.new("Frame")
+		bar.BackgroundColor3 = WHITE
+		bar.BorderSizePixel  = 0
+		bar.AnchorPoint      = Vector2.new(0.5, 0.5)
+		bar.Position         = UDim2.fromScale(0.5, 0.5)
+		bar.Size             = UDim2.new(0.5, 0, 0, 3)
+		bar.Rotation         = r
+		bar.ZIndex           = 34
+		bar.Parent           = closeBtn
+		Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+	end
+	socle(closeBtn, S and 3 or 4)
+
+	-- ── 3. Onglets + Save / Cancel ──
+	relief(FB.pill)
+	tabBar.BackgroundColor3 = Color3.fromRGB(20, 25, 35)
+	if FB.saveBtn then socle(FB.saveBtn, 3) end
+	if FB.cancelBtn then socle(FB.cancelBtn, 3) end
+
+	-- ── 4. Cartes : fin contour blanc (comme les tuiles du téléporteur) ──
+	local function tile(o)
+		if o:IsA("GuiObject") and o.BackgroundColor3 == C_CARD and not o:IsA("TextButton")
+			and not o:FindFirstChildOfClass("UIStroke") then
+			local st = Instance.new("UIStroke")
+			st.Color, st.Transparency, st.Thickness = WHITE, 0.9, 1
+			st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			st.Parent = o
+		end
+	end
+	for _, d in ipairs(panel:GetDescendants()) do tile(d) end
+
+	-- ── 5. Barre de raccourcis de sections (onglet Settings) ──
+	--  Un tap = on défile jusqu'à la section. Aucune ligne de réglage
+	--  n'est déplacée ni cachée : l'ordre et le fonctionnement restent
+	--  exactement les mêmes.
+	local headers = {}
+	for _, ch in ipairs(contentSettings:GetChildren()) do
+		if ch:IsA("TextLabel") and ch.TextColor3 == ACCENT_SOFT then
+			ch.Font = Enum.Font.BuilderSansExtraBold
+			table.insert(headers, ch)
+		end
+	end
+	table.sort(headers, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+
+	if #headers > 1 then
+		local CH = S and 28 or 32
+		local bar = Instance.new("ScrollingFrame")
+		bar.Name                   = "SectionChips"
+		bar.Size                   = UDim2.new(1, -6, 0, CH)
+		bar.BackgroundTransparency = 1
+		bar.BorderSizePixel        = 0
+		bar.ScrollBarThickness     = 0
+		bar.ScrollingDirection     = Enum.ScrollingDirection.X
+		bar.CanvasSize             = UDim2.new()
+		bar.AutomaticCanvasSize    = Enum.AutomaticSize.X
+		bar.LayoutOrder            = -1
+		bar.ZIndex                 = 32
+		bar.Parent                 = contentSettings
+		local lay = Instance.new("UIListLayout")
+		lay.FillDirection     = Enum.FillDirection.Horizontal
+		lay.Padding           = UDim.new(0, 6)
+		lay.VerticalAlignment = Enum.VerticalAlignment.Center
+		lay.SortOrder         = Enum.SortOrder.LayoutOrder
+		lay.Parent            = bar
+
+		local chips = {}
+		local function nice(t)
+			local word = t:match("%a[%a%s/&]*") or t
+			word = word:gsub("%s+$", "")
+			if #word <= 3 then return word end
+			return word:sub(1, 1):upper() .. word:sub(2):lower()
+		end
+		for i, h in ipairs(headers) do
+			local c = Instance.new("TextButton")
+			c.AutomaticSize          = Enum.AutomaticSize.X
+			c.Size                   = UDim2.new(0, 0, 1, -6)
+			c.BackgroundColor3       = Color3.fromRGB(30, 36, 50)
+			c.BackgroundTransparency = 0.1
+			c.BorderSizePixel        = 0
+			c.AutoButtonColor        = false
+			c.Text                   = nice(h.Text)
+			c.Font                   = Enum.Font.BuilderSansBold
+			c.TextSize               = S and 11 or 13
+			c.TextColor3             = C_SUB
+			c.LayoutOrder            = i
+			c.ZIndex                 = 33
+			c.Parent                 = bar
+			Instance.new("UICorner", c).CornerRadius = UDim.new(1, 0)
+			local p = Instance.new("UIPadding")
+			p.PaddingLeft, p.PaddingRight = UDim.new(0, 12), UDim.new(0, 12)
+			p.Parent = c
+			local st = Instance.new("UIStroke")
+			st.Color, st.Transparency = WHITE, 0.85
+			st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			st.Parent = c
+			c.MouseButton1Click:Connect(function()
+				local y = h.AbsolutePosition.Y - contentSettings.AbsolutePosition.Y
+					+ contentSettings.CanvasPosition.Y - (S and 4 or 6)
+				local maxY = math.max(0, contentSettings.AbsoluteCanvasSize.Y - contentSettings.AbsoluteWindowSize.Y)
+				TweenService:Create(contentSettings, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+					{ CanvasPosition = Vector2.new(0, math.clamp(y, 0, maxY)) }):Play()
+			end)
+			chips[i] = { btn = c, stroke = st, header = h }
+		end
+
+		-- La pastille de la section visible s'allume en bleu
+		local function highlight()
+			local top = contentSettings.AbsolutePosition.Y + 40
+			local cur = 1
+			for i, c in ipairs(chips) do
+				if c.header.AbsolutePosition.Y <= top then cur = i end
+			end
+			for i, c in ipairs(chips) do
+				local on = (i == cur)
+				c.btn.BackgroundColor3 = on and ACCENT_DEEP or Color3.fromRGB(30, 36, 50)
+				c.btn.TextColor3       = on and C_TEXT or C_SUB
+				c.stroke.Transparency  = on and 0.6 or 0.85
+			end
+		end
+		contentSettings:GetPropertyChangedSignal("CanvasPosition"):Connect(highlight)
+		contentSettings:GetPropertyChangedSignal("Visible"):Connect(function()
+			if contentSettings.Visible then task.defer(highlight) end
+		end)
+		task.defer(highlight)
+	end
+
+	-- ── 6. Onglet Stats : tes icônes de leaderboard à la place des emojis ──
+	local STAT_ICON = {
+		points   = "rbxassetid://97693677869695",
+		kills    = "rbxassetid://75683389639373",
+		killq    = "rbxassetid://75683389639373",
+		rebirths = "rbxassetid://90150030286895",
+		streak   = "rbxassetid://86471920262687",
+		best     = "rbxassetid://86471920262687",
+		mult     = "rbxassetid://77796745547590",
+	}
+	for key, img in pairs(STAT_ICON) do
+		local v = statValueLabels[key]
+		local row = v and v.Parent
+		if row then
+			for _, l in ipairs(row:GetChildren()) do
+				if l:IsA("TextLabel") and l ~= v then
+					local sz = row.Size.Y.Offset
+					local ic = Instance.new("ImageLabel")
+					ic.BackgroundTransparency = 1
+					ic.Image                  = img
+					ic.ScaleType              = Enum.ScaleType.Fit
+					ic.Size                   = UDim2.new(0, sz, 0, sz)
+					ic.ZIndex                 = 33
+					ic.Parent                 = row
+					l.Text     = (l.Text:match("%a.*")) or l.Text     -- retire l'emoji
+					l.Position = UDim2.new(0, sz + 6, 0, 0)
+					l.Size     = UDim2.new(0.55, -(sz + 6), 1, 0)
+				end
+			end
+		end
+	end
+	-- Avatar de l'onglet Stats : contour bleu du téléporteur
+	local avs = avatar:FindFirstChildOfClass("UIStroke")
+	if avs then avs.Color = ACCENT end
+end)()
