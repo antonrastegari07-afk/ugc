@@ -94,7 +94,7 @@ setSpotlight = function(s, target, clickable, opts)
 		local valid = o and o.Parent and o.Visible and o.AbsoluteSize.X > 1 and o.AbsoluteSize.Y > 1
 		local rect
 		if valid then
-			local p, z, margin = o.AbsolutePosition - origin, o.AbsoluteSize, C.Style.HolePadding
+			local p, z, margin = o.AbsolutePosition - origin, o.AbsoluteSize, opts.margin or C.Style.HolePadding
 			-- le cadre englobe aussi les objets « extra » visibles (le X qui dépasse)
 			local x0, y0, x1, y1 = p.X, p.Y, p.X + z.X, p.Y + z.Y
 			for _, e in ipairs(opts.extra or {}) do
@@ -228,7 +228,7 @@ local function buildUI(s)
 		Position = UDim2.new(0, 12, 0.5, -12), Visible = false, ZIndex = 21 }, s.skip)
 	s.message = make("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 68),
 		Size = UDim2.new(1, -24, 0, 100), BackgroundTransparency = 1 }, s.safe)
-	make("UISizeConstraint", { MaxSize = Vector2.new(760, 260) }, s.message)
+	make("UISizeConstraint", { MaxSize = Vector2.new(860, 330) }, s.message)
 	-- Fond du texte : noir semi-transparent, arrondi, qui s'efface en dégradé
 	-- sur les deux côtés (le texte ressort sans « carte » aux bords durs).
 	s.backdrop = make("Frame", { Name = "Backdrop", Size = UDim2.fromScale(1, 1),
@@ -247,21 +247,21 @@ local function buildUI(s)
 		label.TextScaled = true
 		make("UITextSizeConstraint", { MinTextSize = 22, MaxTextSize = C.Style.MaxTextSize }, label)
 	end
-	s.detail = text(s.message, infoText("InfoBody"), 24)
+	s.detail = text(s.message, infoText("InfoBody"), 30)
 	s.detail.Visible = false
 	s.detail.TextScaled = true
-	make("UITextSizeConstraint", { MinTextSize = 17, MaxTextSize = 24 }, s.detail)
-	s.note = text(s.message, infoText("InfoNote"), 20)
+	make("UITextSizeConstraint", { MinTextSize = 20, MaxTextSize = 30 }, s.detail)
+	s.note = text(s.message, infoText("InfoNote"), 26)
 	s.note.TextColor3 = Color3.fromRGB(225, 228, 232)
 	s.note.Visible = false
 	s.note.TextScaled = true
-	make("UITextSizeConstraint", { MinTextSize = 15, MaxTextSize = 20 }, s.note)
+	make("UITextSizeConstraint", { MinTextSize = 18, MaxTextSize = 26 }, s.note)
 	-- consigne de sortie, en vert : fermer avec le X = continuer à jouer
-	s.closeHint = text(s.message, infoText("InfoClose"), 22)
+	s.closeHint = text(s.message, infoText("InfoClose"), 28)
 	s.closeHint.TextColor3 = C.Style.Green
 	s.closeHint.Visible = false
 	s.closeHint.TextScaled = true
-	make("UITextSizeConstraint", { MinTextSize = 16, MaxTextSize = 22 }, s.closeHint)
+	make("UITextSizeConstraint", { MinTextSize = 19, MaxTextSize = 28 }, s.closeHint)
 	s.proxy.NextSelectionDown, s.skip.NextSelectionDown = s.skip, s.proxy
 	connect(s, s.skip.Activated, function() finish(s, true) end)
 	connect(s, s.proxy.Activated, function()
@@ -387,18 +387,22 @@ refresh = function(s)
 	local info = phase == "info"
 	s.detail.Visible, s.note.Visible, s.closeHint.Visible = info, info, info
 	local compact = s.safe.AbsoluteSize.Y < 360 and s.safe.AbsoluteSize.X > 480
-	local height = info and (compact and 170 or 236) or 100
+	local height = info and (compact and 200 or 310) or 100
+	-- fond du texte : plus sombre pendant l'explication (posé sur la boutique, très chargée)
+	s.backdrop.BackgroundTransparency = info and (C.Style.InfoBackdropTransparency or 0.15)
+		or (C.Style.BackdropTransparency or 0.45)
 	s.message.Size = UDim2.new(1, -24, 0, height)
-	local titleHeight = info and (compact and 36 or 46) or 72
+	local titleHeight = info and (compact and 40 or 54) or 72
 	s.title.Size = UDim2.new(1, -24, 0, titleHeight)
 	if info then
 		clearWorld(s)
-		s.detail.Position, s.detail.Size = UDim2.fromOffset(14, compact and 40 or 58), UDim2.new(1, -28, 0, compact and 50 or 66)
-		s.note.Position, s.note.Size = UDim2.fromOffset(14, compact and 92 or 128), UDim2.new(1, -28, 0, compact and 34 or 52)
-		s.closeHint.Position, s.closeHint.Size = UDim2.fromOffset(14, compact and 130 or 186), UDim2.new(1, -28, 0, compact and 30 or 38)
+		s.detail.Position, s.detail.Size = UDim2.fromOffset(18, compact and 44 or 64), UDim2.new(1, -36, 0, compact and 56 or 84)
+		s.note.Position, s.note.Size = UDim2.fromOffset(18, compact and 102 or 152), UDim2.new(1, -36, 0, compact and 48 or 74)
+		s.closeHint.Position, s.closeHint.Size = UDim2.fromOffset(18, compact and 152 or 232), UDim2.new(1, -36, 0, compact and 38 or 56)
 		s.message.AnchorPoint, s.message.Position = Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -12)
-		-- cadre vert autour de la boutique ET de son X ; aucun voile : tout reste cliquable
-		setSpotlight(s, s.shopPanel, false, { extra = { s.closeButton }, noDim = true })
+		-- fond noir autour + cadre vert, plus large, qui englobe la boutique ET son X
+		setSpotlight(s, s.shopPanel, false, { extra = { s.closeButton },
+			margin = C.Style.InfoHolePadding or 22 })
 		if padActive() then GS.SelectedObject = s.closeButton or s.skip end
 		-- ⏱️ se termine tout seul si le joueur ne fait rien (la boutique reste ouverte)
 		if not s.infoTimer then

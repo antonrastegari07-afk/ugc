@@ -66,7 +66,8 @@ le FOV normal : plus de correction visible après la fermeture.
 **Fin du Rookie Guide (boutique ouverte).**
 - Plus de bouton PLAY.
 - Le cadre vert entoure la boutique ET son X rouge (UGCshop ▸ ShopFrame ▸ ShopToggle).
-- Plus de voile noir à cette étape : rien ne bloque les clics.
+- Le voile noir autour est gardé ; le cadre est plus large (22 px, réglable : `InfoHolePadding` dans RookieConfig.Style).
+- Fond du texte plus sombre à cette étape (`InfoBackdropTransparency`, 0.15 par défaut).
 - Le guide se termine dès que le joueur ferme la boutique avec le X, avec SKIP
   (la boutique reste ouverte), ou tout seul après 25 s (la boutique reste ouverte).
 - Textes plus grands, courts et exacts. Modifiables dans RookieConfig.Text :
