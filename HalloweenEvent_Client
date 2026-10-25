@@ -1493,8 +1493,10 @@ task.spawn(function()
 			else timerL.Text = UI.Ended or "The event has ended!" end
 			if v.tester and not v.realActive then timerL.Text = timerL.Text .. "  (TEST MODE)" end
 			if v.daily then dailyT.Text = padTime(v.daily.ends - t) end
-			if v.weekly then weeklyT.Text = padTime(v.weekly.ends - t) end
-			if isOpen and v.daily and t >= v.daily.ends + 1 and (not v._asked or os.clock() - v._asked > 5) then
+			-- hebdo : 7 jours PERSONNELS (pas encore commencés = semaine pleine affichée)
+			if v.weekly then weeklyT.Text = padTime(v.weekly.started and (v.weekly.ends - t) or 7 * 86400) end
+			local weekOver = v.weekly and v.weekly.started and t >= v.weekly.ends + 1
+			if isOpen and ((v.daily and t >= v.daily.ends + 1) or weekOver) and (not v._asked or os.clock() - v._asked > 5) then
 				v._asked = os.clock()
 				task.spawn(function() local nv = StateRF:InvokeServer() if nv then view = nv refresh() end end)
 			end
