@@ -1,6 +1,6 @@
 # Textures Scythe — style or orné lumineux
 
-Textures PBR 1024×1024 générées sur les UVs de `save obj SCYTHE.obj`, pour le `SurfaceAppearance` de `scythe .rbxm`.
+Textures PBR 2048×2048 dérivées de la texture mauve d'origine (recolorée en or), pour le `SurfaceAppearance` de `scythe .rbxm`.
 
 | Fichier | Propriété SurfaceAppearance |
 |---|---|
@@ -17,4 +17,3 @@ Dans `scythe .rbxm`, `EmissiveTint` est passé en doré (255, 190, 70). `Emissiv
 2. Sur le `SurfaceAppearance` : **vider `TexturePack`** (il référence les anciennes textures et peut prendre le dessus sur les maps individuelles), puis assigner les 5 maps ci-dessus.
 3. Ajuster `EmissiveStrength` si la lueur est trop forte ou trop faible.
 
-`tools/` contient les scripts Python qui ont généré les textures (`bake.py` → `ao.py` → `gen.py`, `render.py` pour l'aperçu).
