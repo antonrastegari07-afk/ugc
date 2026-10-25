@@ -74,6 +74,22 @@ ancestryConnection = container.AncestryChanged:Connect(function()
 end)
 container:SetAttribute("RookieGuideSupport", 4)
 
+-- 🩺 DEBUG FOV : toutes les 10 s dans l'Output (seulement si C.Debug = true)
+if C.Debug then
+	task.spawn(function()
+		while not stopped do
+			local cam = workspace.CurrentCamera
+			print(string.format("[UIFocus] FOV actuel = %.1f | FOV normal = %s | fenêtre = %s | effets actifs = %s | guide jouable = %s",
+				cam and cam.FieldOfView or -1,
+				effects.normalFOV and string.format("%.1f", effects.normalFOV) or "?",
+				effects.menu and effects.menu.Id or "aucune",
+				tostring(effects.session ~= nil),
+				tostring(effects.gameplay)))
+			task.wait(10)
+		end
+	end)
+end
+
 -- Diagnostic utile sans modifier la configuration de l'événement à ta place.
 task.defer(function()
 	local config = ReplicatedStorage:FindFirstChild("HALLOWEEN_EVENT_CONFIG")
