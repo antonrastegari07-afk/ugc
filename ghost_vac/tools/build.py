@@ -85,7 +85,7 @@ def anchors_fn():   # small clamps where the straps enter the blocks (built befo
 def collars_fn():   # round rings where the round glass meets the octagonal blocks
     bm,uvl=new_bm()
     for z0,z1 in ((-0.475,-0.425),(0.425,0.465)):
-        lathe(bm,uvl,[(0.44,z0),(0.48,z0),(0.48,z1),(0.44,z1),(0.44,z0)],16,R['jamb'],cy=TY,invert=True)   # stays behind the glass wall: invisible from inside
+        lathe(bm,uvl,[(0.44,z0),(0.48,z0),(0.48,z1),(0.44,z1),(0.44,z0)],12,R['jamb'],cy=TY,invert=True)   # stays behind the glass wall: invisible from inside
     return mkobj('Glass_Collars','Tank',bm)
 def bars_fn():
     bm,uvl=new_bm()
@@ -121,7 +121,7 @@ def cloud_h(x,y):
     return sum(v**6 for v in vals)**(1/6)
 CB=-0.46; CR=0.415
 def cloud_fn():
-    bm,uvl=new_bm(); Nc=24; rings=5
+    bm,uvl=new_bm(); Nc=20; rings=5
     center=bm.verts.new((0,TY,CB+cloud_h(0,0))); allr=[]
     for k in range(1,rings+1):
         t=k/rings; ring=[]
@@ -348,7 +348,10 @@ def strap_path(x):
     sx=math.copysign(1,x)
     XT,XF=0.76,0.935         # x over the shoulder -> x at the bottom of the chest (straps drift to the sides like a real backpack)
     zs=DZ-0.30
-    ctrl=[(sx*0.33,0.75,0.85+zs),(sx*0.58,0.72,0.86+zs),(sx*0.74,0.65,0.88+zs),(sx*XT,0.58,0.91),(sx*XT,0.53,0.98),(sx*XT,0.42,ZT),(sx*XT,0.0,ZT)]   # turns while flat, then climbs straight (no twist)
+    # tank -> shoulder: one long smooth arc (yaw and climb spread over the whole arc, subdivided)
+    top=[(sx*0.33,0.75,0.85+zs),(sx*0.56,0.71,0.87+zs),(sx*0.70,0.62,0.93),(sx*XT,0.51,1.03),(sx*XT,0.30,ZT),(sx*XT,0.0,ZT)]
+    top=[tuple(v) for v in catmull(top,2)]
+    ctrl=[]
     ctrl+=[(sx*(XT+0.02*t/(math.pi/2)),Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
     ctrl+=[(sx*0.82,Y0,0.62),(sx*0.88,Y0,0.36),(sx*XF,Y0,0.10)]
     ctrl+=[(sx*xx,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t,xx in zip(np.linspace(0,math.pi/2,4),(XF,XF,XF,0.93))]   # bottom-front corner, tucks in under the arm
@@ -356,7 +359,7 @@ def strap_path(x):
     out=[]; 
     for p in ctrl:
         if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
-    return catmull(out,1)
+    return [Vector(p) for p in top]+catmull(out,1)
 def strap_normal(p):
     # flat side of the strap faces away from the shoulder/torso
     q=Vector((0,min(max(p.y,-0.5+CR_),0.5),min(max(p.z,ZB+CR_),1.0-CR_)))
