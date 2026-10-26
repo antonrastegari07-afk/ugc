@@ -46,7 +46,7 @@ end
 -- ════════════════════════════════════════════════════════════════
 -- 🧍 MA FAUX
 -- ════════════════════════════════════════════════════════════════
-local cur = { tool = nil, tracks = {}, conns = {} }
+local cur = { tool = nil, tracks = {}, conns = {}, grip = nil }
 local lastDash = -99
 local airLeft = D.AirDashes or 1
 local dashing = false
@@ -73,6 +73,56 @@ local function loadTracks(char)
 		end
 	end
 	return out
+end
+
+-- animations chargées UNE fois par personnage (préchargées à l'apparition) : la sortie joue tout de suite
+local trackCache = setmetatable({}, { __mode = "k" })
+local function tracksFor(char)
+	local t = trackCache[char]
+	if t and next(t) then return t end
+	t = loadTracks(char)
+	trackCache[char] = t
+	return t
+end
+
+-- ⚡ PRISE INSTANTANÉE : la poignée animable est créée ICI, chez moi, dès que je sors la faux.
+--    Avant, on attendait celle du serveur (aller-retour réseau) → faux figée un moment, puis l'animation.
+--    Celle du serveur (« ScytheGrip ») et la soudure par défaut (RightGrip) sont coupées CHEZ MOI seulement :
+--    les autres joueurs voient toujours celle du serveur, rien ne change pour eux ni pour le serveur.
+local function localGrip(tool, char)
+	local torso = char:FindFirstChild("Torso")
+	local handle = tool:FindFirstChild("Handle")
+	if not (torso and handle) then return nil end
+	local g = { conns = {} }
+	local function mute(j)
+		if j:IsA("JointInstance") and j ~= g.motor and (j.Name == "RightGrip" or j.Name == "ScytheGrip")
+			and (j.Part1 == handle or j.Part0 == handle) then
+			pcall(function() j.Enabled = false end)
+		end
+	end
+	local arm = char:FindFirstChild("Right Arm")
+	for _, holder in ipairs({ arm, torso }) do
+		if holder then
+			for _, j in ipairs(holder:GetChildren()) do mute(j) end
+			table.insert(g.conns, holder.ChildAdded:Connect(mute))
+		end
+	end
+	local m = Instance.new("Motor6D")
+	m.Name = "ScytheGripLocal"
+	m.C0 = tool:GetAttribute("GripC0") or CFrame.new()
+	m.C1 = tool:GetAttribute("GripC1") or CFrame.new()
+	m.Part0 = torso
+	m.Part1 = handle
+	m.Parent = torso
+	g.motor = m
+	return g
+end
+local function dropGrip()
+	local g = cur.grip
+	cur.grip = nil
+	if not g then return end
+	for _, c in ipairs(g.conns) do c:Disconnect() end
+	if g.motor then g.motor:Destroy() end
 end
 
 local function dirFromCamera(hrp)
@@ -185,22 +235,27 @@ local function unequip()
 	for _, tr in pairs(cur.tracks) do pcall(function() tr:Stop(0.15) end) end
 	cur.tracks = {}
 	cur.tool = nil
+	dropGrip()
 	pcall(function() ContextActionService:UnbindAction("JackScytheDash") end)
 end
 
 local function equip(tool, char)
 	unequip()
 	cur.tool = tool
-	-- on attend le moteur du serveur (sinon l'animation ne bouge pas la faux)
-	local torso = char:FindFirstChild("Torso")
-	local t0 = os.clock()
-	while os.clock() - t0 < 1.5 and cur.tool == tool do
-		local m = torso and torso:FindFirstChild("ScytheGrip")
-		if m and m.Part1 == tool:FindFirstChild("Handle") then break end
-		task.wait()
+	-- ⚡ poignée locale tout de suite (plus d'attente du serveur)
+	cur.grip = localGrip(tool, char)
+	if not cur.grip then
+		-- secours (pas de Torso / Handle) : on attend le moteur du serveur, comme avant
+		local torso = char:FindFirstChild("Torso")
+		local t0 = os.clock()
+		while os.clock() - t0 < 1.5 and cur.tool == tool do
+			local m = torso and torso:FindFirstChild("ScytheGrip")
+			if m and m.Part1 == tool:FindFirstChild("Handle") then break end
+			task.wait()
+		end
 	end
 	if cur.tool ~= tool then return end
-	cur.tracks = loadTracks(char)
+	cur.tracks = tracksFor(char)
 	if cur.tracks.Hold then cur.tracks.Hold:Play(0.1) end
 	if cur.tracks.Equip then cur.tracks.Equip:Play(0.05) end
 	FX.Equip(tool, true)
@@ -237,6 +292,10 @@ local function watchCharacter(plr, char)
 		end
 	end
 	if mine then
+		-- précharge les animations dès l'apparition (la 1re sortie est instantanée aussi)
+		task.spawn(function()
+			if char.Parent and not trackCache[char] then tracksFor(char) end
+		end)
 		local hum = char:WaitForChild("Humanoid", 10)
 		if hum then
 			hum.StateChanged:Connect(function(_, new)
