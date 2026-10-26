@@ -44,8 +44,8 @@ Le rendu reste le même : même dégradé (formule identique), mêmes couleurs, 
 
 Fichier : `admin/AdminToolsGiver.lua`
 
-1. Crée un dossier **AdminClientScripts** dans **ServerStorage**.
-2. Glisse dedans, depuis StarterPlayerScripts :
+1. Mets les LocalScripts admin dans **ServerStorage** (directement ou dans n'importe quel dossier : le script les retrouve par leur nom).
+2. Ce sont ceux-ci, à retirer de StarterPlayerScripts :
    - `Admin client`
    - `WEAPON ANIM STUDIO`
    - `admin panel points`
