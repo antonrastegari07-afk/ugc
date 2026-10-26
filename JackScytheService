@@ -31,7 +31,8 @@ local D = Config.Dash or {}
 
 -- 🛠️ DEVS : faux DORÉE avec « DEV » à la place du numéro, donnée dès la connexion.
 --    Aucun numéro de série réservé, rien d'écrit dans le DataStore (vérifié par UserId, côté serveur).
-local ADMIN_IDS = { 3203521470, 11017023724, 10420404767 }
+-- ⚠️ même liste que ton ADMIN PANEL (ajoute ici chaque nouveau dev)
+local ADMIN_IDS = { 3203521470, 11017023724, 8456613930, 8142402169, 10420404767 }
 local IS_DEV = {}
 for _, id in ipairs(ADMIN_IDS) do IS_DEV[id] = true end
 local DEV_REC = { serial = "DEV", gold = true, dev = true }
