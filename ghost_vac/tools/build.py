@@ -75,7 +75,7 @@ RIN=0.42
 def collars_fn():   # round rings where the round glass meets the octagonal blocks
     bm,uvl=new_bm()
     for z0,z1 in ((-0.475,-0.425),(0.425,0.465)):
-        lathe(bm,uvl,[(RIN,z0),(0.48,z0),(0.48,z1),(RIN,z1),(RIN,z0)],24,R['jamb'],cy=TY,invert=True)
+        lathe(bm,uvl,[(0.395,z0),(0.48,z0),(0.48,z1),(0.395,z1),(0.395,z0)],28,R['jamb'],cy=TY,invert=True)   # inner face in front of the glass wall (no z-fighting)
     return mkobj('Glass_Collars','Tank',bm)
 def bars_fn():
     bm,uvl=new_bm()
