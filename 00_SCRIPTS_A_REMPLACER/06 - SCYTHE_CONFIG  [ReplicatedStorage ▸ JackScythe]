@@ -1,0 +1,158 @@
+--[[
+	🎃 SCYTHE_CONFIG — la faux de Jack (récompense finale des quêtes d'Halloween)
+	📍 ReplicatedStorage ▸ JackScythe ▸ SCYTHE_CONFIG   (ModuleScript, placé par l'installeur)
+
+	Lu par le serveur ET par les clients (rien de secret ici : le serveur revérifie tout).
+	Tout se règle ici : dash, sons, textures, effets, lueur, numéros dorés.
+--]]
+
+local C = {}
+
+-- 🔢 version de cette config (l'installeur remplace une config V1 par celle-ci et garde l'ancienne en copie)
+C.Version = 6
+
+-- 🕶️ Interrupteur général : false = personne ne reçoit la faux et le dash est coupé (les faux déjà données restent rangées)
+C.Enabled = true
+
+-- 🏷️ Nom affiché dans la barre d'outils : « Jack's Scythe #5 »
+C.ToolName = "Jack's Scythe"
+C.SerialFormat = "#%d"
+C.ToolTip = "Click to dash!"
+C.Icon = "77882865479257"                       -- ID de l'icône (Scythe_Icon.png) ; vide = le nom s'affiche
+
+-- 🥇 Les N premiers numéros reçoivent la faux DORÉE (même faux, matières + effets en or)
+C.GoldCount = 500
+
+-- ════════════════════════════════════════════════════════════════
+-- 💨 DASH (vérifié par le serveur : temps de recharge, faux équipée, joueur vivant)
+-- ════════════════════════════════════════════════════════════════
+C.Dash = {
+	Cooldown = 3.0,               -- secondes entre deux dash
+	Speed = 92,                   -- studs/s pendant l'élan (reste sous 120 : au-delà, le pass Halloween y voit un téléport)
+	Duration = 0.2,               -- durée de l'élan (≈ 18 studs) ; plus long : 0.3 ≈ 28 studs, 0.4 ≈ 37 studs
+	WindUp = 0.13,                -- l'élan part au marqueur « Launch » de l'animation (ou après ce délai)
+	CarryOver = 0.35,             -- vitesse gardée à la fin (0 = arrêt net)
+	MaxUpAngle = 85,              -- on peut viser vers le haut, presque à la verticale (degrés)
+	MaxDownAngle = 18,            -- … et un peu vers le bas en l'air
+	AirDashes = 1,                -- dash en l'air avant de retoucher le sol
+	Keys = { Enum.KeyCode.Q, Enum.KeyCode.ButtonX },   -- en plus du clic / tap / gâchette (outil activé)
+	MobileButton = true,          -- bouton « DASH » à l'écran sur mobile
+	FovKick = 8,                  -- coup de FOV pendant l'élan (0 = rien)
+	Shake = 0.35,                 -- petite secousse caméra (0 = rien)
+	-- 🛡️ dash refusé si le joueur a un de ces attributs à true (ex. { "InPVP", "InArena" })
+	BlockedAttributes = {},
+	-- 🛡️ fenêtre pendant laquelle ton anti-cheat doit ignorer la vitesse (attribut joueur « ScytheDashUntil »)
+	AntiCheatGrace = 0.6,
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎬 ANIMATIONS (vides = en Studio on utilise les KeyframeSequences de l'installeur)
+--    Après « Save to Roblox » : colle les IDs ici (NpcAnimations ▸ JackScythe)
+-- ════════════════════════════════════════════════════════════════
+C.Animations = {
+	Hold = "77642089450336",                    -- Scythe_Hold   (garde à deux mains, boucle)
+	Equip = "133192600623157",                   -- Scythe_Equip  (sortie : moulinet)
+	Dash = "74780588728452",                    -- Scythe_Dash   (corps entier)
+}
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔊 SONS (uploade les .ogg du dossier Sons, colle les IDs). Vides = sons intégrés de Roblox.
+-- ════════════════════════════════════════════════════════════════
+C.Sounds = {
+	Equip = { Id = "125914564702009", Volume = 0.55 },     -- Scythe_Equip.ogg  (les veines s'allument + la lame chante)
+	Dash  = { Id = "140324602533286", Volume = 0.7 },      -- Scythe_Dash.ogg   (souffle + flamme)
+	Slash = { Id = "9119076916", Volume = 0.45 },     -- Scythe_Slash.ogg  (« shing »)
+	Ready = { Id = "131794614393147", Volume = 0.3 },      -- Scythe_Ready.ogg  (dash rechargé)
+	Idle  = { Id = "", Volume = 0.08 },     -- Scythe_Idle.ogg   (crépitement doux en boucle, 0 = coupé)
+	Form  = { Id = "", Volume = 0.6 },      -- Scythe_Form.ogg   (Jack fait apparaître la faux)
+}
+C.SoundPitch = 1.0                -- < 1 = plus grave
+C.SoundsForOthers = true          -- les autres joueurs entendent ton dash (plus doux)
+
+-- ════════════════════════════════════════════════════════════════
+-- ✨ TEXTURES VFX (View ▸ Asset Manager ▸ Bulk Import des PNG du dossier VFX)
+--    Les 6 du bas sont TES textures du grimoire (déjà uploadées).
+-- ════════════════════════════════════════════════════════════════
+C.Textures = {
+	Flame     = "71145336766865",               -- Scythe_SoulFlame8x8.png      (flamme d'âme violette, planche 8×8)
+	FlameGold = "100533862899563",               -- Scythe_SoulFlameGold8x8.png  (même flamme, dorée)
+	Energy    = "91035199345496",               -- Scythe_Energy.png            (filaments qui courent le long du fil)
+	Shard     = "138762658253782",               -- Scythe_Shard.png             (éclats de cristal)
+	Slash     = "132382955911561",               -- Scythe_Slash.png             (traînée de la lame)
+	DashLine  = "106917516675210",               -- Scythe_DashLine.png          (lignes de vitesse)
+	Glow      = "133344173218238",
+	Spark     = "115283803090853",
+	Star      = "134243357474323",
+	Ring      = "95228155227769",
+	Smoke4x4  = "97241076326271",
+	Wisp      = "128819552622729",
+}
+
+-- 🎨 couleurs des effets (Normal = violet, Gold = or)
+C.Colors = {
+	Normal = {
+		Core = Color3.fromRGB(250, 238, 255),     -- cœur blanc des flammes / du fil
+		Flame = Color3.fromRGB(176, 104, 255),    -- violet des flammes
+		Deep = Color3.fromRGB(92, 30, 190),       -- violet profond (bords, fumée)
+		Edge = Color3.fromRGB(214, 170, 255),     -- aura du fil de la lame
+		Smoke = Color3.fromRGB(46, 20, 70),       -- fumée d'âme (sombre)
+		Light = Color3.fromRGB(170, 100, 255),    -- lumière portée
+		Ghost = Color3.fromRGB(150, 80, 255),     -- images fantômes du dash
+		Number = Color3.fromRGB(246, 232, 255),   -- numéro du médaillon
+		NumberGlow = Color3.fromRGB(150, 70, 255),
+	},
+	Gold = {
+		Core = Color3.fromRGB(255, 252, 235),
+		Flame = Color3.fromRGB(255, 206, 100),
+		Deep = Color3.fromRGB(210, 130, 40),
+		Edge = Color3.fromRGB(255, 226, 150),
+		Smoke = Color3.fromRGB(80, 50, 20),
+		Light = Color3.fromRGB(255, 210, 120),
+		Ghost = Color3.fromRGB(255, 205, 95),
+		Number = Color3.fromRGB(255, 248, 225),
+		NumberGlow = Color3.fromRGB(255, 180, 60),
+	},
+}
+
+-- 💡 Lueur de la texture (EmissiveStrength des SurfaceAppearance), PIÈCE PAR PIÈCE.
+--    Seules les zones émissives brillent (veines, fil, cristaux, liseré du médaillon). 0 = éteint ; 5-10 = très lumineux.
+--    Valeurs FIXES (les animer ferait clignoter la texture).
+C.Glow = {
+	Veins = 40,                    -- fissures du manche
+	Head = 40,                     -- nœud + couronne
+	Blade = 40,                  -- fil + veines de la lame
+	SpikeTips = 40,                -- pointes en cristal des épines du dos de la lame
+	Shards = 40,                   -- les 4 petites pierres qui tournent
+	Gem = 40,                      -- le cristal sous le pommeau
+	Medal = 0,                    -- liseré du médaillon
+	NumberBrightness = 2.2,       -- le numéro brille (SurfaceGui sans lumière ambiante)
+	PointLight = 0.8,             -- lumière douce du nœud (0 = aucune)
+	LightRange = 6,
+}
+
+-- ✨ Effets (tout est SUR LA FAUX, jamais sur le joueur) — true / false
+C.Effects = {
+	GhostTrail = true,            -- traînée de la lame (4 rubans qui suivent la courbe) + de la pointe
+	Shards = true,                -- les 4 éclats tournent autour du nœud (+ traînées) ; ils montrent aussi la recharge
+	ShardOrbitSpeed = 0.9,        -- vitesse de rotation au repos
+	MedalSwing = true,            -- médaillon en VRAI pendule : il balance avec la gravité et les mouvements de la faux
+	MedalSwingSpeed = 0.8,          -- vitesse du balancement (0.5 = lent et ample, 2 = rapide et nerveux)
+	MedalFriction = 0.09,         -- frein : plus haut = il se calme plus vite (0 = balance très longtemps, 0.15 = presque pas)
+	CrownFlame = false,            -- petite flamme d'âme au-dessus du nœud (collée à la faux)
+	TipFlames = false,             -- petites flammes au bout des épines du dos, dans leur direction
+	EnergyFlow = true,            -- filament d'énergie qui épouse la courbe du fil (seulement si Textures.Energy est rempli)
+	EnergySpeed = 1.2,
+	GoldStars = true,             -- petites étoiles qui scintillent sur la faux dorée
+	PommelGem = true,             -- le cristal flottant sous le pommeau tourne et laisse un fin sillage
+	ImpactBurst = true,           -- éclatement de cristaux + onde au sol au moment du coup
+}
+
+-- 📱 Appareils modestes (mobile) : moins de particules, pas d'images fantômes
+C.LowEnd = { ParticleScale = 0.5, Afterimages = false, LightRange = 5 }
+C.Afterimages = 3                 -- silhouettes fantômes de la faux pendant le dash (0 = aucune)
+
+-- 🧪 Studio : chaque Play repart de zéro (compteur de numéros séparé, le vrai DataStore n'est jamais touché)
+C.StudioFreshStart = true
+C.Debug = true
+
+return C

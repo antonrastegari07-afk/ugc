@@ -1,0 +1,1931 @@
+--[[
+	🎃 HalloweenEvent_Server — le cerveau du pass Halloween
+	📍 À placer dans : ServerScriptService   (Script, nom exact : HalloweenEvent_Server)
+	⚙️ Réglages : ReplicatedStorage ▸ HALLOWEEN_EVENT_CONFIG
+
+	Ce qu'il fait :
+	  • coins Halloween, paliers achetés dans l'ordre (le dernier = la faux de Jack)
+	  • quêtes daily + hebdo par joueur, changement gratuit 1×/jour puis Robux
+	  • détection AUTOMATIQUE (aucune ligne à ajouter dans tes scripts) : kills (tag « creator »),
+	    checkpoints (leaderstats ▸ Stage), série sans mourir, rebirth (attribut RebirthCount),
+	    manches gagnées (attribut ArenaWins), temps de jeu actif, arène (attribut InArena)
+	  • zones de coins : chaque joueur a SES coins, chaque ramassage est vérifié ici
+	  • achats Robux via TON ProcessReceiptHandler (un bloc de 4 lignes à ajouter, voir LISEZMOI)
+	  • les quêtes de Jack donnent des coins (JACK_CONFIG ▸ Reward.Coins)
+
+	🔒 SÉCURITÉ (même école que le noob, Jack et la faux)
+	  SEC1  rien ne se gagne tant que la sauvegarde n'est pas chargée ; lecture ratée = on réessaie
+	  SEC2  verrou de session : un 2e serveur ne peut jamais écraser la sauvegarde (anti hop / anti dupe)
+	  SEC3  palier / réclamation / achat : écrits dans le DataStore AVANT de donner quoi que ce soit
+	  SEC4  rien ne compte tant que tes données (Stage, Rebirth, points) ne sont pas posées
+	  SEC5  checkpoints : +1 à la fois, délai mini, jamais pendant une téléportation
+	  SEC6  rebirth / manche gagnée : +1 exact seulement (le chargement ne compte pas)
+	  SEC7  coins des zones : distance serveur, anti-téléport, vitesse de déplacement, plafond par jour
+	  SEC8  kills : victime au compte assez vieux, même victime limitée par jour, pas d'auto-kill
+	  SEC9  anti-spam des remotes (seau de jetons) + _G.AntiExploit s'il existe
+	  SEC10 tools : non lâchables, liés au propriétaire
+	  SEC11 reçus Robux : chaque PurchaseId n'est appliqué qu'UNE fois (gardé dans la sauvegarde)
+	  SEC12 le client n'envoie jamais un montant : il demande, le serveur décide
+--]]
+
+local Players            = game:GetService("Players")
+local ReplicatedStorage  = game:GetService("ReplicatedStorage")
+local ServerStorage      = game:GetService("ServerStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+local DataStoreService   = game:GetService("DataStoreService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local RunService         = game:GetService("RunService")
+local HttpService        = game:GetService("HttpService")
+
+local cfgModule = ReplicatedStorage:WaitForChild("HALLOWEEN_EVENT_CONFIG", 10)
+if not cfgModule then warn("❌ [HalloweenEvent] HALLOWEEN_EVENT_CONFIG introuvable dans ReplicatedStorage") return end
+local C = require(cfgModule)
+
+local HIDDEN = (C.Enabled == false)
+if HIDDEN and #(C.TestUserIds or {}) == 0 then return end
+local function allowed(uid) return (not HIDDEN) or C.IsTester(uid) end
+
+local R  = C.Rules or {}
+local Z  = C.Zones or {}
+local Q  = C.Quests or {}
+
+local function log(...)
+	if C.Debug then print("🎃 [HalloweenEvent]", ...) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- ⏰ TEMPS
+-- ════════════════════════════════════════════════════════════════
+local function utc(t)
+	return DateTime.fromUniversalTime(t.Year, t.Month, t.Day, t.Hour or 0, t.Minute or 0, 0).UnixTimestamp
+end
+local START, FINISH = utc(C.StartUTC), utc(C.EndUTC)
+local RESET = (C.ResetHourUTC or 0) * 3600
+local WEEK = 7 * 86400                       -- hebdo : 7 jours PERSONNELS, comptés dès que le joueur ouvre la fenêtre ou gagne des coins
+
+local function now() return os.time() end
+local function active(t) t = t or now() return t >= START and t < FINISH end
+local SHOW_UNTIL = FINISH + (C.ShowAfterEndDays or 3) * 86400     -- après : la fenêtre et Jack n'en parlent plus
+local function visible(t) return (t or now()) < SHOW_UNTIL end
+
+-- 🧪 MODE TESTEUR : C.TestUserIds (et tout le monde dans Studio) peuvent TOUT essayer, même hors des dates.
+--    Vérifié ICI (serveur) à chaque action : un joueur normal ne peut jamais l'activer.
+local TM = C.TestMode or {}
+local function isTester(uid)
+	if TM.Enabled == false then return false end
+	return C.IsTester(uid) or RunService:IsStudio()
+end
+local function activeFor(uid, t) return active(t) or (TM.IgnoreDates ~= false and isTester(uid)) end
+local function visibleFor(uid, t) return visible(t) or isTester(uid) end
+-- achat Robux simulé (gratuit) pour un testeur : produit pas encore créé (ProductId 0), avant l'event, ou Studio
+local function freeBuy(uid, productId)
+	if not isTester(uid) or TM.FreePurchases == false then return false end
+	return (tonumber(productId) or 0) <= 0 or not active() or RunService:IsStudio()
+end
+local function dayIndex(t) return math.floor((t - RESET) / 86400) end
+local function dayEnds(t) return (dayIndex(t) + 1) * 86400 + RESET end
+-- fin de la semaine du joueur (pas encore commencée : une semaine pleine à partir de maintenant)
+local function weekEnds(d, t) return (d.weekly.s > 0 and d.weekly.s or t) + WEEK end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📚 INDEX DE LA CONFIG
+-- ════════════════════════════════════════════════════════════════
+local TIERS = C.Tiers or {}
+local QDEF = {}                               -- [questId] = def
+for _, list in ipairs({ Q.Daily or {}, Q.Weekly or {} }) do
+	for _, q in ipairs(list) do QDEF[q.Id] = q end
+end
+local TIME_KINDS = { playtime = true, arenatime = true }
+local function goalOf(def) return (TIME_KINDS[def.Kind] and def.Goal * 60) or def.Goal end
+local DIFFS = { "easy", "medium", "hard" }
+
+-- plafond de points à vie venant de l'event = la somme des points des paliers (jamais plus)
+local function pointsIn(r)
+	if type(r) ~= "table" then return 0 end
+	if r.Kind == "points" then return tonumber(r.Amount) or 0 end
+	local n = 0
+	if r.Kind == "multi" then for _, s in ipairs(r.List or {}) do n += pointsIn(s) end end
+	return n
+end
+local POINTS_CAP = 0
+for _, t in ipairs(TIERS) do POINTS_CAP += pointsIn(t.Reward) end
+
+-- produits Robux
+local PRODUCTS = {}                           -- [productId] = { kind = "skip"|"reroll", count = n }
+for _, s in ipairs((C.Robux and C.Robux.SkipTier) or {}) do
+	if (tonumber(s.ProductId) or 0) > 0 then PRODUCTS[s.ProductId] = { kind = "skip", count = s.Count } end
+end
+local RR = C.Robux and C.Robux.RerollQuest
+if RR and (tonumber(RR.ProductId) or 0) > 0 then PRODUCTS[RR.ProductId] = { kind = "reroll" } end
+
+-- ════════════════════════════════════════════════════════════════
+-- 💾 STOCKAGE (verrou de session)
+-- ════════════════════════════════════════════════════════════════
+local STORE
+pcall(function() STORE = DataStoreService:GetDataStore("HalloweenEvent_v1") end)
+local useMemory = RunService:IsStudio() and C.StudioFreshStart ~= false
+local memory = {}
+if useMemory then warn("🧪 [HalloweenEvent] Studio : sauvegarde en mémoire (remise à zéro à chaque Play)") end
+
+local JOB = (game.JobId ~= "" and game.JobId) or ("studio-" .. HttpService:GenerateGUID(false))
+local LOCK_STALE = 180                        -- s : un verrou plus vieux = serveur mort, on le reprend
+
+local function deep(v)
+	if type(v) ~= "table" then return v end
+	local t = {}
+	for k, x in pairs(v) do t[k] = deep(x) end
+	return t
+end
+
+local function storeUpdate(key, fn)
+	if useMemory then
+		local v = fn(deep(memory[key]))
+		if v ~= nil then memory[key] = deep(v) end
+		return true
+	end
+	if not STORE then return false, "no DataStore" end
+	return pcall(function() return STORE:UpdateAsync(key, fn) end)
+end
+
+local function blank()
+	return {
+		v = 1, coins = 0, earned = 0, pts = 0,
+		tiers = {},                               -- [tierId] = os.time() de l'achat
+		daily = { p = -1, list = {} },            -- list[i] = { id, n, c (réclamée) }
+		weekly = { p = -1, s = 0, list = {} },     -- s = os.time() du début de SA semaine (0 = pas encore commencée)
+		rr = { day = -1, used = 0, credits = 0 },
+		zone = { day = -1, got = 0 },
+		rc = {},                                  -- derniers PurchaseId appliqués
+		jack = {},                                -- [stepId] = coins déjà versés
+		pend = {},                                -- [tierId] = { ["1"] = true, … } parts de récompense pas encore versées
+		kv = { day = -1, v = {} },                -- kills comptés par victime aujourd'hui (SEC8, gardé entre les serveurs)
+		ms = 0,                                   -- plus haut checkpoint déjà compté (remis à 0 au rebirth)
+		msv = 0,                                  -- version de ms (2 = rebirth bien détecté ; < 2 = ms recalé une fois sur ton Stage)
+		hint = false,                             -- la petite flèche « la faux est au bout » a déjà été vue
+	}
+end
+
+local function sanitize(d)
+	local b = blank()
+	for k, v in pairs(b) do
+		if type(d[k]) ~= type(v) then d[k] = v end
+	end
+	for _, w in ipairs({ "daily", "weekly" }) do
+		if type(d[w].list) ~= "table" then d[w].list = {} end
+		if type(d[w].p) ~= "number" then d[w].p = -1 end
+	end
+	if type(d.weekly.s) ~= "number" then d.weekly.s = 0 end   -- ancienne sauvegarde (semaine du lundi) : la semaine perso démarre à la prochaine ouverture
+	return d
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🧠 ÉTAT MÉMOIRE
+-- ════════════════════════════════════════════════════════════════
+--  P[uid] = { d = sauvegarde, ver, savedVer, settled, busy, frozen, ... }
+local P = {}
+local function pd(uid) local s = P[uid] return s and s.d and s end
+
+local function key(uid) return "p_" .. uid end
+
+local function load(uid)
+	for attempt = 1, 8 do
+		local result, status
+		local ok, err = storeUpdate(key(uid), function(old)
+			local t = now()
+			if type(old) == "table" and type(old.lock) == "table" and old.lock.job ~= JOB
+				and t - (tonumber(old.lock.t) or 0) < LOCK_STALE and attempt < 7 then
+				status = "locked"
+				return nil                         -- un autre serveur tient la sauvegarde : on attend
+			end
+			local d = sanitize(type(old) == "table" and old or blank())
+			d.lock = { job = JOB, t = t }
+			result, status = d, "ok"
+			return d
+		end)
+		if ok and status == "ok" then
+			result.lock = nil
+			return result
+		end
+		if not ok then warn(("⚠️ [HalloweenEvent] lecture %d/8 ratée pour %d : %s"):format(attempt, uid, tostring(err))) end
+		task.wait(status == "locked" and 5 or 3)
+	end
+	return nil
+end
+
+-- sauvegarde ; renvoie true si écrite. release = on rend le verrou (départ du joueur)
+local function save(uid, release)
+	local st = pd(uid)
+	if not st or st.frozen then return false end
+	local snap = deep(st.d)
+	local ver = st.ver
+	snap.lock = (not release) and { job = JOB, t = now() } or nil
+	local lost = false
+	local ok, err = storeUpdate(key(uid), function(old)
+		if type(old) == "table" and type(old.lock) == "table" and old.lock.job ~= JOB then
+			lost = true
+			return nil
+		end
+		return snap
+	end)
+	if lost then
+		st.frozen = true
+		warn(("🛑 [HalloweenEvent] %d : un autre serveur a repris la sauvegarde, ce serveur n'écrit plus rien"):format(uid))
+		return false
+	end
+	if not ok then warn("⚠️ [HalloweenEvent] sauvegarde ratée pour " .. uid .. " : " .. tostring(err)) return false end
+	st.savedVer = math.max(st.savedVer or 0, ver)
+	st.lastSave = os.clock()
+	return true
+end
+
+local function touch(st) st.ver = (st.ver or 0) + 1 end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔁 QUÊTES : tirage par période
+-- ════════════════════════════════════════════════════════════════
+local rng = Random.new()
+
+local function pick(pool, perDiff, avoid)
+	local out = {}
+	for _, diff in ipairs(DIFFS) do
+		local want = (perDiff and perDiff[diff]) or 0
+		local cands, fallback = {}, {}
+		for _, q in ipairs(pool) do
+			if q.Diff == diff then
+				table.insert(fallback, q)
+				if not (avoid and avoid[q.Id]) then table.insert(cands, q) end
+			end
+		end
+		if #cands < want then cands = fallback end
+		for _ = 1, want do
+			if #cands == 0 then break end
+			local i = rng:NextInteger(1, #cands)
+			table.insert(out, { id = cands[i].Id, n = 0, c = false })
+			table.remove(cands, i)
+		end
+	end
+	return out
+end
+
+local function ensurePeriods(d, t)
+	local changed = false
+	local di = dayIndex(t)
+	if d.daily.p ~= di then
+		local avoid = {}
+		for _, e in ipairs(d.daily.list) do avoid[e.id] = true end     -- pas les mêmes qu'hier si possible
+		d.daily = { p = di, list = pick(Q.Daily or {}, Q.DailyPerDiff, avoid) }
+		changed = true
+	end
+	-- hebdo : nouvelles quêtes quand SES 7 jours sont écoulés ; la semaine suivante redémarre
+	-- à la prochaine ouverture de la fenêtre / au prochain coin gagné (startWeek)
+	if d.weekly.p == -1 or (d.weekly.s > 0 and t >= d.weekly.s + WEEK) then
+		local avoid = {}
+		for _, e in ipairs(d.weekly.list) do avoid[e.id] = true end
+		d.weekly = { p = 0, s = 0, list = pick(Q.Weekly or {}, Q.WeeklyPerDiff, avoid) }
+		changed = true
+	end
+	if d.rr.day ~= di then d.rr.day, d.rr.used = di, 0 changed = true end
+	if d.zone.day ~= di then d.zone.day, d.zone.got = di, 0 changed = true end
+	return changed
+end
+
+-- ⏱️ lance le décompte de 7 jours (fenêtre ouverte ou coins gagnés) s'il ne tourne pas déjà
+local function startWeek(d, t)
+	ensurePeriods(d, t)
+	if d.weekly.s > 0 then return false end
+	d.weekly.s = t
+	return true
+end
+
+local function entryDone(e)
+	local def = QDEF[e.id]
+	return def ~= nil and e.n >= goalOf(def)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📡 REMOTES
+-- ════════════════════════════════════════════════════════════════
+local folder = ReplicatedStorage:FindFirstChild("HalloweenEvent")
+if not folder then
+	folder = Instance.new("Folder")
+	folder.Name = "HalloweenEvent"
+	folder.Parent = ReplicatedStorage
+end
+local function ensure(name, class)
+	local r = folder:FindFirstChild(name)
+	if not r then r = Instance.new(class) r.Name = name r.Parent = folder end
+	return r
+end
+local StateRF  = ensure("State", "RemoteFunction")
+local ActionRE = ensure("Action", "RemoteEvent")
+local PushRE   = ensure("Push", "RemoteEvent")
+ensure("Open", "BindableEvent")          -- côté client : ReplicatedStorage.HalloweenEvent.Open:Fire() ouvre la fenêtre
+
+local function push(player, kind, data)
+	if player.Parent then PushRE:FireClient(player, kind, data) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎁 RÉCOMPENSES (même chemin que le noob : anti-cheat prévenu, rien en double)
+-- ════════════════════════════════════════════════════════════════
+local function pointsReady(uid)
+	if _G.dataLoading and _G.dataLoading[uid] then return false end
+	if _G.recentReloads and _G.recentReloads[uid] then return false end
+	if type(_G.isAllSecondaryLoaded) == "function" and not _G.isAllSecondaryLoaded(uid) then return false end
+	local tj = _G.tempsJoueurs
+	return type(tj) == "table" and type(tj[uid]) == "table"
+end
+
+-- 💎 points normaux (copie du chemin de ton giveQuestReward, comme le noob)
+local function givePoints(player, amount, tag, capState)
+	local uid = player.UserId
+	amount = math.floor(tonumber(amount) or 0)
+	if amount <= 0 then return 0 end
+	if capState then
+		local room = POINTS_CAP - (capState.pts or 0)
+		if room <= 0 then warn(("🛡️ [HalloweenEvent] plafond de points atteint pour %s"):format(player.Name)) return 0 end
+		amount = math.min(amount, room)
+	end
+	if not pointsReady(uid) then
+		warn(("⏳ [HalloweenEvent] points pas prêts pour %s, versement annulé"):format(player.Name))
+		return 0
+	end
+	local tj = _G.tempsJoueurs
+	if _G.SmartAntiCheat and _G.SmartAntiCheat.ExpectGain then
+		pcall(_G.SmartAntiCheat.ExpectGain, uid, amount, "HalloweenEvent_" .. tostring(tag))
+	end
+	if capState then capState.pts = (capState.pts or 0) + amount end
+	local cap = ServerScriptService:FindFirstChild("CapBridge")
+	if cap then
+		pcall(function() require(cap).recordGain(uid, amount) end)    -- ton AbsoluteCapProtection est prévenu (comme la roue)
+	end
+	tj[uid].future = tj[uid].future + amount
+	local ls = player:FindFirstChild("leaderstats")
+	local stat = ls and ls:FindFirstChild("Points")
+	if stat then
+		local total = tj[uid].base + tj[uid].future
+		local final = total
+		if type(_G.applyAllBonuses) == "function" and type(_G.calculatePoints) == "function" then
+			final = _G.applyAllBonuses(_G.calculatePoints(total), player)
+		end
+		stat.Value = final
+		player:SetAttribute("Points", stat.Value)
+		local sac = _G.SmartAntiCheat and _G.SmartAntiCheat.playerData and _G.SmartAntiCheat.playerData[uid]
+		if sac then
+			sac.lastKnownPoints = stat.Value
+			sac.lastCheckTime = os.time()
+			if sac.validationWindow then sac.validationWindow.expectedGains = {} end
+		end
+	end
+	task.spawn(function()
+		if _G.SmartAntiCheat and _G.SmartAntiCheat.RecordGain then
+			pcall(_G.SmartAntiCheat.RecordGain, player, amount, "HalloweenEvent_" .. tostring(tag))
+		end
+		if type(_G.secureSave) == "function" then
+			pcall(_G.secureSave, uid, tj[uid].base + tj[uid].future)
+		end
+	end)
+	log(("💎 %s → +%d points (%s)"):format(player.Name, amount, tostring(tag)))
+	return amount
+end
+
+-- 🎡 spins : ton DailySpin_Server → _G.GiveDailySpins(userId, nombre, purchaseId)
+--    Le « reçu » (halloween_<id>_<palier>_<part>) est toujours le même pour une récompense donnée :
+--    ta roue le garde (spinPurchases), donc un nouvel essai ne redonne JAMAIS les spins.
+--    false (sauvegarde de la roue occupée / pas chargée) → réessayé plus tard par le pass.
+local function giveSpins(player, n, receiptKey)
+	if type(_G.GiveDailySpins) ~= "function" then
+		warn("⚠️ [HalloweenEvent] _G.GiveDailySpins introuvable : spins réessayés plus tard")
+		return false
+	end
+	local ok, res = pcall(_G.GiveDailySpins, player.UserId, math.floor(n), tostring(receiptKey))
+	if not ok then warn("⚠️ [HalloweenEvent] GiveDailySpins : " .. tostring(res)) return false end
+	return res == true
+end
+
+-- ⚡ boost temporaire : _G.TempBoosts.add(player, mult, durée, source) → ok, err (comme ta roue)
+local function giveBoost(player, mult, duration)
+	local tb = _G.TempBoosts
+	if type(tb) ~= "table" or type(tb.add) ~= "function" then
+		warn("⚠️ [HalloweenEvent] _G.TempBoosts.add introuvable : boost réessayé plus tard")
+		return false
+	end
+	local ok, added, err = pcall(tb.add, player, mult, duration, "HalloweenEvent")
+	if not ok or not added then
+		warn("⚠️ [HalloweenEvent] TempBoosts.add : " .. tostring(ok and err or added))
+		return false
+	end
+	return true
+end
+
+-- 🧰 tool à vie (SEC10 : non lâchable, détruit s'il quitte son propriétaire)
+local function toolTemplate(name)
+	local f = ServerStorage:FindFirstChild("HalloweenEventTools")
+	local t = (f and f:FindFirstChild(name)) or ServerStorage:FindFirstChild(name)
+	return (t and t:IsA("Tool")) and t or nil
+end
+
+local function giveTool(player, name)
+	local tpl = toolTemplate(name)
+	if not tpl then warn(("❌ [HalloweenEvent] Tool « %s » introuvable (ServerStorage ▸ HalloweenEventTools)"):format(tostring(name))) return false end
+	local bp = player:FindFirstChildOfClass("Backpack")
+	if not bp then return false end
+	if bp:FindFirstChild(name) or (player.Character and player.Character:FindFirstChild(name)) then return true end
+	local tool = tpl:Clone()
+	tool.CanBeDropped = false
+	tool:SetAttribute("HalloweenOwner", player.UserId)
+	tool.AncestryChanged:Connect(function(_, parent)
+		if not parent then return end
+		local holder = (parent:IsA("Backpack") and parent.Parent) or Players:GetPlayerFromCharacter(parent)
+		if holder ~= player then task.defer(function() if tool.Parent then tool:Destroy() end end) end
+	end)
+	tool.Parent = bp
+	return true
+end
+
+local function toolsOf(r, out)
+	if type(r) ~= "table" then return out end
+	if r.Kind == "tool" and type(r.Tool) == "string" then table.insert(out, r.Tool) end
+	if r.Kind == "multi" then for _, s in ipairs(r.List or {}) do toolsOf(s, out) end end
+	return out
+end
+
+-- remet tous les tools des paliers achetés (au spawn ; jamais en arène : giveGuns vide le sac)
+local function refreshTools(player)
+	local st = pd(player.UserId)
+	if not st then return end
+	if _G.PlayersInArena and _G.PlayersInArena[player.UserId] then return end
+	for _, t in ipairs(TIERS) do
+		if st.d.tiers[t.Id] then
+			for _, name in ipairs(toolsOf(t.Reward, {})) do giveTool(player, name) end
+		end
+	end
+end
+
+-- 🎃 la faux de Jack (une seule par joueur, à vie ; JackScytheService est idempotent)
+local function scytheService()
+	local f = ServerScriptService:FindFirstChild("JackScythe")
+	local m = f and f:FindFirstChild("JackScytheService")
+	if not m then return nil end
+	local ok, svc = pcall(require, m)
+	return ok and svc or nil
+end
+
+local function giveScythe(player)
+	local svc = scytheService()
+	if not svc then warn("❌ [HalloweenEvent] JackScytheService introuvable : la faux sera donnée dès qu'il sera là") return nil end
+	-- palier DÉJÀ PAYÉ : la faux est due même si le stock s'est épuisé entre-temps (ignoreStock)
+	local serial, gold = svc.Grant(player, { ignoreStock = true })
+	return serial, gold
+end
+
+-- 📦 STOCK LIMITÉ DE FAUX (HALLOWEEN_EVENT_CONFIG ▸ Scythe.Stock)
+--    Le numéro est RÉSERVÉ (JackScytheService.Reserve, atomique) AVANT de faire payer le joueur :
+--    plus de stock → l'achat est refusé et rien n'est débité. Paiement raté → la réservation reste à lui.
+local SCY = C.Scythe or {}
+local SCY_STOCK = (tonumber(SCY.Stock) or 0) > 0 and math.floor(tonumber(SCY.Stock)) or nil
+local scytheLeft = nil          -- faux restantes (dernière lecture ; nil = illimité ou pas encore lu)
+local scytheStockOn = false     -- true quand JackScytheService gère le stock (version à jour)
+
+local function rewardHasScythe(r)
+	if type(r) ~= "table" then return false end
+	if r.Kind == "scythe" then return true end
+	if r.Kind == "multi" then
+		for _, x in ipairs(r.List or {}) do if rewardHasScythe(x) then return true end end
+	end
+	return false
+end
+local function tierHasScythe(tier) return tier ~= nil and rewardHasScythe(tier.Reward) end
+
+-- a déjà sa faux (ou un numéro réservé, ou dev) → le stock ne le concerne pas
+local function scytheMine(uid)
+	local svc = scytheService()
+	if not svc then return false end
+	if svc.IsDev and svc.IsDev(uid) then return true end
+	if svc.Owner and svc.Owner(uid) ~= nil then return true end
+	if svc.IsReserved and svc.IsReserved(uid) then return true end
+	return false
+end
+local function scytheSoldOutFor(uid)
+	return scytheStockOn and scytheLeft == 0 and not scytheMine(uid)
+end
+
+-- réserve le numéro AVANT le paiement → true | false, message, épuisé?
+local function reserveScythe(player)
+	local svc = scytheService()
+	if not svc then return false, "Try again in a moment." end
+	if type(svc.Reserve) ~= "function" then return true end           -- ancien JackScytheService : pas de stock
+	local serial, why = svc.Reserve(player)
+	if serial ~= nil then return true end
+	if why == "soldout" then
+		scytheLeft = 0
+		return false, (SCY.SoldOutText or "Jack's Scythe is sold out!"), true
+	end
+	return false, "Try again in a moment."
+end
+
+-- une récompense = une liste de « parts » (multi → ses éléments)
+local function partsOf(r, out)
+	out = out or {}
+	if type(r) ~= "table" then return out end
+	if r.Kind == "multi" then
+		for _, x in ipairs(r.List or {}) do partsOf(x, out) end
+	else
+		table.insert(out, r)
+	end
+	return out
+end
+
+-- verse UNE part ; renvoie ok (false = à réessayer plus tard), ce qui a été donné
+local function grantPart(player, r, tag)
+	local st = pd(player.UserId)
+	if r.Kind == "points" then
+		if not pointsReady(player.UserId) then return false end
+		local n = givePoints(player, r.Amount, tag, st and st.d)
+		return true, n > 0 and { Kind = "points", Amount = n } or nil
+	elseif r.Kind == "spins" then
+		if not giveSpins(player, r.Amount or 1, tag) then return false end
+		return true, { Kind = "spins", Amount = r.Amount or 1 }
+	elseif r.Kind == "boost" then
+		if not giveBoost(player, r.Mult or 2, r.Duration or 900) then return false end
+		return true, { Kind = "boost", Mult = r.Mult, Duration = r.Duration }
+	elseif r.Kind == "tool" then
+		-- le tool vient des paliers achetés : il est (re)donné à chaque réapparition
+		if not toolTemplate(r.Tool) then return false end
+		if not (_G.PlayersInArena and _G.PlayersInArena[player.UserId]) then giveTool(player, r.Tool) end
+		return true, { Kind = "tool", Tool = r.Tool }
+	elseif r.Kind == "scythe" then
+		local serial, gold = giveScythe(player)
+		if serial == nil then return false end
+		return true, { Kind = "scythe", Serial = serial, Gold = gold == true }
+	end
+	return true
+end
+
+local function markPending(d, tier)
+	local n = #partsOf(tier.Reward)
+	if n == 0 then return end
+	local p = {}
+	for k = 1, n do p[tostring(k)] = true end
+	d.pend[tier.Id] = p
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 👁️ VUE ENVOYÉE AU CLIENT (seulement ce qui le concerne)
+-- ════════════════════════════════════════════════════════════════
+local function jackSummary(player)
+	if not (C.Jack and C.Jack.ShowInQuests) then return nil end
+	if type(_G.JackQuestSummary) ~= "function" then return nil end
+	local ok, res = pcall(_G.JackQuestSummary, player)
+	return ok and res or nil
+end
+
+local function freeRerollsLeft(d)
+	return math.max(0, (Q.FreeRerollsPerDay or 0) - (d.rr.used or 0))
+end
+
+local function nextTier(d)
+	for i, t in ipairs(TIERS) do
+		if not d.tiers[t.Id] then return i end
+	end
+	return nil
+end
+
+local function buildView(player)
+	local uid = player.UserId
+	if not allowed(uid) or not visibleFor(uid) then return { hidden = true } end
+	local st = pd(uid)
+	if not st then return { loading = true, start = START, finish = FINISH, now = now() } end
+	local t = now()
+	if ensurePeriods(st.d, t) then touch(st) end
+	local d = st.d
+	local function list(w)
+		local out = {}
+		for i, e in ipairs(d[w].list) do
+			out[i] = { id = e.id, n = e.n, c = e.c == true }
+		end
+		return out
+	end
+	local owned = {}
+	for i, tier in ipairs(TIERS) do owned[i] = d.tiers[tier.Id] ~= nil end
+	return {
+		now = t, start = START, finish = FINISH, active = activeFor(uid, t), realActive = active(t),
+		tester = isTester(uid) or nil,
+		testFree = (isTester(uid) and TM.FreePurchases ~= false) or nil,       -- achats Robux gratuits possibles (voir freeBuy)
+		testAllFree = (isTester(uid) and freeBuy(uid, 1)) or nil,              -- … même pour les produits déjà créés
+		coins = d.coins, owned = owned, nextTier = nextTier(d),
+		daily = { ends = dayEnds(t), list = list("daily") },
+		weekly = { ends = weekEnds(d, t), started = d.weekly.s > 0, list = list("weekly") },
+		free = freeRerollsLeft(d), credits = d.rr.credits or 0,
+		zone = { got = d.zone.got, cap = Z.DailyCap or 0 },
+		jack = jackSummary(player),
+		frozen = st.frozen == true,
+		scythe = (scytheStockOn and SCY.ShowStock ~= false) and { stock = SCY_STOCK, left = scytheLeft, mine = scytheMine(uid) or nil } or nil,
+		hint = d.hint == true or nil,
+	}
+end
+
+local viewDue = {}
+local function pushView(player, immediate)
+	local uid = player.UserId
+	if immediate then
+		viewDue[uid] = nil
+		push(player, "view", buildView(player))
+		return
+	end
+	if viewDue[uid] then return end
+	viewDue[uid] = true
+	task.delay(0.4, function()
+		if viewDue[uid] and player.Parent then
+			viewDue[uid] = nil
+			push(player, "view", buildView(player))
+		end
+	end)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📈 PROGRESSION (un événement fait avancer les quêtes de ce type, daily ET hebdo)
+-- ════════════════════════════════════════════════════════════════
+local settledOk  -- fwd
+
+local function progress(player, kind, amount)
+	local uid = player.UserId
+	local st = pd(uid)
+	if not st or st.frozen or not settledOk(uid) or not activeFor(uid) then return end
+	local d = st.d
+	if ensurePeriods(d, now()) then touch(st) end
+	local changed, finished = false, nil
+	for _, w in ipairs({ "daily", "weekly" }) do
+		for _, e in ipairs(d[w].list) do
+			local def = QDEF[e.id]
+			if def and not e.c and def.Kind == kind then
+				local goal = goalOf(def)
+				if e.n < goal then
+					e.n = math.min(goal, e.n + amount)
+					changed = true
+					if e.n >= goal then finished = finished or {} table.insert(finished, def) end
+				end
+			end
+		end
+	end
+	if changed then
+		touch(st)
+		pushView(player)
+		for _, def in ipairs(finished or {}) do
+			push(player, "toast", { Kind = "quest", Text = def.Text, Goal = def.Goal, Reward = def.Reward })
+		end
+	end
+end
+
+-- série cassée (mort) : les quêtes « sans mourir » / « série de kills » pas encore finies repartent à 0
+local function breakStreaks(player)
+	local st = pd(player.UserId)
+	if not st or st.frozen then return end
+	local changed = false
+	for _, w in ipairs({ "daily", "weekly" }) do
+		for _, e in ipairs(st.d[w].list) do
+			local def = QDEF[e.id]
+			if def and not e.c and (def.Kind == "nodeath" or def.Kind == "killstreak") and e.n > 0 and e.n < goalOf(def) then
+				e.n = 0
+				changed = true
+			end
+		end
+	end
+	if changed then touch(st) pushView(player) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🛡️ ANTI-TÉLÉPORT + DISTANCE PARCOURUE (SEC7)
+-- ════════════════════════════════════════════════════════════════
+local MAX_SPEED = R.MaxTravelSpeed or 140
+local motion = {}          -- [uid] = { pos, t, warpUntil, travel }
+local lastPick = {}        -- [uid] = { pos, t }
+
+local function flat(v) return Vector3.new(v.X, 0, v.Z) end
+local function warped(uid)
+	local m = motion[uid]
+	return m ~= nil and os.clock() < (m.warpUntil or 0)
+end
+
+-- téléport fait PAR LE SERVEUR (respawn sur ton checkpoint, sortie d'arène…) : ce n'est pas de la triche,
+-- on ne le compte ni comme téléport ni comme distance parcourue (appelé par le système de checkpoints)
+-- 🔒 pendant la grâce, SEULS l'endroit de départ et la destination choisie par le serveur sont acceptés :
+--    un vrai téléport de triche juste après un respawn est toujours détecté.
+local TP_GRACE = 1.5
+local TP_NEAR = 15
+local function markServerTeleport(player, targetCF)
+	local m = player and motion[player.UserId]
+	if not m then return end
+	m.tpGrace = os.clock() + TP_GRACE
+	if typeof(targetCF) == "CFrame" then
+		m.tpTo, m.tpFrom = targetCF.Position, m.pos
+	else
+		m.tpTo, m.tpFrom, m.pos = nil, nil, nil      -- destination inconnue : on repart d'un relevé neuf
+	end
+end
+-- position attendue pendant un téléport serveur ?
+local function nearServerTp(m, pos)
+	if os.clock() >= (m.tpGrace or 0) then return false end
+	if not m.tpTo then return true end
+	return (pos - m.tpTo).Magnitude <= TP_NEAR or (m.tpFrom ~= nil and (pos - m.tpFrom).Magnitude <= TP_NEAR)
+end
+
+local function sampleMotion(pl, t)
+	local m = motion[pl.UserId]
+	local ch = pl.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	if not (m and hrp) then return end
+	if nearServerTp(m, hrp.Position) then
+		m.pos, m.t = hrp.Position, t                 -- la position peut encore « sauter » le temps que le client suive
+		return
+	end
+	local dist = 0
+	if m.pos then
+		local dt = math.max(t - m.t, 0.05)
+		dist = (flat(hrp.Position) - flat(m.pos)).Magnitude
+		if dist > 8 and dist / dt > MAX_SPEED then
+			m.warpUntil = t + 4
+			dist = 0
+		else
+			m.travel = (m.travel or 0) + math.min(dist, 6)
+		end
+	end
+	m.pos, m.t = hrp.Position, t
+	m.samples = (m.samples or 0) + 1
+	-- « bouge » = le joueur appuie pour avancer (MoveDirection) OU il s'est vraiment déplacé (≥ 2 studs/s).
+	-- ⚠️ MoveDirection n'est pas fiable côté serveur (souvent 0 selon le client / le mobile) : seul,
+	--    il bloquait le temps de jeu de beaucoup de joueurs. Le vrai déplacement suffit aussi.
+	local hum = ch:FindFirstChildOfClass("Humanoid")
+	local md = hum and hum.MoveDirection
+	if md == nil or md.Magnitude > 0.1 or dist > 0.4 then m.moving = (m.moving or 0) + 1 end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(0.2)
+		local t = os.clock()
+		for _, pl in ipairs(Players:GetPlayers()) do
+			-- une erreur sur UN joueur ne doit jamais arrêter la boucle pour tout le serveur
+			local ok, err = pcall(sampleMotion, pl, t)
+			if not ok then warn("⚠️ [HalloweenEvent] mouvement : " .. tostring(err)) end
+		end
+	end
+end)
+
+local function reachable(player, pos, maxDist)
+	local uid = player.UserId
+	local ch = player.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+	if not hrp or not hum or hum.Health <= 0 then return false end
+	if warped(uid) then return false end
+	local m = motion[uid]
+	if m and m.pos and m.t and not nearServerTp(m, hrp.Position) then                     -- saut depuis le dernier relevé (0,2 s) : téléport → refusé
+		local dt = math.max(os.clock() - m.t, 0.05)
+		local dist = (flat(hrp.Position) - flat(m.pos)).Magnitude
+		if dist > 8 and dist / dt > MAX_SPEED then m.warpUntil = os.clock() + 4 return false end
+	end
+	if (hrp.Position - pos).Magnitude > maxDist then return false end
+	local lp = lastPick[uid]
+	if lp and os.clock() - lp.t < (flat(pos) - flat(lp.pos)).Magnitude / MAX_SPEED then return false end
+	return true
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🚦 ANTI-SPAM (SEC9)
+-- ════════════════════════════════════════════════════════════════
+local buckets = {}
+local function bucketOk(uid, tag, perSec, burst)
+	local k = uid .. "_" .. tag
+	local b = buckets[k]
+	local t = os.clock()
+	if not b then b = { n = burst, t = t } buckets[k] = b end
+	b.n = math.min(burst, b.n + (t - b.t) * perSec)
+	b.t = t
+	if b.n < 1 then return false end
+	b.n -= 1
+	return true
+end
+
+local function refuse(player, tag, msg)
+	log("⛔", player.Name, tag)
+	if _G.AntiExploit and _G.AntiExploit.NoteBlockedClaim then
+		pcall(_G.AntiExploit.NoteBlockedClaim, player, "Halloween_" .. tostring(tag))
+	end
+	if msg then push(player, "toast", { Kind = "error", Text = msg }) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔐 OPÉRATION CRITIQUE : on modifie, on ÉCRIT, et seulement ensuite on donne (SEC3)
+-- ════════════════════════════════════════════════════════════════
+--  fn(d) vérifie tout AVANT de toucher à quoi que ce soit (sinon return false), puis modifie et
+--  renvoie true, undo (une fonction qui défait exactement ses changements). Si l'écriture échoue,
+--  seul undo est joué : les coins ramassés ou les quêtes avancées pendant l'écriture restent.
+local function commit(player, fn)
+	local st = pd(player.UserId)
+	if not st or st.frozen or st.busy then return false, "busy" end
+	st.busy = true
+	local ok, res, undo = pcall(fn, st.d)
+	if not ok or res == false then
+		st.busy = false
+		if not ok then warn("❌ [HalloweenEvent] " .. tostring(res)) end
+		return false, "refused"
+	end
+	touch(st)
+	if not save(player.UserId) then
+		if type(undo) == "function" then
+			local okU, errU = pcall(undo, st.d)
+			if not okU then warn("❌ [HalloweenEvent] annulation : " .. tostring(errU)) end
+		end
+		touch(st)
+		st.busy = false
+		return false, "store"
+	end
+	st.busy = false
+	return true, res
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🏆 PALIERS
+-- ════════════════════════════════════════════════════════════════
+--  announce = { [indexDuPalier] = true } : paliers qui viennent d'être achetés (écran « TIER UNLOCKED! »)
+local function deliverPending(player, announce)
+	local st = pd(player.UserId)
+	if not st or st.frozen or st.delivering then return end
+	st.delivering = true
+	local d = st.d
+	local any, late = false, false
+	for i, tier in ipairs(TIERS) do
+		local pend = d.pend[tier.Id]
+		if pend then
+			local given = {}
+			for k, part in ipairs(partsOf(tier.Reward)) do
+				if pend[tostring(k)] then
+					local ok, g = grantPart(player, part, ("halloween_%d_%s_%d"):format(player.UserId, tier.Id, k))
+					if ok then
+						pend[tostring(k)] = nil
+						if g then table.insert(given, g) end
+						any = true
+					end
+				end
+			end
+			if next(pend) == nil then d.pend[tier.Id] = nil end
+			if announce and announce[i] then
+				push(player, "reward", { Tier = i, Given = given })
+				log(("🏆 %s débloque le palier %d (%s)"):format(player.Name, i, tier.Name or tier.Id))
+			elseif #given > 0 then
+				late = true
+			end
+		end
+	end
+	st.delivering = false
+	if any then
+		touch(st)
+		task.spawn(save, player.UserId)              -- les parts versées sont rayées tout de suite
+	end
+	if late then push(player, "toast", { Kind = "info", Text = "Your Halloween rewards have been delivered!" }) end
+	pushView(player, true)
+end
+
+local function actionBuy(player, index)
+	local st = pd(player.UserId)
+	if not activeFor(player.UserId) then return refuse(player, "buy_closed", "The event is not running.") end
+	local i = nextTier(st.d)
+	if not i or i ~= index then return refuse(player, "buy_order") end
+	local tier = TIERS[i]
+	if st.d.coins < tier.Cost then return refuse(player, "buy_poor", "Not enough Halloween Coins!") end
+	-- des points à verser mais ton système de points n'est pas prêt (chargement) : on attend, rien n'est perdu
+	if pointsIn(tier.Reward) > 0 and not pointsReady(player.UserId) then return refuse(player, "buy_points", "Try again in a moment.") end
+	local scy = tierHasScythe(tier)
+	if scy and scytheSoldOutFor(player.UserId) then
+		return refuse(player, "buy_soldout", SCY.SoldOutText or "Jack's Scythe is sold out!")
+	end
+	local refuseMsg
+	local ok = commit(player, function(d)
+		if nextTier(d) ~= i or d.coins < tier.Cost then return false end
+		-- 📦 la faux : numéro réservé AVANT de débiter (épuisé → rien n'est débité)
+		if scy then
+			local okR, msg = reserveScythe(player)
+			if not okR then refuseMsg = msg return false end
+		end
+		d.coins -= tier.Cost
+		d.tiers[tier.Id] = now()
+		markPending(d, tier)
+		return true, function(dd)
+			dd.coins += tier.Cost
+			dd.tiers[tier.Id] = nil
+			dd.pend[tier.Id] = nil
+		end
+	end)
+	if not ok then
+		if refuseMsg and scytheLeft == 0 then pushView(player, true) end
+		return refuse(player, "buy_store", refuseMsg or "Try again in a moment.")
+	end
+	deliverPending(player, { [i] = true })
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📜 QUÊTES : réclamer / changer
+-- ════════════════════════════════════════════════════════════════
+local function entryAt(d, which, idx, qid)
+	if which ~= "daily" and which ~= "weekly" then return nil end
+	local e = d[which].list[tonumber(idx) or 0]
+	if not e or e.id ~= qid then return nil end
+	return e
+end
+
+local function actionClaim(player, which, idx, qid)
+	local st = pd(player.UserId)
+	if not activeFor(player.UserId) then return refuse(player, "claim_closed", "The event is not running.") end
+	if ensurePeriods(st.d, now()) then touch(st) pushView(player, true) end
+	local e = entryAt(st.d, which, idx, qid)
+	if not e or e.c or not entryDone(e) then return refuse(player, "claim_bad") end
+	local reward = math.floor(QDEF[e.id].Reward or 0)
+	local ok = commit(player, function(d)
+		local e2 = entryAt(d, which, idx, qid)
+		if not e2 or e2.c or not entryDone(e2) then return false end
+		e2.c = true
+		local before = d.coins
+		d.coins = math.min((C.Coin and C.Coin.MaxBalance) or 1e6, d.coins + reward)
+		local added = d.coins - before
+		d.earned += added
+		startWeek(d, now())
+		return true, function(dd)
+			local e3 = entryAt(dd, which, idx, qid)
+			if e3 then e3.c = false end
+			dd.coins -= added
+			dd.earned -= added
+		end
+	end)
+	if not ok then return refuse(player, "claim_store", "Try again in a moment.") end
+	push(player, "claimed", { Which = which, Index = idx, Amount = reward })
+	pushView(player, true)
+	log(("📜 %s réclame %s (+%d coins)"):format(player.Name, qid, reward))
+end
+
+-- 🔄 NOUVELLES QUÊTES : toute la SECTION (daily ou weekly) est renouvelée d'un coup.
+--    Refusé tant qu'une quête finie de la section n'est pas réclamée (sa récompense ne se perd jamais).
+--    renvoie true | false, raison
+local function sectionClaimPending(d, which)
+	for _, e in ipairs(d[which].list) do
+		if not e.c and entryDone(e) then return true end
+	end
+	return false
+end
+
+local function doRefresh(d, which, useCredit)
+	if which ~= "daily" and which ~= "weekly" then return false, "bad" end
+	if sectionClaimPending(d, which) then return false, "claim" end
+	local pool = which == "daily" and (Q.Daily or {}) or (Q.Weekly or {})
+	local per = which == "daily" and Q.DailyPerDiff or Q.WeeklyPerDiff
+	local avoid = {}
+	for _, e in ipairs(d[which].list) do avoid[e.id] = true end
+	local list = pick(pool, per, avoid)
+	local fresh = false
+	for _, e in ipairs(list) do if not avoid[e.id] then fresh = true end end
+	if #list == 0 or not fresh then return false, "bad" end          -- aucune autre quête possible : rien n'est consommé
+	if useCredit then
+		if (d.rr.credits or 0) < 1 then return false, "pay" end
+		d.rr.credits -= 1
+	else
+		if freeRerollsLeft(d) < 1 then return false, "pay" end
+		d.rr.used += 1
+	end
+	d[which].list = list
+	return true
+end
+
+local function actionReroll(player, which)
+	local st = pd(player.UserId)
+	if not activeFor(player.UserId) then return refuse(player, "reroll_closed") end
+	if which ~= "daily" and which ~= "weekly" then return refuse(player, "reroll_bad") end
+	if ensurePeriods(st.d, now()) then touch(st) end
+	local d = st.d
+	if sectionClaimPending(d, which) then return refuse(player, "reroll_claim", "Claim your finished quests first!") end
+	local useCredit
+	if freeRerollsLeft(d) > 0 then useCredit = false
+	elseif (d.rr.credits or 0) > 0 then useCredit = true
+	else
+		push(player, "needRobux", { Kind = "reroll", Which = which })
+		return
+	end
+	local ok = commit(player, function(dd)
+		local old = deep(dd[which].list)
+		local used, credits = dd.rr.used, dd.rr.credits
+		if not doRefresh(dd, which, useCredit) then return false end
+		return true, function(d3)
+			d3[which].list = old
+			d3.rr.used, d3.rr.credits = used, credits
+		end
+	end)
+	if not ok then return refuse(player, "reroll_bad", "Try again in a moment.") end
+	push(player, "rerolled", { Which = which })
+	pushView(player, true)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 💸 ROBUX (le prompt part d'ici ; le reçu revient par _G.HalloweenEventReceipt)
+-- ════════════════════════════════════════════════════════════════
+local rerollTarget = {}    -- [uid] = { which } : la section à renouveler quand le reçu arrive
+
+local function skippable(d, uid)
+	local n = 0
+	local blocked = uid ~= nil and scytheSoldOutFor(uid)
+	for i, t in ipairs(TIERS) do
+		if not d.tiers[t.Id] then
+			if blocked and tierHasScythe(t) then break end          -- faux épuisée : on ne peut pas sauter au-delà
+			if C.Robux.SkipCanBuyFinal ~= false or i < #TIERS then n += 1 end
+		end
+	end
+	return n
+end
+
+-- applique un produit (vrai reçu Robux, ou achat simulé d'un testeur : isTest = true → pas noté dans rc)
+--  renvoie true si c'est fait (ou déjà fait), false = à réessayer plus tard
+local function applyProduct(player, prod, pid, isTest)
+	local uid = player.UserId
+	local st = pd(uid)
+	if not st or st.frozen or not settledOk(uid) then return false end
+	if not isTest and table.find(st.d.rc, pid) then return true end              -- SEC11 : déjà appliqué
+	if prod.kind == "skip" and not pointsReady(uid) then return false end         -- les paliers peuvent verser des points
+	local t0 = os.clock()
+	while st.busy and os.clock() - t0 < 15 do task.wait(0.2) end
+	if st.busy then return false end
+	-- 📦 le skip arrive jusqu'à la faux ? → numéro réservé d'abord (épuisé : on s'arrête avant, le reste est remboursé en coins)
+	local scyOk = true
+	if prod.kind == "skip" then
+		local reach, k = false, 0
+		for i, t in ipairs(TIERS) do
+			if not st.d.tiers[t.Id] and k < prod.count then
+				k += 1
+				if tierHasScythe(t) and (C.Robux.SkipCanBuyFinal ~= false or i < #TIERS) then reach = true end
+			end
+		end
+		if reach then
+			local okR, _, soldOut = reserveScythe(player)
+			if not okR and not soldOut then return false end              -- panne : le reçu sera rejoué plus tard
+			scyOk = okR
+		end
+		if st.busy then return false end
+	end
+	local newTiers, rerolled = {}, nil
+	local ok = commit(player, function(d)
+		if not isTest and table.find(d.rc, pid) then return true end
+		newTiers, rerolled = {}, nil
+		local trimmed = {}
+		if not isTest then
+			table.insert(d.rc, pid)
+			while #d.rc > 60 do table.insert(trimmed, table.remove(d.rc, 1)) end
+		end
+		local coinsAdded, oldEntry, credits0, used0 = 0, nil, d.rr.credits or 0, d.rr.used
+		if prod.kind == "skip" then
+			for _ = 1, prod.count do
+				local i = nextTier(d)
+				if i and (C.Robux.SkipCanBuyFinal ~= false or i < #TIERS) and (scyOk or not tierHasScythe(TIERS[i])) then
+					d.tiers[TIERS[i].Id] = now()
+					markPending(d, TIERS[i])
+					table.insert(newTiers, i)
+				elseif C.Robux.SkipCanBuyFinal ~= false then
+					-- plus aucun palier (tous achetés entre-temps) : remboursé en coins
+					local before = d.coins
+					d.coins = math.min((C.Coin and C.Coin.MaxBalance) or 1e6, d.coins + 1000)
+					coinsAdded += d.coins - before
+				else
+					warn(("⚠️ [HalloweenEvent] %s : skip en trop (seule la faux reste, SkipCanBuyFinal = false)"):format(player.Name))
+				end
+			end
+		elseif prod.kind == "reroll" then
+			d.rr.credits = credits0 + 1
+			local tg = rerollTarget[uid]
+			if tg and d[tg[1]] then
+				oldEntry = deep(d[tg[1]].list)
+				if doRefresh(d, tg[1], true) then rerolled = tg end
+			end
+		end
+		return true, function(dd)
+			if not isTest then
+				local at = table.find(dd.rc, pid)
+				if at then table.remove(dd.rc, at) end
+				for k = #trimmed, 1, -1 do table.insert(dd.rc, 1, trimmed[k]) end
+			end
+			for _, i in ipairs(newTiers) do dd.tiers[TIERS[i].Id] = nil dd.pend[TIERS[i].Id] = nil end
+			dd.coins -= coinsAdded
+			dd.rr.credits, dd.rr.used = credits0, used0
+			if rerolled and oldEntry then dd[rerolled[1]].list = oldEntry end
+			newTiers, rerolled = {}, nil
+		end
+	end)
+	if not ok then return false end
+	rerollTarget[uid] = nil
+	log(("💸 %s : %s %s (%s) appliqué"):format(player.Name, isTest and "achat TEST" or "reçu", pid, prod.kind))
+	if #newTiers > 0 then
+		local ann = {}
+		for _, i in ipairs(newTiers) do ann[i] = true end
+		task.spawn(deliverPending, player, ann)
+	end
+	if rerolled then push(player, "rerolled", { Which = rerolled[1] }) end
+	pushView(player, true)
+	return true
+end
+
+local function testPid() return "test_" .. HttpService:GenerateGUID(false) end
+
+local function actionSkip(player, count)
+	local uid = player.UserId
+	local st = pd(uid)
+	if not activeFor(uid) then return refuse(player, "skip_closed", "The event is not running.") end
+	local prod
+	for _, s in ipairs(C.Robux.SkipTier or {}) do
+		if s.Count == count and ((tonumber(s.ProductId) or 0) > 0 or freeBuy(uid, s.ProductId)) then prod = s end
+	end
+	if not prod then return refuse(player, "skip_product") end
+	if skippable(st.d, uid) < count then
+		if scytheSoldOutFor(uid) then return refuse(player, "skip_soldout", SCY.SoldOutText or "Jack's Scythe is sold out!") end
+		return refuse(player, "skip_many", "Not that many tiers left!")
+	end
+	if freeBuy(uid, prod.ProductId) then
+		-- 🧪 testeur : pas de vrais Robux, mais EXACTEMENT le chemin du vrai reçu (sauvegarde puis récompenses)
+		if not applyProduct(player, { kind = "skip", count = prod.Count }, testPid(), true) then
+			refuse(player, "skip_test", "Try again in a moment.")
+		end
+		return
+	end
+	MarketplaceService:PromptProductPurchase(player, prod.ProductId)
+end
+
+local function actionRerollBuy(player, which)
+	local uid = player.UserId
+	local st = pd(uid)
+	local pidOk = RR ~= nil and (tonumber(RR.ProductId) or 0) > 0
+	local free = RR ~= nil and freeBuy(uid, RR.ProductId)
+	if not activeFor(uid) or not (pidOk or free) then return refuse(player, "rerollbuy_off") end
+	if which ~= "daily" and which ~= "weekly" then return refuse(player, "rerollbuy_bad") end
+	if sectionClaimPending(st.d, which) then return refuse(player, "rerollbuy_claim", "Claim your finished quests first!") end
+	rerollTarget[uid] = { which }
+	if free then
+		if not applyProduct(player, { kind = "reroll" }, testPid(), true) then refuse(player, "reroll_test", "Try again in a moment.") end
+		return
+	end
+	MarketplaceService:PromptProductPurchase(player, RR.ProductId)
+end
+
+-- appelé par TON ProcessReceiptHandler (bloc fourni) ; nil = pas un produit de l'event
+local function processReceipt(info)
+	local prod = PRODUCTS[info.ProductId]
+	if not prod then return nil end
+	local NOT_YET, GRANTED = Enum.ProductPurchaseDecision.NotProcessedYet, Enum.ProductPurchaseDecision.PurchaseGranted
+	local player = Players:GetPlayerByUserId(info.PlayerId)
+	if not player then return NOT_YET end
+	local uid = player.UserId
+	-- un achat rejoué arrive souvent juste à la connexion : on attend que la sauvegarde soit chargée et posée
+	local tw = os.clock()
+	while player.Parent and not settledOk(uid) and os.clock() - tw < 90 do task.wait(0.5) end
+	if applyProduct(player, prod, tostring(info.PurchaseId), false) then return GRANTED end
+	return NOT_YET
+end
+_G.HalloweenEventReceipt = processReceipt
+_G.HalloweenEventProducts = PRODUCTS
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎃 ZONES DE COINS (chaque joueur a les siennes ; le serveur garde la vraie position)
+-- ════════════════════════════════════════════════════════════════
+local zoneParts = {}
+local function scanZones()
+	table.clear(zoneParts)
+	local f = workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones")
+	if not f then return end
+	for _, d in ipairs(f:GetDescendants()) do
+		if d:IsA("BasePart") then table.insert(zoneParts, d) end
+	end
+end
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+pcall(function() rayParams.RespectCanCollide = true end)
+
+local function randomSpot()
+	if #zoneParts == 0 then return nil end
+	local total = 0
+	for _, p in ipairs(zoneParts) do total += p.Size.X * p.Size.Z end
+	local r = rng:NextNumber() * total
+	local part = zoneParts[#zoneParts]
+	for _, p in ipairs(zoneParts) do
+		r -= p.Size.X * p.Size.Z
+		if r <= 0 then part = p break end
+	end
+	local s = part.Size
+	local lx, lz = (rng:NextNumber() - 0.5) * s.X * 0.9, (rng:NextNumber() - 0.5) * s.Z * 0.9
+	local top = part.CFrame:PointToWorldSpace(Vector3.new(lx, s.Y / 2, lz))
+	local ignore = { workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones") }
+	for _, pl in ipairs(Players:GetPlayers()) do if pl.Character then table.insert(ignore, pl.Character) end end
+	rayParams.FilterDescendantsInstances = ignore
+	local hit = workspace:Raycast(top, Vector3.new(0, -(s.Y + 40), 0), rayParams)
+	if not hit then return nil end
+	return hit.Position + Vector3.new(0, Z.HoverHeight or 2.4, 0)
+end
+
+-- 🗺️ Mode « AroundPlayer » (grande zone qui couvre toute la map) : les coins apparaissent AUTOUR DE TOI,
+--    au sol (s'il y en a), seulement là où une Part de zone couvre l'endroit (vu de haut).
+--    → même nombre de coins visibles que la zone soit petite ou immense.
+local AROUND = Z.Mode == "AroundPlayer"
+local function inZone(pos)
+	for _, p in ipairs(zoneParts) do
+		if p.Parent then
+			local l = p.CFrame:PointToObjectSpace(pos)
+			if math.abs(l.X) <= p.Size.X / 2 and math.abs(l.Z) <= p.Size.Z / 2 then return true end
+		end
+	end
+	return false
+end
+local function spotNear(player)
+	if #zoneParts == 0 then return nil end
+	local ch = player.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	if not hrp then return nil end
+	local me = hrp.Position
+	local rMin = math.max(4, tonumber(Z.NearMin) or 12)
+	local rMax = math.max(rMin + 4, tonumber(Z.NearMax) or 60)
+	local ignore = { workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones") }
+	for _, pl in ipairs(Players:GetPlayers()) do if pl.Character then table.insert(ignore, pl.Character) end end
+	rayParams.FilterDescendantsInstances = ignore
+	for _ = 1, 14 do
+		local a = rng:NextNumber() * math.pi * 2
+		local d = rMin + rng:NextNumber() * (rMax - rMin)
+		local x, z = me.X + math.cos(a) * d, me.Z + math.sin(a) * d
+		if inZone(Vector3.new(x, me.Y, z)) then
+			-- le sol sous ce point, pas trop loin de ta hauteur (pas sur un toit lointain, pas au fond du vide)
+			local hit = workspace:Raycast(Vector3.new(x, me.Y + 10, z), Vector3.new(0, -70, 0), rayParams)
+			if hit and hit.Material ~= Enum.Material.Water and hit.Position.Y > me.Y - 40 then
+				return hit.Position + Vector3.new(0, Z.HoverHeight or 2.4, 0)
+			end
+		end
+	end
+	return nil
+end
+
+local coinSeq = 0
+local function coinsOf(st)
+	st.coins = st.coins or { list = {}, n = 0, nextT = os.clock() + 2 }
+	return st.coins
+end
+
+local function clearCoins(player, st)
+	local cs = coinsOf(st)
+	if cs.n == 0 then return end
+	table.clear(cs.list)
+	cs.n = 0
+	push(player, "coinClear", {})
+end
+
+task.spawn(function()
+	scanZones()
+	local f = workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones")
+	if f then
+		f.DescendantAdded:Connect(function() task.defer(scanZones) end)
+		f.DescendantRemoving:Connect(function() task.defer(scanZones) end)
+	end
+	while true do
+		task.wait(1)
+		if #zoneParts == 0 then
+			local f2 = workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones")
+			if f2 then scanZones() end
+		end
+		local t = os.clock()
+		for _, pl in ipairs(Players:GetPlayers()) do
+			local open = activeFor(pl.UserId)
+			local st = pd(pl.UserId)
+			if st and st.settled and not st.frozen then
+				ensurePeriods(st.d, now())
+				local cs = coinsOf(st)
+				local capped = st.d.zone.got >= (Z.DailyCap or 0)
+				if not open or capped then
+					clearCoins(pl, st)
+				else
+					-- (AroundPlayer) les coins restés trop loin de toi disparaissent : de nouveaux apparaissent près de toi
+					if AROUND then
+						local ch = pl.Character
+						local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+						local far = tonumber(Z.DespawnDistance) or 160
+						if hrp then
+							for id, c in pairs(cs.list) do
+								if (c.pos - hrp.Position).Magnitude > far then
+									cs.list[id] = nil
+									cs.n -= 1
+									push(pl, "coinNo", { Id = id, Gone = true })
+								end
+							end
+						end
+					end
+				end
+				if open and not capped and cs.n < (Z.MaxAlive or 6) and t >= cs.nextT then
+					local pos = AROUND and spotNear(pl) or (not AROUND and randomSpot()) or nil
+					local rs = Z.RespawnEvery or { 8, 16 }
+					cs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)     -- pas de sol ici : on réessaie vite
+					if pos then
+						coinSeq += 1
+						local id = ("%x%04x"):format(coinSeq, rng:NextInteger(0, 0xffff))
+						cs.list[id] = { pos = pos }
+						cs.n += 1
+						push(pl, "coinAdd", { Id = id, P = { pos.X, pos.Y, pos.Z } })
+					end
+				end
+			end
+		end
+	end
+end)
+
+local function actionPick(player, id)
+	local uid = player.UserId
+	local st = pd(uid)
+	if type(id) ~= "string" or #id > 16 then return end
+	local cs = coinsOf(st)
+	local c = cs.list[id]
+	if not c then return push(player, "coinNo", { Id = id, Gone = true }) end
+	local cap = Z.DailyCap or 0
+	if not activeFor(uid) or st.d.zone.got >= cap then
+		cs.list[id] = nil
+		cs.n -= 1
+		return push(player, "coinNo", { Id = id, Gone = true })
+	end
+	if not reachable(player, c.pos, Z.PickupRadius or 9) then
+		refuse(player, "coin_far")
+		return push(player, "coinNo", { Id = id })
+	end
+	cs.list[id] = nil
+	cs.n -= 1
+	local d = st.d
+	local value = math.min(Z.ValuePerCoin or 5, cap - d.zone.got)
+	d.zone.got += value
+	d.coins = math.min((C.Coin and C.Coin.MaxBalance) or 1e6, d.coins + value)
+	d.earned += value
+	startWeek(d, now())
+	lastPick[uid] = { pos = c.pos, t = os.clock() }
+	touch(st)
+	push(player, "coinOk", { Id = id, Add = value, Total = d.coins, Got = d.zone.got, Cap = cap })
+	progress(player, "coins", 1)
+	if d.zone.got >= cap then clearCoins(player, st) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🧪 OUTILS TESTEUR (barre « TESTER » sous la fenêtre) — refusé à tout autre joueur
+-- ════════════════════════════════════════════════════════════════
+local function actionTest(player, what)
+	local uid = player.UserId
+	if not isTester(uid) or TM.Tools == false then return refuse(player, "test_denied") end
+	local st = pd(uid)
+	if what == "coins" then
+		st.d.coins = math.min((C.Coin and C.Coin.MaxBalance) or 1e6, st.d.coins + 1000)
+		touch(st)
+		push(player, "coinOk", { Add = 1000, Total = st.d.coins })
+	elseif what == "finish" then
+		ensurePeriods(st.d, now())
+		for _, w in ipairs({ "daily", "weekly" }) do
+			for _, e in ipairs(st.d[w].list) do if QDEF[e.id] and not e.c then e.n = goalOf(QDEF[e.id]) end end
+		end
+		touch(st)
+	elseif what == "reset" then
+		-- tout repart de zéro SAUF les reçus Robux déjà appliqués (SEC11 : un vrai achat ne se rejoue jamais)
+		local keepRc = st.d.rc
+		st.d = blank()
+		st.d.rc = keepRc
+		st.d.ms = st.lastStage or 0
+		ensurePeriods(st.d, now())
+		touch(st)
+		clearCoins(player, st)
+		push(player, "toast", { Kind = "info", Text = "Test: your Halloween Pass was reset." })
+	else
+		return
+	end
+	task.spawn(save, uid)
+	log(("🧪 %s : outil testeur « %s »"):format(player.Name, tostring(what)))
+	pushView(player, true)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📥 ACTIONS DU CLIENT
+-- ════════════════════════════════════════════════════════════════
+ActionRE.OnServerEvent:Connect(function(player, action, a, b, c)
+	local uid = player.UserId
+	if not allowed(uid) or type(action) ~= "string" then return end
+	local st = pd(uid)
+	if not st or not st.settled or st.frozen then return end
+	if action == "pick" then
+		if not bucketOk(uid, "pick", 4, 8) then return end
+		return actionPick(player, a)
+	end
+	if not bucketOk(uid, "act", 3, 6) then return end
+	if _G.AntiExploit and _G.AntiExploit.CheckRemoteCall then
+		local ok, res = pcall(_G.AntiExploit.CheckRemoteCall, player, "HalloweenEvent")
+		if ok and res == false then return end
+	end
+	if st.busy then return end
+	if action == "buy" then actionBuy(player, tonumber(a))
+	elseif action == "claim" then actionClaim(player, a, b, c)
+	elseif action == "reroll" then actionReroll(player, a)
+	elseif action == "rerollBuy" then actionRerollBuy(player, a)
+	elseif action == "skip" then actionSkip(player, tonumber(a))
+	elseif action == "test" then actionTest(player, a)
+	elseif action == "seen" then
+		-- la petite flèche « la faux est au bout » : vue une fois, plus jamais affichée (aucun effet sur le jeu)
+		if not st.d.hint then st.d.hint = true touch(st) end
+	end
+end)
+
+local lastState = {}
+StateRF.OnServerInvoke = function(player, reason)
+	local uid = player.UserId
+	-- 📜 QuestSystem : la quête « Va voir Jack et son Halloween Shop » se valide quand la fenêtre est OUVERTE
+	if reason == "open" and allowed(uid) and visibleFor(uid) and _G.QuestHub and type(_G.QuestHub.Event) == "function" then
+		task.spawn(pcall, _G.QuestHub.Event, player, "HalloweenOpen", 1)
+	end
+	-- ⏱️ première ouverture de la fenêtre : la semaine du joueur commence
+	local st = pd(uid)
+	if reason == "open" and st and not st.frozen and allowed(uid) and activeFor(uid) and startWeek(st.d, now()) then touch(st) end
+	local t = os.clock()
+	if lastState[uid] and t - lastState[uid] < 0.4 then return nil end
+	lastState[uid] = t
+	return buildView(player)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔎 DÉTECTIONS (automatiques)
+-- ════════════════════════════════════════════════════════════════
+settledOk = function(uid)
+	local st = P[uid]
+	return st ~= nil and st.d ~= nil and st.settled == true
+end
+
+-- ⚔️ kills (tag « creator » posé par ton WeaponServer) — SEC8
+local function onKill(killer, victim)
+	if not killer or killer == victim or not killer.Parent then return end
+	if not allowed(killer.UserId) then return end
+	if victim.AccountAge < (R.KillMinAccountAge or 7) then return end
+	local st = pd(killer.UserId)
+	if not st or not st.settled or st.frozen or not activeFor(killer.UserId) then return end
+	local today = dayIndex(now())
+	local kv = st.d.kv
+	if kv.day ~= today then kv.day, kv.v = today, {} end
+	local key_ = tostring(victim.UserId)
+	local n = (kv.v[key_] or 0) + 1
+	if n > (R.SameVictimMax or 3) then return end
+	kv.v[key_] = n
+	touch(st)
+	progress(killer, "kills", 1)
+	progress(killer, "killstreak", 1)
+end
+
+local function watchCharacter(player, char)
+	local hum = char:WaitForChild("Humanoid", 8)
+	if not hum then return end
+	hum.Died:Connect(function()
+		breakStreaks(player)                         -- toute mort casse les séries
+		local tag = hum:FindFirstChild("creator")
+		local killer = tag and tag.Value
+		if typeof(killer) == "Instance" and killer:IsA("Player") then onKill(killer, player) end
+	end)
+end
+
+-- 🧗 checkpoints — SEC4 / SEC5
+--  Le système de checkpoints prévient DIRECTEMENT ce script (_G.HalloweenEvent.OnCheckpoint) :
+--    "touch" = checkpoint vraiment touché · "skip" = skip Robux · "load" = Stage chargé · "reset" = rebirth
+--  (ancien système de checkpoints sans _G.CheckpointHooks → on devine depuis leaderstats ▸ Stage)
+--  « Nouveau » checkpoint = plus haut que d.ms (le plus haut déjà compté depuis le dernier rebirth).
+--  Un checkpoint refusé (téléport, trop rapide) n'est PAS « brûlé » : il pourra encore compter.
+
+-- rebirth : l'obby repart de 0 (sinon plus rien ne compte jusqu'à dépasser ton ancien record)
+local function resetObby(st)
+	if st.d then st.d.ms = 0 touch(st) else st.pendReset = true end
+end
+
+local function countCheckpoint(player, st, num, prev)
+	local d = st.d
+	if not st.settled or not d then return end       -- au « posé », ms est recalé sur ton Stage
+	if num <= (d.ms or 0) then return end            -- déjà fait (retour en arrière, sélecteur d'étape)
+	if prev ~= num - 1 then                          -- saut de plusieurs étapes (chargement, admin…) : pas une montée
+		d.ms = num
+		touch(st)
+		return
+	end
+	if warped(player.UserId) then return end         -- téléport qui ne vient pas du serveur
+	local t = os.clock()
+	if st.stageT and t - st.stageT < (R.CheckpointMinGap or 0.8) then return end
+	st.stageT = t
+	d.ms = num
+	touch(st)
+	progress(player, "checkpoints", 1)
+	progress(player, "nodeath", 1)
+end
+
+local function onCheckpoint(player, num, how, prev)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then return end
+	num = tonumber(num)
+	if not num then return end
+	local st = P[player.UserId]
+	if not st then return end
+	if how == "reset" then return resetObby(st) end
+	if how == "touch" then return countCheckpoint(player, st, num, tonumber(prev)) end
+	if how == "far" then return end                  -- touché de loin (exploit « firetouchinterest ») : jamais compté
+	-- "skip" / "load" : la position avance sans montée → ces checkpoints ne compteront pas
+	if st.d and st.settled and num > (st.d.ms or 0) then
+		st.d.ms = num
+		touch(st)
+	end
+end
+
+-- secours : ancien système de checkpoints (ne prévient pas) → on regarde leaderstats ▸ Stage
+local function watchStage(player)
+	task.spawn(function()
+		local ls = player:WaitForChild("leaderstats", 60)
+		local stg = ls and ls:WaitForChild("Stage", 60)
+		if not stg then return end
+		local uid = player.UserId
+		local st = P[uid]
+		if not st then return end
+		st.lastStage = tonumber(stg.Value) or 0
+		stg.Changed:Connect(function()
+			local s2 = P[uid]
+			if not s2 then return end
+			local cur = tonumber(stg.Value) or 0
+			local prev = s2.lastStage or cur
+			s2.lastStage = cur
+			if _G.CheckpointHooks then return end         -- le système de checkpoints nous prévient lui-même
+			countCheckpoint(player, s2, cur, prev)
+		end)
+	end)
+end
+
+-- 🔄 rebirth : +1 exact après le chargement — SEC6
+--    lu sur l'attribut RebirthCount ET sur leaderstats ▸ Rebirths (le plus grand des deux, jamais compté 2 fois)
+local function watchRebirth(player)
+	local uid = player.UserId
+	local function read()
+		local a = tonumber(player:GetAttribute("RebirthCount")) or 0
+		local ls = player:FindFirstChild("leaderstats")
+		local v = ls and ls:FindFirstChild("Rebirths")
+		return math.max(a, (v and tonumber(v.Value)) or 0)
+	end
+	local last = read()
+	local function changed()
+		local cur = read()
+		local st = P[uid]
+		if st and st.settled and cur == last + 1 then
+			progress(player, "rebirth", 1)
+			resetObby(st)
+		end
+		last = cur
+	end
+	player:GetAttributeChangedSignal("RebirthCount"):Connect(changed)
+	task.spawn(function()
+		local ls = player:WaitForChild("leaderstats", 60)
+		local v = ls and ls:WaitForChild("Rebirths", 60)
+		if not v then return end
+		if not (P[uid] and P[uid].settled) then last = read() end   -- valeur chargée = pas un rebirth
+		v.Changed:Connect(changed)
+	end)
+	return function() last = read() end                             -- remise à niveau au « posé »
+end
+
+-- 🏆 manche gagnée : +1 exact après le chargement — SEC6
+local function watchCounter(player, attr, kind)
+	local uid = player.UserId
+	local last = tonumber(player:GetAttribute(attr)) or 0
+	player:GetAttributeChangedSignal(attr):Connect(function()
+		local cur = tonumber(player:GetAttribute(attr)) or 0
+		local st = P[uid]
+		if st and st.settled and cur == last + 1 then
+			progress(player, kind, 1)
+		end
+		last = cur
+	end)
+	return function() last = tonumber(player:GetAttribute(attr)) or 0 end      -- remise à niveau au « posé »
+end
+
+-- ⏱️ temps de jeu ACTIF (il faut bouger)
+local function tickPlaytime(pl, tick)
+	local m = motion[pl.UserId]
+	local st = pd(pl.UserId)
+	if not (m and st and st.settled) then return end
+	-- actif = assez de distance ET le joueur bouge vraiment une bonne partie du temps
+	local moved = (m.travel or 0) >= (R.ActiveMoveStuds or 6)
+		and (m.moving or 0) >= (m.samples or 0) * (R.ActiveInputShare or 0.3)
+	m.travel, m.moving, m.samples = 0, 0, 0
+	if moved then
+		progress(pl, "playtime", tick)
+		if pl:GetAttribute("InArena") == true then progress(pl, "arenatime", tick) end
+	end
+end
+
+task.spawn(function()
+	local tick = R.PlaytimeTick or 15
+	while true do
+		task.wait(tick)
+		for _, pl in ipairs(Players:GetPlayers()) do
+			-- une erreur sur UN joueur ne doit jamais arrêter le temps de jeu de tout le serveur
+			local ok, err = pcall(tickPlaytime, pl, tick)
+			if not ok then warn("⚠️ [HalloweenEvent] temps de jeu : " .. tostring(err)) end
+		end
+	end
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 🗺️ PANNEAUX : un ProximityPrompt sur chaque Part du dossier HalloweenEventBoards
+-- ════════════════════════════════════════════════════════════════
+local function addPrompt(inst)
+	if not visible() and not (TM.IgnoreDates ~= false and #(C.TestUserIds or {}) > 0) then return end
+	local part = inst
+	if inst:IsA("Model") then part = inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true) end
+	if not (part and part:IsA("BasePart")) or part:FindFirstChild("HalloweenEventPrompt") then return end
+	local pc = C.Prompt or {}
+	local p = Instance.new("ProximityPrompt")
+	p.Name = "HalloweenEventPrompt"
+	p.ActionText = pc.ActionText or "Open"
+	p.ObjectText = pc.ObjectText or "Halloween Event"
+	p.HoldDuration = pc.HoldDuration or 0
+	p.MaxActivationDistance = pc.MaxDistance or 12
+	p.RequiresLineOfSight = false
+	p.Parent = part
+end
+task.spawn(function()
+	local f = workspace:WaitForChild((C.Prompt and C.Prompt.Folder) or "HalloweenEventBoards", 30)
+	if not f then return end
+	for _, ch in ipairs(f:GetChildren()) do addPrompt(ch) end
+	f.ChildAdded:Connect(function(ch) task.wait(0.5) addPrompt(ch) end)
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 👤 CYCLE DE VIE
+-- ════════════════════════════════════════════════════════════════
+local leaving = {}
+
+local function onPlayer(player)
+	local uid = player.UserId
+	if not allowed(uid) then return end
+	while leaving[uid] do task.wait(0.2) end
+	P[uid] = { ver = 0, savedVer = 0 }
+	motion[uid] = { travel = 0 }
+	local syncWins, syncReb
+	watchStage(player)
+	syncReb = watchRebirth(player)
+	syncWins = watchCounter(player, "ArenaWins", "roundwin")
+	if player.Character then task.spawn(watchCharacter, player, player.Character) end
+	player.CharacterAdded:Connect(function(char)
+		local m = motion[uid]
+		if m then m.pos = nil end                    -- le respawn n'est pas une téléportation
+		task.spawn(watchCharacter, player, char)
+		task.delay(2, function() if player.Parent then refreshTools(player) end end)
+	end)
+	player:GetAttributeChangedSignal("InArena"):Connect(function()
+		if player:GetAttribute("InArena") then return end
+		task.delay(1, function() if player.Parent then refreshTools(player) end end)
+	end)
+
+	-- SEC1 : chargement (on réessaie tant que le DataStore ne répond pas)
+	task.spawn(function()
+		local d
+		while player.Parent and not d do
+			d = load(uid)
+			if not d then task.wait(10) end
+		end
+		if not player.Parent or not d then
+			if d then storeUpdate(key(uid), function(old)          -- parti pendant le chargement : on rend le verrou
+					if type(old) == "table" and type(old.lock) == "table" and old.lock.job == JOB then old.lock = nil return old end
+					return nil
+				end) end
+			return
+		end
+		local st = P[uid]
+		if not st then return end
+		-- une série « sans mourir » ou « de kills » ne survit pas à une déconnexion
+		for _, w in ipairs({ "daily", "weekly" }) do
+			for _, e in ipairs(d[w].list) do
+				local def = QDEF[e.id]
+				if def and not e.c and (def.Kind == "nodeath" or def.Kind == "killstreak") and e.n < goalOf(def) then e.n = 0 end
+			end
+		end
+		st.d = d
+		if st.pendReset then d.ms = 0 st.pendReset = nil touch(st) end     -- rebirth fait pendant le chargement
+		if ensurePeriods(d, now()) then touch(st) end
+		log("💾 sauvegarde chargée pour", player.Name, "coins =", d.coins)
+		if visibleFor(uid) then player:SetAttribute("HalloweenPass", true) end      -- Jack propose alors d'ouvrir la fenêtre
+		pushView(player, true)
+
+		-- SEC4 : « posé » = tes points chargés + quelques secondes (Stage / Rebirth / Wins à leur vraie valeur)
+		local t0 = os.clock()
+		while player.Parent and not pointsReady(uid) and os.clock() - t0 < 120 do task.wait(0.5) end
+		task.wait(R.SettleDelay or 3)
+		if not player.Parent or P[uid] ~= st then return end
+		local ls = player:FindFirstChild("leaderstats")
+		local stg = ls and ls:FindFirstChild("Stage")
+		if stg then st.lastStage = tonumber(stg.Value) or 0 end
+		if (d.msv or 0) < 2 then
+			-- 🔧 ancien bug : le rebirth n'était pas vu (pas d'attribut RebirthCount) → ms restait au record
+			--    d'AVANT le rebirth et plus aucun checkpoint ne comptait. Recalé UNE fois sur ton Stage actuel.
+			d.ms = st.lastStage or 0
+			d.msv = 2
+			touch(st)
+		else
+			d.ms = math.max(d.ms or 0, st.lastStage or 0)
+		end
+		syncReb()
+		syncWins()
+		st.settled = true
+		refreshTools(player)
+		if next(d.pend) then task.spawn(deliverPending, player) end      -- récompenses pas encore versées (panne, départ…)
+		-- 🎃 palier de la faux acheté mais faux pas encore reçue (panne au mauvais moment) : on la redonne
+		for _, tier in ipairs(TIERS) do
+			if tier.Reward and tier.Reward.Kind == "scythe" and d.tiers[tier.Id] then
+				task.spawn(giveScythe, player)
+			end
+		end
+		pushView(player, true)
+		log("✅ données posées pour", player.Name)
+	end)
+end
+
+Players.PlayerAdded:Connect(onPlayer)
+for _, p in ipairs(Players:GetPlayers()) do task.spawn(onPlayer, p) end
+
+Players.PlayerRemoving:Connect(function(player)
+	local uid = player.UserId
+	local st = P[uid]
+	if not st then return end
+	leaving[uid] = true
+	local t0 = os.clock()
+	while st.busy and os.clock() - t0 < 15 do task.wait(0.2) end   -- un achat en cours finit d'abord
+	if st.d then
+		-- dernière sauvegarde : retentée (DataStore saturé au reset des serveurs), sauf si un autre serveur a la main
+		for attempt = 1, 5 do
+			if save(uid, true) or st.frozen then break end
+			task.wait(math.min(2 * attempt, 6) + math.random())
+		end
+	end
+	P[uid], motion[uid], lastPick[uid], rerollTarget[uid], viewDue[uid], lastState[uid] = nil, nil, nil, nil, nil, nil
+	for k in pairs(buckets) do if k:match("^" .. uid .. "_") then buckets[k] = nil end end
+	leaving[uid] = nil
+end)
+
+-- 💾 sauvegarde régulière (et le verrou reste frais)
+task.spawn(function()
+	while true do
+		task.wait(30)
+		for uid, st in pairs(P) do
+			local pl = Players:GetPlayerByUserId(uid)
+			if st.d and not st.frozen and not st.busy and pl
+				and (st.ver ~= st.savedVer or os.clock() - (st.lastSave or 0) > 90) then
+				save(uid)
+			end
+			if pl and st.d and st.settled and not st.busy and next(st.d.pend) then task.spawn(deliverPending, pl) end
+		end
+	end
+end)
+
+game:BindToClose(function()
+	local n = 0
+	for uid, st in pairs(P) do
+		if st.d then
+			n += 1
+			task.spawn(function()
+				local t1 = os.clock()
+				while st.busy and os.clock() - t1 < 10 do task.wait(0.2) end
+				for attempt = 1, 4 do
+					if save(uid, true) or st.frozen then break end
+					task.wait(1 + math.random())
+				end
+				n -= 1
+			end)
+		end
+	end
+	local t0 = os.clock()
+	while n > 0 and os.clock() - t0 < 25 do task.wait(0.2) end
+end)
+
+-- 🎃 APERÇU DE LA FAUX pour la fenêtre (page « Jack's Scythe ») : une copie VISUELLE seulement
+--    (Model, pas un Tool : aucun script, aucun son, rien d'utilisable) → ReplicatedStorage ▸ HalloweenEventAssets ▸ ScythePreview
+task.spawn(function()
+	local store = ServerStorage:WaitForChild("JackScythe", 60)
+	local tool = store and (store:FindFirstChild("JackScythe_Normal") or store:WaitForChild("JackScythe_Normal", 10))
+	if not tool then return end
+	local assets = ReplicatedStorage:FindFirstChild("HalloweenEventAssets")
+	if not assets then
+		assets = Instance.new("Folder")
+		assets.Name = "HalloweenEventAssets"
+		assets.Parent = ReplicatedStorage
+	end
+	if assets:FindFirstChild("ScythePreview") then return end
+	local ok, err = pcall(function()
+		local m = Instance.new("Model")
+		m.Name = "ScythePreview"
+		for _, c in ipairs(tool:GetChildren()) do c:Clone().Parent = m end
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("LuaSourceContainer") or d:IsA("Sound") then d:Destroy() end
+		end
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("TextLabel") and (d.Name == "Serial" or d.Name == "SerialShine") then d.Text = "#???" end
+		end
+		m.PrimaryPart = m:FindFirstChild("Handle")
+		m:SetAttribute("GripC0", tool:GetAttribute("GripC0"))
+		m:SetAttribute("GripC1", tool:GetAttribute("GripC1"))
+		m.Parent = assets
+	end)
+	if not ok then warn("⚠️ [HalloweenEvent] aperçu de la faux : " .. tostring(err)) end
+end)
+
+-- 📦 stock de faux : réglé dans JackScytheService + relu toutes les 30 s pour l'afficher
+task.spawn(function()
+	local warned = false
+	while true do
+		local svc = scytheService()
+		if svc and type(svc.SetStock) == "function" and type(svc.Remaining) == "function" then
+			if SCY_STOCK then svc.SetStock(SCY_STOCK) end
+			scytheStockOn = svc.Stock and svc.Stock() ~= nil or false
+			local ok, left = pcall(svc.Remaining, 25)
+			if ok and left ~= scytheLeft then
+				scytheLeft = left
+				for _, pl in ipairs(Players:GetPlayers()) do
+					if pd(pl.UserId) then pushView(pl) end
+				end
+			end
+		elseif svc and SCY_STOCK and not warned then
+			warned = true
+			warn("⚠️ [HalloweenEvent] stock de faux réglé, mais ton JackScytheService est l'ancien : remplace-le (sinon stock illimité)")
+		end
+		task.wait(30)
+	end
+end)
+
+-- ════════════════════════════════════════════════════════════════
+-- 🌐 API (pour Jack et tes scripts)
+-- ════════════════════════════════════════════════════════════════
+_G.HalloweenEvent = {
+	IsActive = function() return active() end,
+	-- 🎃 coins d'une quête de Jack (appelé par JackQuest_Server) : une seule fois par étape, à vie
+	JackCoins = function(player, stepId, amount)
+		amount = math.floor(tonumber(amount) or 0)
+		if amount <= 0 or type(stepId) ~= "string" or not allowed(player.UserId) then return 0 end
+		local t0 = os.clock()
+		while player.Parent and not pd(player.UserId) and os.clock() - t0 < 30 do task.wait(0.5) end
+		local st = pd(player.UserId)
+		if not st or st.frozen then return 0 end
+		local t1 = os.clock()
+		while st.busy and os.clock() - t1 < 15 do task.wait(0.2) end
+		if st.d.jack[stepId] then return 0 end
+		st.d.jack[stepId] = amount
+		st.d.coins = math.min((C.Coin and C.Coin.MaxBalance) or 1e6, st.d.coins + amount)
+		st.d.earned += amount
+		startWeek(st.d, now())
+		touch(st)
+		task.spawn(save, player.UserId)              -- même si l'écriture échoue : gardé en mémoire, réessayé à la sauvegarde suivante
+		push(player, "coinOk", { Add = amount, Total = st.d.coins, Jack = true })
+		pushView(player)
+		log(("🎃 %s : +%d coins (quête de Jack « %s »)"):format(player.Name, amount, stepId))
+		return amount
+	end,
+	Coins = function(uid) local st = pd(uid) return st and st.d.coins or 0 end,
+	-- 🧗 appelé par le système de checkpoints : (player, numéro, "touch"|"skip"|"load"|"reset", numéro d'avant)
+	OnCheckpoint = onCheckpoint,
+	-- 🛬 appelé par _G.SafeTeleport : un téléport fait par le serveur n'est pas un téléport de triche
+	MarkTeleport = markServerTeleport,
+}
+
+-- 💎 Jack verse ses points par ce chemin si tu ne l'as pas déjà branché ailleurs
+if type(_G.JackGivePoints) ~= "function" then
+	_G.JackGivePoints = function(player, amount, receiptId) return givePoints(player, amount, receiptId) end
+end
+
+-- 🧪 Studio seulement (Command Bar en vue « Server »)
+--    _G.HalloweenCoins("TonPseudo", 5000)   → ajoute des coins
+--    _G.HalloweenFinishQuests("TonPseudo")  → toutes tes quêtes du jour/semaine terminées (à réclamer)
+--    _G.HalloweenReset("TonPseudo")         → tout remis à zéro (mémoire Studio)
+if RunService:IsStudio() then
+	local function find(name)
+		for _, p in ipairs(Players:GetPlayers()) do
+			if not name or p.Name == name or p.DisplayName == name then return p end
+		end
+	end
+	_G.HalloweenCoins = function(name, n)
+		local p = find(name) local st = p and pd(p.UserId)
+		if not st then return warn("[HalloweenEvent] joueur introuvable / pas chargé") end
+		st.d.coins += math.floor(tonumber(n) or 0)
+		touch(st) pushView(p, true)
+	end
+	_G.HalloweenFinishQuests = function(name)
+		local p = find(name) local st = p and pd(p.UserId)
+		if not st then return end
+		for _, w in ipairs({ "daily", "weekly" }) do
+			for _, e in ipairs(st.d[w].list) do if QDEF[e.id] then e.n = goalOf(QDEF[e.id]) end end
+		end
+		touch(st) pushView(p, true)
+	end
+	_G.HalloweenReset = function(name)
+		local p = find(name) local st = p and pd(p.UserId)
+		if not st then return end
+		st.d = blank()
+		ensurePeriods(st.d, now())
+		touch(st) pushView(p, true)
+	end
+end
+
+log(("✅ prêt — %s, %d paliers, %d quêtes, du %s au %s (UTC)"):format(HIDDEN and "TESTEURS SEULEMENT" or "ouvert à tous",
+	#TIERS, (#(Q.Daily or {}) + #(Q.Weekly or {})),
+	DateTime.fromUnixTimestamp(START):FormatUniversalTime("DD/MM HH:mm", "en-us"),
+	DateTime.fromUnixTimestamp(FINISH):FormatUniversalTime("DD/MM HH:mm", "en-us")))

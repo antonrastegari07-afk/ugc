@@ -1,0 +1,607 @@
+--[[
+	🎃 JackScytheService — numéros de série, propriétaires, livraison de la faux, validation du dash
+	📍 ServerScriptService ▸ JackScythe ▸ JackScytheService   (ModuleScript)
+	   Utilisé par JackScythe_Server (démarrage) ET par JackQuest_Server (fin de la chaîne de quêtes).
+
+	🔒 RÈGLES
+	  • Le numéro est réservé ATOMIQUEMENT (UpdateAsync sur un compteur), puis écrit UNE fois pour le joueur.
+	    Un joueur qui a déjà un numéro le garde à vie : jamais deux numéros, jamais deux faux.
+	  • Seul le serveur décide qui reçoit la faux (fin de chaîne vérifiée par JackQuest_Server).
+	  • Le client ne fait que DEMANDER un dash : le serveur vérifie la recharge, la faux équipée, le joueur vivant,
+	    puis ouvre une courte fenêtre « ScytheDashUntil » pour l'anti-cheat de vitesse.
+	  • Lecture DataStore ratée → on réessaie ; jamais de faux donnée « à l'aveugle ».
+	  • STOCK LIMITÉ (optionnel) : le compteur refuse d'aller au-delà du stock, dans la même opération atomique :
+	    impossible de dépasser, même avec plusieurs serveurs qui vendent en même temps.
+	  • RÉSERVATION (pass Halloween) : Reserve() met un numéro de côté pour le joueur AVANT qu'il paie ;
+	    Grant() le confirme APRÈS le paiement. Paiement raté → le numéro reste réservé pour lui
+	    (rien de perdu, rien de gratuit, aucun stock gaspillé).
+--]]
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage     = game:GetService("ServerStorage")
+local DataStoreService  = game:GetService("DataStoreService")
+local RunService        = game:GetService("RunService")
+
+local S = {}
+
+local RS = ReplicatedStorage:WaitForChild("JackScythe", 30)
+local Config = require(RS:WaitForChild("SCYTHE_CONFIG"))
+local D = Config.Dash or {}
+
+-- 🛠️ DEVS : faux DORÉE avec « DEV » à la place du numéro, donnée dès la connexion.
+--    Aucun numéro de série réservé, rien d'écrit dans le DataStore (vérifié par UserId, côté serveur).
+-- ⚠️ même liste que ton ADMIN PANEL (ajoute ici chaque nouveau dev)
+local ADMIN_IDS = { 3203521470, 11017023724, 8456613930, 8142402169, 10420404767 }
+local IS_DEV = {}
+for _, id in ipairs(ADMIN_IDS) do IS_DEV[id] = true end
+local DEV_REC = { serial = "DEV", gold = true, dev = true }
+
+local function log(...)
+	if Config.Debug then print("🎃 [Scythe]", ...) end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 💾 STOCKAGE
+-- ════════════════════════════════════════════════════════════════
+local STORE
+pcall(function() STORE = DataStoreService:GetDataStore("JackScythe_v1") end)
+local memory = {}
+local useMemory = RunService:IsStudio() and Config.StudioFreshStart ~= false
+if useMemory then
+	warn("🧪 [Scythe] Studio : numéros de série en mémoire (compteur séparé, remis à zéro à chaque Play)")
+end
+S._memory = memory
+
+local function get(key)
+	if useMemory then return true, memory[key] end
+	return pcall(function() return STORE:GetAsync(key) end)
+end
+local function update(key, fn)
+	if useMemory then
+		local v = fn(memory[key])
+		if v ~= nil then memory[key] = v end
+		return true, memory[key]
+	end
+	return pcall(function() return STORE:UpdateAsync(key, fn) end)
+end
+
+-- owners[uid] = { serial = n, gold = bool } | false (pas propriétaire) | nil (pas encore lu)
+local owners = {}
+local holds = {}            -- [uid] = { serial, gold } : numéro réservé (pass Halloween), pas encore payé
+local loading = {}
+local pending = {}          -- [uid] = os.clock() limite : livraison après la cinématique de Jack
+S._owners = owners
+
+local function validRecord(v)
+	return type(v) == "table" and type(v.serial) == "number" and v.serial >= 1 and v.serial == math.floor(v.serial)
+end
+
+function S.IsDev(uid) return IS_DEV[uid] == true end
+
+function S.Load(uid)
+	if owners[uid] ~= nil then return true end
+	if IS_DEV[uid] then owners[uid] = DEV_REC return true end      -- dev : pas de lecture, pas de numéro
+	if loading[uid] then
+		while loading[uid] do task.wait(0.1) end
+		return owners[uid] ~= nil
+	end
+	loading[uid] = true
+	local ok, v
+	for attempt = 1, 5 do
+		ok, v = get("owner_" .. uid)
+		if ok then break end
+		warn(("⚠️ [Scythe] lecture %d/5 ratée pour %d : %s"):format(attempt, uid, tostring(v)))
+		task.wait(math.min(1.5 * attempt, 5) + math.random())
+	end
+	loading[uid] = nil
+	if not ok then return false end
+	if validRecord(v) and v.hold == true then
+		owners[uid] = false
+		holds[uid] = { serial = v.serial, gold = v.gold == true }
+	else
+		owners[uid] = validRecord(v) and { serial = v.serial, gold = v.gold == true } or false
+	end
+	return true
+end
+
+function S.Owner(uid)
+	local o = owners[uid]
+	if o then return o.serial, o.gold end
+	return nil
+end
+
+function S.IsGold(serial)
+	return type(serial) == "number" and serial <= (Config.GoldCount or 0)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 📦 STOCK LIMITÉ (réglé par HALLOWEEN_EVENT_CONFIG ▸ Scythe.Stock → S.SetStock ; ou SCYTHE_CONFIG ▸ Stock)
+--    nil / 0 = illimité. Le stock compte TOUS les numéros déjà sortis (Jack + pass), pas les faux « DEV ».
+-- ════════════════════════════════════════════════════════════════
+local stockLimit = (tonumber(Config.Stock) or 0) > 0 and math.floor(tonumber(Config.Stock)) or nil
+function S.SetStock(n)
+	n = tonumber(n)
+	stockLimit = (n and n > 0) and math.floor(n) or nil
+end
+function S.Stock() return stockLimit end
+
+local issuedCache, issuedAt, issuedReading = nil, -1e9, false
+-- nombre de numéros déjà sortis (lecture mise en cache : maxAge secondes, 30 par défaut)
+function S.Issued(maxAge)
+	if useMemory then return tonumber(memory.counter) or 0 end
+	if issuedCache and os.clock() - issuedAt < (maxAge or 30) then return issuedCache end
+	if issuedReading then return issuedCache end
+	issuedReading = true
+	local ok, v = get("counter")
+	issuedReading = false
+	if ok then issuedCache, issuedAt = tonumber(v) or 0, os.clock() end
+	return issuedCache
+end
+-- faux restantes (nil = stock illimité ou compteur pas encore lu)
+function S.Remaining(maxAge)
+	if not stockLimit then return nil end
+	local n = S.Issued(maxAge)
+	if n == nil then return nil end
+	return math.max(0, stockLimit - n)
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🔢 NUMÉRO (idempotent : rappeler Grant / Reserve ne donne jamais un 2e numéro)
+-- ════════════════════════════════════════════════════════════════
+local granting = {}
+
+-- nouveau numéro (compteur atomique, stock vérifié DANS la même opération) puis écrit pour ce joueur.
+--  hold = true → seulement réservé (pas encore à lui). Renvoie rec | nil, "soldout" | nil, "error"
+--  ignoreStock = true → faux DÉJÀ PAYÉE (palier acheté) : elle est due, même si le stock est épuisé depuis
+local function allocate(player, hold, ignoreStock)
+	local uid = player.UserId
+	local n, soldOut
+	local okC, errC = update("counter", function(old)
+		local cur = tonumber(old) or 0
+		if stockLimit and cur >= stockLimit and not ignoreStock then
+			soldOut, n = true, nil
+			return nil                                        -- annule l'écriture : plus de stock
+		end
+		soldOut, n = false, cur + 1
+		return n
+	end)
+	if okC and soldOut then
+		issuedCache, issuedAt = math.max(issuedCache or 0, stockLimit or 0), os.clock()
+		return nil, "soldout"
+	end
+	if okC and tonumber(errC) then n = tonumber(errC) end      -- valeur réellement écrite
+	if not okC or not n then
+		warn("❌ [Scythe] compteur indisponible : " .. tostring(errC))
+		return nil, "error"
+	end
+	issuedCache, issuedAt = math.max(issuedCache or 0, n), os.clock()
+	-- on l'écrit pour CE joueur… sauf s'il en a déjà un (autre serveur) : alors on garde l'ancien
+	local final
+	local okO, errO = update("owner_" .. uid, function(old)
+		if validRecord(old) then final = old return nil end
+		final = { serial = n, gold = S.IsGold(n), t = os.time(), hold = hold or nil }
+		return final
+	end)
+	if not okO or not validRecord(final) then
+		warn("❌ [Scythe] écriture du propriétaire ratée (numéro " .. tostring(n) .. " perdu) : " .. tostring(errO))
+		return nil, "error"
+	end
+	return final
+end
+
+-- 🛒 RÉSERVER (pass Halloween, AVANT le paiement) → serial (réservé) | serial, "owned" ; nil, "soldout" | nil, "error"
+function S.Reserve(player)
+	if Config.Enabled == false then return nil, "error" end
+	local uid = player.UserId
+	if IS_DEV[uid] then return "DEV", "owned" end
+	while granting[uid] do task.wait(0.1) end
+	if not S.Load(uid) then return nil, "error" end
+	if owners[uid] then return owners[uid].serial, "owned" end
+	if holds[uid] then return holds[uid].serial end
+	granting[uid] = true
+	local rec, why = allocate(player, true)
+	granting[uid] = nil
+	if not rec then return nil, why end
+	if rec.hold then
+		holds[uid] = { serial = rec.serial, gold = rec.gold == true }
+		log(("🔒 numéro %d réservé pour %s"):format(rec.serial, player.Name))
+		return rec.serial
+	end
+	owners[uid] = { serial = rec.serial, gold = rec.gold == true }   -- il en avait déjà une (autre serveur)
+	return rec.serial, "owned"
+end
+
+function S.IsReserved(uid) return holds[uid] ~= nil end
+
+function S.Grant(player, opts)
+	opts = opts or {}
+	if Config.Enabled == false then return nil end
+	local uid = player.UserId
+	while granting[uid] do task.wait(0.1) end
+	if not S.Load(uid) then return nil end
+	if owners[uid] then
+		if not opts.defer then S.Deliver(player) end
+		return owners[uid].serial, owners[uid].gold
+	end
+	granting[uid] = true
+	local final
+	if holds[uid] then
+		-- ✅ numéro réservé (pass payé) : on le confirme, sans toucher au compteur ni au stock
+		local okH, errH = update("owner_" .. uid, function(old)
+			final = nil
+			if validRecord(old) then
+				final = old
+				if old.hold then old.hold = nil return old end
+			end
+			return nil
+		end)
+		if not okH then
+			granting[uid] = nil
+			warn("❌ [Scythe] confirmation de la réservation ratée : " .. tostring(errH))
+			return nil
+		end
+		if validRecord(final) then final.hold = nil end
+	end
+	if not validRecord(final) then
+		local rec, why = allocate(player, false, opts.ignoreStock == true)
+		if not rec then
+			granting[uid] = nil
+			return nil, why
+		end
+		final = rec
+	end
+	granting[uid] = nil
+	holds[uid] = nil
+	owners[uid] = { serial = final.serial, gold = final.gold == true }
+	log(("🏅 %s reçoit la faux %s (%s)"):format(player.Name, string.format(Config.SerialFormat or "#%d", final.serial),
+		final.gold and "DORÉE" or "normale"))
+	if opts.defer then
+		pending[uid] = os.clock() + (opts.deferMax or 45)
+		task.delay(opts.deferMax or 45, function()
+			if pending[uid] and player.Parent then pending[uid] = nil ; S.Deliver(player) end
+		end)
+	else
+		S.Deliver(player)
+	end
+	return final.serial, final.gold == true
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎁 LIVRAISON (sac + StarterGear : revient à chaque réapparition et à chaque connexion)
+-- ════════════════════════════════════════════════════════════════
+local TOOLS = ServerStorage:WaitForChild("JackScythe", 30)
+
+local function isScythe(t) return t and t:IsA("Tool") and t:GetAttribute("JackScythe") == true end
+
+-- ⚔️ en arène (PvP) : le système d'arène vide le sac → on ne donne rien, la faux est rendue à la sortie
+local function inArena(player)
+	if player:GetAttribute("InArena") == true then return true end
+	local pa = _G.PlayersInArena
+	return type(pa) == "table" and pa[player.UserId] ~= nil and pa[player.UserId] ~= false
+end
+S.InArena = inArena
+
+local function has(container)
+	if not container then return false end
+	for _, c in ipairs(container:GetChildren()) do if isScythe(c) then return true end end
+	return false
+end
+
+local function makeTool(rec)
+	local tpl = TOOLS and TOOLS:FindFirstChild(rec.gold and "JackScythe_Gold" or "JackScythe_Normal")
+	if not tpl then warn("❌ [Scythe] modèle de faux introuvable dans ServerStorage ▸ JackScythe (lance l'installeur)") return nil end
+	local tool = tpl:Clone()
+	local label = rec.dev and "DEV" or string.format(Config.SerialFormat or "#%d", rec.serial)
+	tool.Name = (Config.ToolName or "Jack's Scythe") .. " " .. label
+	tool.ToolTip = Config.ToolTip or ""
+	tool.CanBeDropped = false
+	if type(Config.Icon) == "string" and Config.Icon ~= "" then
+		tool.TextureId = Config.Icon:find("rbxassetid://") and Config.Icon or ("rbxassetid://" .. Config.Icon)
+	end
+	-- la faux ne touche jamais le décor ni les joueurs (sa lame contre un mur faisait rebondir le dash)
+	for _, p in ipairs(tool:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.CanCollide = false
+			p.Massless = true
+		end
+	end
+	tool:SetAttribute("JackScythe", true)
+	tool:SetAttribute("Serial", rec.serial)
+	tool:SetAttribute("Gold", rec.gold == true)
+	-- les 2 faces du médaillon (PlaqueFace / PlaqueFaceBack ▸ PlaqueGui ▸ Serial + SerialShine)
+	for _, d in ipairs(tool:GetDescendants()) do
+		if d:IsA("TextLabel") and (d.Name == "Serial" or d.Name == "SerialShine") then d.Text = label end
+	end
+	return tool
+end
+S._makeTool = makeTool
+
+function S.Deliver(player)
+	if Config.Enabled == false then return false end
+	local rec = owners[player.UserId]
+	if not rec then return false end
+	pending[player.UserId] = nil
+	if inArena(player) then return true end          -- rendue automatiquement à la sortie de l'arène (S.Ensure)
+	local gear = player:FindFirstChild("StarterGear") or player:WaitForChild("StarterGear", 10)
+	if gear and not has(gear) then
+		local t = makeTool(rec)
+		if t then t.Parent = gear end
+	end
+	local bp = player:FindFirstChildOfClass("Backpack")
+	if bp and not has(bp) and not has(player.Character) then
+		local t = makeTool(rec)
+		if t then t.Parent = bp end
+	end
+	return true
+end
+
+function S.IsPending(uid) return pending[uid] ~= nil end
+
+-- 🛡️ LA FAUX NE SE PERD JAMAIS : vérifiée en continu pour chaque propriétaire (hors arène)
+--    • exactement UNE dans StarterGear (revient à chaque réapparition)
+--    • exactement UNE dans le sac ou en main (rendue à la sortie du PvP, après un vidage du sac, etc.)
+--    Les doubles (arène qui « rend » la sienne, copie de StarterGear) sont retirés.
+local spawnedAt = {}       -- [uid] = os.clock() de la dernière apparition (Roblox recopie StarterGear juste après)
+
+local function collect(container, out)
+	if container then
+		for _, c in ipairs(container:GetChildren()) do if isScythe(c) then table.insert(out, c) end end
+	end
+	return out
+end
+
+function S.Ensure(player)
+	if Config.Enabled == false or not player.Parent then return end
+	local uid = player.UserId
+	local rec = owners[uid]
+	if not rec or pending[uid] or inArena(player) then return end
+	local gear = player:FindFirstChild("StarterGear")
+	if gear then
+		local g = collect(gear, {})
+		if #g == 0 then
+			local t = makeTool(rec)
+			if t then t.Parent = gear end
+		else
+			for i = 2, #g do g[i]:Destroy() end
+		end
+	end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local bp = player:FindFirstChildOfClass("Backpack")
+	if not (hum and hum.Health > 0 and bp) then return end
+	if os.clock() - (spawnedAt[uid] or 0) < 2 then return end      -- laisse Roblox recopier StarterGear d'abord
+	local held = collect(bp, collect(char, {}))                  -- celle en main d'abord : c'est elle qu'on garde
+	if #held == 0 then
+		local t = makeTool(rec)
+		if t then
+			t.Parent = bp
+			log("🔁 faux rendue à " .. player.Name)
+		end
+	else
+		for i = 2, #held do held[i]:Destroy() end
+	end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🦴 TENUE À DEUX MAINS : Motor6D « ScytheGrip » (Torso → Handle) pour que les animations bougent la faux
+-- ════════════════════════════════════════════════════════════════
+local function hookCharacter(char)
+	char.ChildAdded:Connect(function(tool)
+		if not isScythe(tool) then return end
+		-- jamais 2 faux en main en même temps (deux copies superposées = texture qui clignote)
+		for _, other in ipairs(char:GetChildren()) do
+			if other ~= tool and isScythe(other) then
+				local bp = Players:GetPlayerFromCharacter(char)
+				bp = bp and bp:FindFirstChildOfClass("Backpack")
+				if bp then other.Parent = bp else other:Destroy() end
+			end
+		end
+		local torso = char:FindFirstChild("Torso")
+		local handle = tool:FindFirstChild("Handle")
+		if not torso or not handle then return end
+		-- la soudure par défaut (RightGrip) est remplacée par le moteur animable
+		local arm = char:FindFirstChild("Right Arm")
+		local t0 = os.clock()
+		while os.clock() - t0 < 1 and tool.Parent == char do
+			local rg = arm and arm:FindFirstChild("RightGrip")
+			if rg then rg:Destroy() break end
+			task.wait()
+		end
+		if tool.Parent ~= char then return end
+		local old = torso:FindFirstChild("ScytheGrip")
+		if old then old:Destroy() end
+		local m = Instance.new("Motor6D")
+		m.Name = "ScytheGrip"
+		m.C0 = tool:GetAttribute("GripC0") or CFrame.new()
+		m.C1 = tool:GetAttribute("GripC1") or CFrame.new()
+		m.Part0 = torso
+		m.Part1 = handle
+		m.Parent = torso
+	end)
+	char.ChildRemoved:Connect(function(tool)
+		if not isScythe(tool) then return end
+		local torso = char:FindFirstChild("Torso")
+		local m = torso and torso:FindFirstChild("ScytheGrip")
+		if m and (m.Part1 == nil or not m.Part1:IsDescendantOf(char)) then m:Destroy() end
+	end)
+end
+S._hookCharacter = hookCharacter
+
+-- ════════════════════════════════════════════════════════════════
+-- 💨 DASH (validation serveur)
+-- ════════════════════════════════════════════════════════════════
+local lastDash = {}
+local strikes = {}
+
+local function equipped(player)
+	local c = player.Character
+	if not c then return nil end
+	for _, t in ipairs(c:GetChildren()) do if isScythe(t) then return t end end
+	return nil
+end
+
+function S.CanDash(player)
+	if Config.Enabled == false then return false, "off" end
+	local uid = player.UserId
+	if not owners[uid] then return false, "not_owner" end
+	local c = player.Character
+	local h = c and c:FindFirstChildOfClass("Humanoid")
+	if not h or h.Health <= 0 then return false, "dead" end
+	if not equipped(player) then return false, "not_equipped" end
+	for _, a in ipairs(D.BlockedAttributes or {}) do
+		if player:GetAttribute(a) == true or (c and c:GetAttribute(a) == true) then return false, "blocked_" .. a end
+	end
+	local now = os.clock()
+	-- petite tolérance réseau (le client compte la recharge de son côté)
+	if lastDash[uid] and now - lastDash[uid] < (D.Cooldown or 3) * 0.85 - 0.1 then return false, "cooldown" end
+	return true
+end
+
+function S.Dash(player)
+	local ok, why = S.CanDash(player)
+	if not ok then
+		strikes[player.UserId] = (strikes[player.UserId] or 0) + 1
+		log("⛔ dash refusé pour " .. player.Name .. " : " .. tostring(why))
+		if _G.AntiExploit and _G.AntiExploit.NoteBlockedClaim and why == "cooldown" then
+			pcall(function() _G.AntiExploit.NoteBlockedClaim(player, "Scythe_" .. why) end)
+		end
+		return false, why
+	end
+	lastDash[player.UserId] = os.clock()
+	local untilT = workspace:GetServerTimeNow() + (D.WindUp or 0.13) + (D.Duration or 0.2) + (D.AntiCheatGrace or 0.6)
+	player:SetAttribute("ScytheDashUntil", untilT)
+	return true
+end
+
+-- pour ton anti-cheat de vitesse :  if _G.JackScytheIsDashing and _G.JackScytheIsDashing(player) then (ignorer) end
+function S.IsDashing(player)
+	local u = player:GetAttribute("ScytheDashUntil")
+	return type(u) == "number" and workspace:GetServerTimeNow() < u
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🚀 DÉMARRAGE (appelé une fois par JackScythe_Server)
+-- ════════════════════════════════════════════════════════════════
+local started = false
+
+function S.Start()
+	if started then return end
+	started = true
+	_G.JackScytheIsDashing = S.IsDashing
+	local remote = RS:FindFirstChild("ScytheEvent")
+	if not remote then
+		remote = Instance.new("RemoteEvent")
+		remote.Name = "ScytheEvent"
+		remote.Parent = RS
+	end
+	local bucket = {}
+	remote.OnServerEvent:Connect(function(player, action, arg)
+		if type(action) ~= "string" then return end
+		local uid = player.UserId
+		local now = os.clock()
+		local b = bucket[uid] or { n = 6, t = now }
+		b.n = math.min(6, b.n + (now - b.t) * 2) ; b.t = now ; bucket[uid] = b
+		if b.n < 1 then return end
+		b.n -= 1
+		if action == "Dash" then
+			local dir = typeof(arg) == "Vector3" and arg or Vector3.zero
+			if dir.Magnitude ~= dir.Magnitude or dir.Magnitude < 0.1 or dir.Magnitude > 2 then dir = Vector3.zero end
+			if S.Dash(player) then
+				-- les autres joueurs jouent les effets chez eux (aucune physique ni effet répliqué par le serveur)
+				for _, p in ipairs(Players:GetPlayers()) do
+					if p ~= player then remote:FireClient(p, "FX", player, dir.Magnitude > 0 and dir.Unit or nil) end
+				end
+			else
+				remote:FireClient(player, "Refused")
+			end
+		elseif action == "GiftDone" then
+			if pending[uid] then S.Deliver(player) end
+		end
+	end)
+
+	local function onPlayer(player)
+		local uid = player.UserId
+		spawnedAt[uid] = os.clock()
+		player.CharacterAdded:Connect(function(char)
+			spawnedAt[uid] = os.clock()
+			hookCharacter(char)
+		end)
+		if player.Character then hookCharacter(player.Character) end
+		-- ⚔️ sortie du PvP : la faux revient tout de suite (l'arène a vidé le sac)
+		player:GetAttributeChangedSignal("InArena"):Connect(function()
+			if player:GetAttribute("InArena") == true then return end
+			for _, d in ipairs({ 0.5, 2, 4 }) do
+				task.delay(d, function() pcall(S.Ensure, player) end)
+			end
+		end)
+		task.spawn(function()
+			-- lecture ratée → on réessaie sans fin (jamais « pas de faux » à cause d'une panne DataStore)
+			local backoff = 3
+			while player.Parent and not S.Load(uid) do
+				task.wait(backoff)
+				backoff = math.min(backoff * 2, 30)
+			end
+			if player.Parent and owners[uid] and not pending[uid] then S.Deliver(player) end
+		end)
+	end
+	Players.PlayerAdded:Connect(onPlayer)
+	for _, p in ipairs(Players:GetPlayers()) do task.spawn(onPlayer, p) end
+	Players.PlayerRemoving:Connect(function(p)
+		local uid = p.UserId
+		owners[uid], pending[uid], lastDash[uid], bucket[uid], strikes[uid], holds[uid] = nil, nil, nil, nil, nil, nil
+		spawnedAt[uid] = nil
+	end)
+
+	-- 🛡️ filet de sécurité : toutes les 2 s, chaque propriétaire hors arène a sa faux (sortie de PvP comprise,
+	--    même si ton arène ne met que _G.PlayersInArena et pas l'attribut InArena)
+	task.spawn(function()
+		while true do
+			task.wait(2)
+			for _, p in ipairs(Players:GetPlayers()) do
+				local ok, err = pcall(S.Ensure, p)
+				if not ok then warn("⚠️ [Scythe] vérification de la faux : " .. tostring(err)) end
+			end
+		end
+	end)
+
+	-- 🧪 Studio seulement : tester sans refaire les quêtes (Command Bar en vue « Server »)
+	--    _G.ScytheGive("TonPseudo")       → la prochaine faux
+	--    _G.ScytheGive("TonPseudo", 1)    → forcer le numéro (1 = dorée si GoldCount ≥ 1)
+	--    _G.ScytheReset("TonPseudo")      → retire la faux et le numéro (mémoire Studio)
+	if RunService:IsStudio() then
+		local function find(name)
+			for _, p in ipairs(Players:GetPlayers()) do
+				if not name or p.Name == name or p.DisplayName == name then return p end
+			end
+		end
+		_G.ScytheGive = function(name, serial)
+			local p = find(name)
+			if not p then warn("[Scythe] joueur introuvable") return end
+			if serial then
+				owners[p.UserId] = { serial = serial, gold = S.IsGold(serial) }
+				memory["owner_" .. p.UserId] = { serial = serial, gold = S.IsGold(serial), t = os.time() }
+				for _, c in ipairs({ p:FindFirstChild("StarterGear"), p:FindFirstChildOfClass("Backpack"), p.Character }) do
+					if c then for _, t in ipairs(c:GetChildren()) do if isScythe(t) then t:Destroy() end end end
+				end
+				S.Deliver(p)
+			else
+				print(S.Grant(p))
+			end
+		end
+		_G.ScytheReset = function(name)
+			local p = find(name)
+			if not p then return end
+			owners[p.UserId] = false
+			holds[p.UserId] = nil
+			memory["owner_" .. p.UserId] = nil
+			for _, c in ipairs({ p:FindFirstChild("StarterGear"), p:FindFirstChildOfClass("Backpack"), p.Character }) do
+				if c then for _, t in ipairs(c:GetChildren()) do if isScythe(t) then t:Destroy() end end end
+			end
+			log("🔄 faux retirée pour " .. p.Name)
+		end
+	end
+	log("✅ faux de Jack prête")
+end
+
+return S
