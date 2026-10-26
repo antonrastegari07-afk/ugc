@@ -9,7 +9,7 @@ Entre crochets : où le mettre. Remplace-les **tous en même temps** (certains s
 | 02 | HalloweenEvent_Server | ServerScriptService | Quêtes checkpoints + playtime, rebirth, weekly renouvelées chaque samedi à minuit pour tous, sauvegardes retentées, moins de réseau (vues des quêtes regroupées) |
 | 03 | HalloweenEvent_Client | même place que ton client Halloween | Compteur weekly ; coins loin de toi rangés (plus affichés ni animés, rien dans le vide) |
 | 04 | JackScytheService | ServerScriptService ▸ JackScythe | Faux jamais perdue, rendue après le PvP, faux DEV pour tous les admins, lame sans collision, anti-boucle si un autre script la retire |
-| 05 | JackScythe_Client | StarterPlayer ▸ StarterPlayerScripts | Sortie instantanée, plus de rebond au dash, dash vers le haut, correction du FOV gardée |
+| 05 | JackScythe_Client | StarterPlayer ▸ StarterPlayerScripts | Sortie instantanée, plus de rebond au dash, dash vers le haut, bouton DASH mobile seulement faux en main, correction du FOV gardée |
 | 06 | SCYTHE_CONFIG | ReplicatedStorage ▸ JackScythe | `MaxUpAngle = 85` (dash vers le haut) |
 | 07 | LoadingScreen | StarterPlayer ▸ StarterPlayerScripts (à la place de ton loader) | Plus de flash des UI à la fin du chargement |
 | 08 | HowToPlay LocalScript | StarterGui ▸ How to Play ▸ HtpButton2 | S'ouvre sous l'écran noir, tout revient à la fermeture |

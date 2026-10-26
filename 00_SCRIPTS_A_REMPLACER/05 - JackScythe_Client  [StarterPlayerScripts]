@@ -179,6 +179,8 @@ end
 
 local function canDash(char)
 	if Config.Enabled == false or not cur.tool or dashing then return false end
+	-- la faux doit être VRAIMENT en main, sur le personnage actuel (sinon bouton mobile resté à l'écran après une mort)
+	if not char or cur.tool.Parent ~= char then return false end
 	if os.clock() - lastDash < (D.Cooldown or 3) then return false end
 	local hum = humanoidOf(char)
 	if not hum or hum.Health <= 0 or hum.Sit or hum.PlatformStand then return false end
@@ -327,6 +329,11 @@ local function equip(tool, char)
 	end
 	if cur.tool ~= tool then return end
 	cur.tracks = tracksFor(char)
+	-- le chargement des animations peut prendre un instant : faux rangée entre-temps → on ne branche rien
+	if cur.tool ~= tool or tool.Parent ~= char then
+		if cur.tool == tool then unequip() end
+		return
+	end
 	if cur.tracks.Hold then cur.tracks.Hold:Play(0.1) end
 	if cur.tracks.Equip then cur.tracks.Equip:Play(0.05) end
 	FX.Equip(tool, true)
@@ -363,12 +370,18 @@ local function watchCharacter(plr, char)
 		end
 	end
 	if mine then
+		-- nouveau personnage : l'ancienne faux (et le bouton DASH mobile) ne restent jamais branchés
+		if cur.tool and cur.tool.Parent ~= char then unequip() end
 		-- précharge les animations dès l'apparition (la 1re sortie est instantanée aussi)
 		task.spawn(function()
 			if char.Parent and not trackCache[char] then tracksFor(char) end
 		end)
 		local hum = char:WaitForChild("Humanoid", 10)
 		if hum then
+			-- mort : la faux tombe avec le personnage (Roblox ne signale pas toujours qu'elle a été rangée)
+			hum.Died:Connect(function()
+				if cur.tool and cur.tool:IsDescendantOf(char) then unequip() end
+			end)
 			hum.StateChanged:Connect(function(_, new)
 				if new == Enum.HumanoidStateType.Landed or new == Enum.HumanoidStateType.Running then airLeft = D.AirDashes or 1 end
 			end)
