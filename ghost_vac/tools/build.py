@@ -84,7 +84,7 @@ def anchors_fn():   # small clamps where the straps enter the blocks (built befo
 def collars_fn():   # round rings where the round glass meets the octagonal blocks
     bm,uvl=new_bm()
     for z0,z1 in ((-0.475,-0.425),(0.425,0.465)):
-        lathe(bm,uvl,[(0.395,z0),(0.48,z0),(0.48,z1),(0.395,z1),(0.395,z0)],28,R['jamb'],cy=TY,invert=True)   # inner face in front of the glass wall (no z-fighting)
+        lathe(bm,uvl,[(0.44,z0),(0.48,z0),(0.48,z1),(0.44,z1),(0.44,z0)],28,R['jamb'],cy=TY,invert=True)   # stays behind the glass wall: invisible from inside
     return mkobj('Glass_Collars','Tank',bm)
 def bars_fn():
     bm,uvl=new_bm()
@@ -312,7 +312,7 @@ def strap_normal(p):
     # flat side of the strap faces away from the shoulder/torso
     q=Vector((0,min(max(p.y,-0.5+CR_),0.5),min(max(p.z,ZB+CR_),1.0-CR_)))
     d=Vector((0,p.y-q.y,p.z-q.z))
-    if p.y>0.5 and p.z<0.9: d=Vector((0,0.2,-1.0))
+    if p.y>0.5: d=Vector((0,0,1.0)) if p.z>0.4 else Vector((0,0.2,-1.0))   # consistent orientation, no twist
     return d.normalized() if d.length>1e-6 else Vector((0,0,1))
 def rsec(w,t,m=8):
     out=[]
