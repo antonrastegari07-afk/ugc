@@ -1199,12 +1199,25 @@ _G.HalloweenEventProducts = PRODUCTS
 -- 🎃 ZONES DE COINS (chaque joueur a les siennes ; le serveur garde la vraie position)
 -- ════════════════════════════════════════════════════════════════
 local zoneParts = {}
+--  🗂️ Chaque enfant DIRECT du dossier = UNE zone, avec son propre compteur de coins.
+--     (une Part seule, ou un Model / Folder qui regroupe plusieurs Parts = une seule zone)
+local zones = {}   -- { { key = Instance, parts = { BasePart… } } }
 local function scanZones()
 	table.clear(zoneParts)
+	table.clear(zones)
 	local f = workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones")
 	if not f then return end
-	for _, d in ipairs(f:GetDescendants()) do
-		if d:IsA("BasePart") then table.insert(zoneParts, d) end
+	for _, child in ipairs(f:GetChildren()) do
+		local zone = { key = child, parts = {} }
+		local list = child:GetDescendants()
+		table.insert(list, 1, child)
+		for _, d in ipairs(list) do
+			if d:IsA("BasePart") then
+				table.insert(zone.parts, d)
+				table.insert(zoneParts, d)
+			end
+		end
+		if #zone.parts > 0 then table.insert(zones, zone) end
 	end
 end
 
@@ -1224,14 +1237,14 @@ local function nearRect(p, me)
 	return x0, x1, z0, z1
 end
 
-local function randomSpot(player)
-	if #zoneParts == 0 then return nil end
+local function randomSpot(zone, player)
+	if not zone or #zone.parts == 0 then return nil end
 	local ch = player and player.Character
 	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
 	if not hrp then return nil end
 	local me = hrp.Position
 	local cands, total = {}, 0
-	for _, p in ipairs(zoneParts) do
+	for _, p in ipairs(zone.parts) do
 		if p.Parent then
 			local x0, x1, z0, z1 = nearRect(p, me)
 			if x0 then
@@ -1300,16 +1313,47 @@ end
 
 local coinSeq = 0
 local function coinsOf(st)
-	st.coins = st.coins or { list = {}, n = 0, nextT = os.clock() + 2 }
+	st.coins = st.coins or { list = {}, n = 0, nextT = os.clock() + 2, zn = {} }
 	return st.coins
+end
+
+-- état d'UNE zone pour un joueur : ses coins vivants + son propre minuteur
+local function zoneState(cs, key, t)
+	local zs = cs.zn[key]
+	if not zs then
+		-- 1re apparition légèrement décalée d'une zone à l'autre (pas tout d'un coup)
+		zs = { n = 0, nextT = t + 2 + rng:NextNumber() * 4 }
+		cs.zn[key] = zs
+	end
+	return zs
+end
+
+-- retire un coin de la liste ET du compteur de sa zone (sa place se libère)
+local function dropCoin(cs, id)
+	local c = cs.list[id]
+	if not c then return end
+	cs.list[id] = nil
+	cs.n -= 1
+	local zs = c.zone and cs.zn[c.zone]
+	if zs then zs.n = math.max(0, zs.n - 1) end
 end
 
 local function clearCoins(player, st)
 	local cs = coinsOf(st)
 	if cs.n == 0 then return end
 	table.clear(cs.list)
+	table.clear(cs.zn)
 	cs.n = 0
 	push(player, "coinClear", {})
+end
+
+local function addCoin(pl, cs, pos, zoneKey, t)
+	coinSeq += 1
+	local id = ("%x%04x"):format(coinSeq, rng:NextInteger(0, 0xffff))
+	cs.list[id] = { pos = pos, zone = zoneKey, born = t }
+	cs.n += 1
+	if zoneKey then zoneState(cs, zoneKey, t).n += 1 end
+	push(pl, "coinAdd", { Id = id, P = { pos.X, pos.Y, pos.Z } })
 end
 
 task.spawn(function()
@@ -1340,14 +1384,13 @@ task.spawn(function()
 					--    trop vieux, ou laissé loin derrière toi → il disparaît et un nouveau apparaît près de toi
 					local ch = pl.Character
 					local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-					local life = tonumber(Z.CoinLifetime) or 90
+					local life = tonumber(Z.CoinLifetime) or 120
 					local far = tonumber(Z.DespawnDistance) or 220
 					for id, c in pairs(cs.list) do
 						local age = t - (c.born or t)
 						local away = hrp and (c.pos - hrp.Position).Magnitude > far
 						if age > life or (away and age > 15) then
-							cs.list[id] = nil
-							cs.n -= 1
+							dropCoin(cs, id)
 							push(pl, "coinNo", { Id = id, Gone = true })
 						end
 					end
@@ -1360,24 +1403,34 @@ task.spawn(function()
 						if hrp then
 							for id, c in pairs(cs.list) do
 								if (c.pos - hrp.Position).Magnitude > far then
-									cs.list[id] = nil
-									cs.n -= 1
+									dropCoin(cs, id)
 									push(pl, "coinNo", { Id = id, Gone = true })
 								end
 							end
 						end
 					end
 				end
-				if open and not capped and cs.n < (Z.MaxAlive or 6) and t >= cs.nextT then
-					local pos = AROUND and spotNear(pl) or (not AROUND and randomSpot(pl)) or nil
-					local rs = Z.RespawnEvery or { 8, 16 }
-					cs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)     -- pas de sol / pas de zone ici : on réessaie vite
-					if pos then
-						coinSeq += 1
-						local id = ("%x%04x"):format(coinSeq, rng:NextInteger(0, 0xffff))
-						cs.list[id] = { pos = pos, born = t }
-						cs.n += 1
-						push(pl, "coinAdd", { Id = id, P = { pos.X, pos.Y, pos.Z } })
+				local rs = Z.RespawnEvery or { 8, 16 }
+				local perZone = Z.MaxAlive or 6
+				local total = tonumber(Z.MaxAliveTotal) or 0      -- 0 = pas de plafond global
+				if open and not capped and AROUND then
+					-- (AroundPlayer) une seule grande zone autour de toi : compteur unique
+					if cs.n < perZone and t >= cs.nextT then
+						local pos = spotNear(pl)
+						cs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)  -- pas de sol ici : on réessaie vite
+						if pos then addCoin(pl, cs, pos, nil, t) end
+					end
+				elseif open and not capped then
+					-- 🗂️ Chaque zone a SON plafond et SON minuteur : des coins laissés dans une
+					--    zone n'empêchent plus les autres de se remplir. Une zone loin de toi attend.
+					for _, zone in ipairs(zones) do
+						if total > 0 and cs.n >= total then break end
+						local zs = zoneState(cs, zone.key, t)
+						if zs.n < perZone and t >= zs.nextT then
+							local pos = randomSpot(zone, pl)
+							zs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)  -- pas près de toi / pas de sol : on réessaie vite
+							if pos then addCoin(pl, cs, pos, zone.key, t) end
+						end
 					end
 				end
 			end
@@ -1394,16 +1447,14 @@ local function actionPick(player, id)
 	if not c then return push(player, "coinNo", { Id = id, Gone = true }) end
 	local cap = Z.DailyCap or 0
 	if not activeFor(uid) or st.d.zone.got >= cap then
-		cs.list[id] = nil
-		cs.n -= 1
+		dropCoin(cs, id)
 		return push(player, "coinNo", { Id = id, Gone = true })
 	end
 	if not reachable(player, c.pos, Z.PickupRadius or 9) then
 		refuse(player, "coin_far")
 		return push(player, "coinNo", { Id = id })
 	end
-	cs.list[id] = nil
-	cs.n -= 1
+	dropCoin(cs, id)
 	local d = st.d
 	local value = math.min(Z.ValuePerCoin or 5, cap - d.zone.got)
 	d.zone.got += value

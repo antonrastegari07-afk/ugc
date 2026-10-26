@@ -234,8 +234,12 @@ C.Rules = {
 C.Zones = {
 	Folder = "HalloweenCoinZones",
 	ValuePerCoin = 25,             -- coins donnés par ramassage
-	MaxAlive = 10,                 -- coins visibles en même temps par joueur (toutes zones)
-	RespawnEvery = { 8, 16 },     -- s entre deux apparitions
+	MaxAlive = 10,                 -- coins visibles en même temps par joueur, PAR ZONE (chaque enfant du dossier = une zone)
+	MaxAliveTotal = 0,            -- plafond global toutes zones confondues (0 = aucun)
+	RespawnEvery = { 8, 16 },     -- s entre deux apparitions, PAR ZONE
+	SpawnNear = 150,              -- les coins apparaissent seulement à moins de … studs de toi
+	CoinLifetime = 120,           -- s : un coin pas ramassé disparaît (sa place se libère)
+	DespawnDistance = 220,        -- studs : un coin laissé plus loin que ça disparaît après 15 s
 	DailyCap = 2500,               -- coins max par jour venant des zones (50 ramassages)
 	PickupRadius = 9,             -- distance max (studs) côté serveur
 	AutoPickupDistance = 5,       -- le client ramasse en passant dessus (pas de touche à appuyer)
