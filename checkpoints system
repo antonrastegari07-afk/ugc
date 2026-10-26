@@ -290,7 +290,9 @@ local function requestCheckpointWrite(userId, checkpointName)
 	end)
 end
 
-local function saveCheckpoint(player, checkpointName, skipNotify)
+-- far = touché alors que le joueur n'est pas sur le checkpoint (exploit) : sauvegardé comme avant, mais
+--       les quêtes ne le comptent pas
+local function saveCheckpoint(player, checkpointName, skipNotify, far)
 	if not checkpointName then return end
 	local userId = player.UserId
 	-- ✅ Ne PAS sauvegarder si le joueur est en arène
@@ -312,7 +314,7 @@ local function saveCheckpoint(player, checkpointName, skipNotify)
 		updateLeaderboard(player, checkpointNum)
 	end
 	-- 📣 Quêtes : checkpoint touché (un skip est signalé mais ne compte pas)
-	notifyCheckpoint(player, checkpointNum, skipNotify and "skip" or "touch", prevNum)
+	notifyCheckpoint(player, checkpointNum, skipNotify and "skip" or (far and "far" or "touch"), prevNum)
 	-- Notifier client
 	task.spawn(function()
 		pcall(function()
@@ -366,9 +368,18 @@ local function connectCheckpoint(part)
 		local lastTouch = touchDebounce[userId] or 0
 		if now - lastTouch < 0.5 then return end
 		touchDebounce[userId] = now
+		-- 🔒 le joueur est-il VRAIMENT sur le checkpoint ? (un exploit peut déclencher Touched à distance)
+		local hrp = hit.Parent:FindFirstChild("HumanoidRootPart")
+		local far = true
+		if hrp then
+			local rel = part.CFrame:PointToObjectSpace(hrp.Position)
+			local M = 12
+			far = math.abs(rel.X) > part.Size.X / 2 + M or math.abs(rel.Y) > part.Size.Y / 2 + M
+				or math.abs(rel.Z) > part.Size.Z / 2 + M
+		end
 		-- Sauvegarder checkpoint (qui met aussi à jour le leaderboard)
 		-- ❌ PAS de notification skip pour les touches normales
-		saveCheckpoint(player, checkpointName, false)
+		saveCheckpoint(player, checkpointName, false, far)
 	end)
 	checkpointConnections[part] = connection
 end
@@ -500,7 +511,7 @@ do
 		end
 		-- 🎃 quêtes : téléport fait par le serveur ≠ téléport de triche (sinon le checkpoint suivant ne comptait pas)
 		if plr and _G.HalloweenEvent and type(_G.HalloweenEvent.MarkTeleport) == "function" then
-			pcall(_G.HalloweenEvent.MarkTeleport, plr)
+			pcall(_G.HalloweenEvent.MarkTeleport, plr, targetCF)
 		end
 		pcall(function()
 			character:PivotTo(targetCF)

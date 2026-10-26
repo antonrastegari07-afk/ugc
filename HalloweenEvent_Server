@@ -698,10 +698,25 @@ end
 
 -- téléport fait PAR LE SERVEUR (respawn sur ton checkpoint, sortie d'arène…) : ce n'est pas de la triche,
 -- on ne le compte ni comme téléport ni comme distance parcourue (appelé par le système de checkpoints)
+-- 🔒 pendant la grâce, SEULS l'endroit de départ et la destination choisie par le serveur sont acceptés :
+--    un vrai téléport de triche juste après un respawn est toujours détecté.
 local TP_GRACE = 1.5
-local function markServerTeleport(player)
+local TP_NEAR = 15
+local function markServerTeleport(player, targetCF)
 	local m = player and motion[player.UserId]
-	if m then m.pos = nil m.tpGrace = os.clock() + TP_GRACE end
+	if not m then return end
+	m.tpGrace = os.clock() + TP_GRACE
+	if typeof(targetCF) == "CFrame" then
+		m.tpTo, m.tpFrom = targetCF.Position, m.pos
+	else
+		m.tpTo, m.tpFrom, m.pos = nil, nil, nil      -- destination inconnue : on repart d'un relevé neuf
+	end
+end
+-- position attendue pendant un téléport serveur ?
+local function nearServerTp(m, pos)
+	if os.clock() >= (m.tpGrace or 0) then return false end
+	if not m.tpTo then return true end
+	return (pos - m.tpTo).Magnitude <= TP_NEAR or (m.tpFrom ~= nil and (pos - m.tpFrom).Magnitude <= TP_NEAR)
 end
 
 local function sampleMotion(pl, t)
@@ -709,7 +724,7 @@ local function sampleMotion(pl, t)
 	local ch = pl.Character
 	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
 	if not (m and hrp) then return end
-	if t < (m.tpGrace or 0) then
+	if nearServerTp(m, hrp.Position) then
 		m.pos, m.t = hrp.Position, t                 -- la position peut encore « sauter » le temps que le client suive
 		return
 	end
@@ -754,7 +769,7 @@ local function reachable(player, pos, maxDist)
 	if not hrp or not hum or hum.Health <= 0 then return false end
 	if warped(uid) then return false end
 	local m = motion[uid]
-	if m and m.pos and m.t and os.clock() >= (m.tpGrace or 0) then                     -- saut depuis le dernier relevé (0,2 s) : téléport → refusé
+	if m and m.pos and m.t and not nearServerTp(m, hrp.Position) then                     -- saut depuis le dernier relevé (0,2 s) : téléport → refusé
 		local dt = math.max(os.clock() - m.t, 0.05)
 		local dist = (flat(hrp.Position) - flat(m.pos)).Magnitude
 		if dist > 8 and dist / dt > MAX_SPEED then m.warpUntil = os.clock() + 4 return false end
@@ -1493,6 +1508,7 @@ local function onCheckpoint(player, num, how, prev)
 	if not st then return end
 	if how == "reset" then return resetObby(st) end
 	if how == "touch" then return countCheckpoint(player, st, num, tonumber(prev)) end
+	if how == "far" then return end                  -- touché de loin (exploit « firetouchinterest ») : jamais compté
 	-- "skip" / "load" : la position avance sans montée → ces checkpoints ne compteront pas
 	if st.d and st.settled and num > (st.d.ms or 0) then
 		st.d.ms = num
