@@ -216,7 +216,7 @@ def circle(r,m): return [(r*math.cos(2*math.pi*k/m),r*math.sin(2*math.pi*k/m)) f
 # ---------- HOSE + connectors ----------
 GX=-0.84  # gun axis x (character's right side, front is -Y)
 _HOSE_FRONT=[(0,0.0,0.86),(0,0.02,1.12),(-0.16,0.14,1.30),(-0.42,0.36,1.12),(-0.52,0.46,0.66),(-0.58,0.48,0.26),
-        (-0.72,0.46,0.10),(-0.86,0.42,0.30),(-0.92,0.38,0.80),(-0.92,0.26,1.16),(-0.88,0.10,1.30),(GX,0.02,1.22),(GX,0.0,1.10),(GX,0.0,1.02)]
+        (-0.72,0.46,0.10),(-0.86,0.42,0.30),(-0.92,0.38,0.80),(-0.92,0.30,1.06),(-0.91,0.20,1.24),(-0.875,0.08,1.31),(GX,0.0,1.25),(GX,0.0,1.13),(GX,0.0,1.02)]
 HOSE_C=[(x_,TY-0.70*dy_,z_) for x_,dy_,z_ in _HOSE_FRONT]   # same loop as before, mirrored behind the gun (depth x0.7 to clear the straps)
 def hose_fn():
     bm,uvl=new_bm(); sweep(bm,uvl,catmull(HOSE_C,2),circle(0.07,6),R['hose'],ref=Vector((0,1,0)))
@@ -345,11 +345,12 @@ SD=0.045; SX=0.84
 Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.22; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
-    ctrl=[(sx*0.33,0.82,0.85),(sx*0.47,0.72,0.85),(sx*0.70,0.58,0.92),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
-    ctrl+=[(x,Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
-    ctrl+=[(x,Y0,0.55),(x,Y0,0.25)]
-    ctrl+=[(x,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner
-    ctrl+=[(x,0.10,ZB),(x,0.42,ZB),(sx*0.62,0.60,-0.25),(sx*0.47,0.72,-0.25),(sx*0.33,0.82,-0.25)]
+    XT,XF=0.76,0.895         # x over the shoulder -> x at the bottom of the chest (straps drift to the sides like a real backpack)
+    ctrl=[(sx*0.33,0.82,0.85),(sx*0.47,0.72,0.85),(sx*0.70,0.58,0.92),(sx*XT,0.42,ZT),(sx*XT,0.15,ZT),(sx*XT,-0.10,ZT)]
+    ctrl+=[(sx*(XT+0.02*t/(math.pi/2)),Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
+    ctrl+=[(sx*0.83,Y0,0.62),(sx*0.87,Y0,0.36),(sx*XF,Y0,0.10)]
+    ctrl+=[(sx*XF,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner, at the side
+    ctrl+=[(sx*0.88,0.10,ZB),(sx*0.85,0.42,ZB),(sx*0.62,0.60,-0.25),(sx*0.47,0.72,-0.25),(sx*0.33,0.82,-0.25)]
     out=[]; 
     for p in ctrl:
         if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
