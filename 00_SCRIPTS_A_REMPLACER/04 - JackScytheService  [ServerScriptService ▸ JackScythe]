@@ -343,6 +343,26 @@ function S.IsPending(uid) return pending[uid] ~= nil end
 --    • exactement UNE dans le sac ou en main (rendue à la sortie du PvP, après un vidage du sac, etc.)
 --    Les doubles (arène qui « rend » la sienne, copie de StarterGear) sont retirés.
 local spawnedAt = {}       -- [uid] = os.clock() de la dernière apparition (Roblox recopie StarterGear juste après)
+-- 🛑 anti-boucle : si un AUTRE script retire la faux sans arrêt, on ne la recrée pas toutes les 2 s
+--    (chaque copie est envoyée par le réseau à tout le serveur) → on ralentit et on prévient dans l'Output
+local regive = {}          -- [uid] = { n = copies données dans la minute, t0 = début de la minute, pauseUntil, warned }
+local function regiveAllowed(player)
+	local uid = player.UserId
+	local r = regive[uid]
+	local t = os.clock()
+	if not r or t - r.t0 > 60 then r = { n = 0, t0 = t, warned = r and r.warned } regive[uid] = r end
+	if r.pauseUntil and t < r.pauseUntil then return false end
+	r.n += 1
+	if r.n > 4 then
+		r.pauseUntil = t + 30
+		if not r.warned then
+			r.warned = true
+			warn(("⚠️ [Scythe] la faux de %s disparaît sans arrêt (un autre script la retire ?) : nouvel essai dans 30 s"):format(player.Name))
+		end
+		return false
+	end
+	return true
+end
 
 local function collect(container, out)
 	if container then
@@ -360,6 +380,7 @@ function S.Ensure(player)
 	if gear then
 		local g = collect(gear, {})
 		if #g == 0 then
+			if not regiveAllowed(player) then return end
 			local t = makeTool(rec)
 			if t then t.Parent = gear end
 		else
@@ -373,6 +394,7 @@ function S.Ensure(player)
 	if os.clock() - (spawnedAt[uid] or 0) < 2 then return end      -- laisse Roblox recopier StarterGear d'abord
 	local held = collect(bp, collect(char, {}))                  -- celle en main d'abord : c'est elle qu'on garde
 	if #held == 0 then
+		if not regiveAllowed(player) then return end
 		local t = makeTool(rec)
 		if t then
 			t.Parent = bp
@@ -550,7 +572,7 @@ function S.Start()
 	Players.PlayerRemoving:Connect(function(p)
 		local uid = p.UserId
 		owners[uid], pending[uid], lastDash[uid], bucket[uid], strikes[uid], holds[uid] = nil, nil, nil, nil, nil, nil
-		spawnedAt[uid] = nil
+		spawnedAt[uid], regive[uid] = nil, nil
 	end)
 
 	-- 🛡️ filet de sécurité : toutes les 2 s, chaque propriétaire hors arène a sa faux (sortie de PvP comprise,

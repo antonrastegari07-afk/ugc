@@ -2026,7 +2026,7 @@ local function removeCoin(id, withPuff)
 	local rec = coins[id]
 	if not rec then return end
 	coins[id] = nil
-	if withPuff and rec.pp and rec.pp.Parent then puff(rec.pp.Position) end
+	if withPuff and not rec.hidden and rec.pp and rec.pp.Parent then puff(rec.pp.Position) end
 	rec.model:Destroy()
 end
 
@@ -2050,6 +2050,17 @@ end
 
 local RISE_T, DIVE_T = 0.45, 0.42
 local pickPending = {}
+-- 👁️ au-delà de cette distance, la pièce est RANGÉE (plus affichée, plus animée) : aucune perte de FPS,
+--    et jamais une pièce qui flotte là où la map n'est pas chargée (StreamingEnabled)
+local function hideRadius()
+	local r = Z.ShowRadius or 220
+	if workspace.StreamingEnabled then
+		local ok, sr = pcall(function() return workspace.StreamingTargetRadius end)
+		if ok and type(sr) == "number" and sr > 0 then r = math.min(r, sr * 0.85) end
+	end
+	return r
+end
+local HIDE_R = hideRadius()
 RunService.Heartbeat:Connect(function(dt)
 	local r = hrp()
 	local me = r and r.Position
@@ -2057,10 +2068,17 @@ RunService.Heartbeat:Connect(function(dt)
 	local alive = hum and hum.Health > 0
 	local now = os.clock()
 	for id, rec in pairs(coins) do
-		if not rec.model.Parent then coins[id] = nil continue end
+		if not rec.hidden and not rec.model.Parent then coins[id] = nil continue end
 		rec.t += dt
 		local t = rec.t
 		local d = me and (me - rec.home).Magnitude or math.huge
+		-- loin (ou personnage pas encore là) : pièce rangée, rien n'est calculé ; elle revient en s'approchant
+		local hide = (d > HIDE_R) and (rec.state == "idle" or rec.state == "appear")
+		if hide ~= (rec.hidden == true) then
+			rec.hidden = hide
+			rec.model.Parent = (not hide) and world() or nil
+		end
+		if hide then continue end
 		if rec.state == "idle" or rec.state == "appear" then
 			rec.spin += dt * 1.8
 			local cf = CFrame.new(rec.home + Vector3.new(0, math.sin(t * 1.6) * 0.22, 0)) * CFrame.Angles(0, rec.spin, 0)
@@ -2123,7 +2141,8 @@ RunService.Heartbeat:Connect(function(dt)
 			if u >= 1 then rec.state = "idle" rec.stars.Rate = 5 end
 		end
 		if rec.fx.Parent then rec.fx.CFrame = CFrame.new(rec.model:GetPivot().Position) end
-		local far = d > (Z.ShowRadius or 220)
+		-- à mi-distance : lumière et étincelles coupées (moins de rendu), la pièce reste visible
+		local far = d > HIDE_R * 0.5
 		if far ~= rec.far then
 			rec.far = far
 			rec.light.Enabled = not far
