@@ -20,7 +20,7 @@ for f in range(len(P)):
     W=np.stack([w0,w1,w2],-1)[ins]; iy=(ys[ins]-.5).astype(int); ix=(xs[ins]-.5).astype(int)
     pos[iy,ix]=W@P[f]; nrm[iy,ix]=W@NN[f]; pid[iy,ix]=PID[f]
 M=pid>=0
-idx=np.where(M); p=pos[idx].copy(); k=pid[idx]; p[~np.isin(k,[ID['strapL'],ID['strapR']]),2]-=0.30; n=len(p); nr=nrm[idx]; nr/=np.linalg.norm(nr,axis=1,keepdims=True)+1e-9
+idx=np.where(M); p=pos[idx].copy(); k=pid[idx]; _ns=~np.isin(k,[ID['strapL'],ID['strapR']]); p[_ns,2]-=0.26; p[_ns,1]+=0.07; n=len(p); nr=nrm[idx]; nr/=np.linalg.norm(nr,axis=1,keepdims=True)+1e-9
 tu=(idx[1]+0.5)/S; tv=1-(idx[0]+0.5)/S
 x,y,z=p[:,0],p[:,1],p[:,2]
 ss=lambda e0,e1,t:(lambda q:q*q*(3-2*q))(np.clip((t-e0)/(e1-e0),0,1))

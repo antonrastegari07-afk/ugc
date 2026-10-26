@@ -6,6 +6,7 @@ TEX=1024; PAD=8/TEX
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene=bpy.context.scene
 TY=1.10  # tank axis y (caps sit on the back plate)
+DZ=0.26  # machine raised on the back (applied after building)
 R={
  'ghost':(0.0,0.5,0.5,1.0),'ghost_cap':(0.5,0.875,0.625,1.0),'outline':(0.625,0.875,0.75,1.0),
  'jamb':(0.75,0.875,0.875,1.0),'bubble':(0.875,0.0,1.0,0.0625),'conn':(0.875,0.875,1.0,1.0),
@@ -346,11 +347,12 @@ Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.22; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
     XT,XF=0.76,0.935         # x over the shoulder -> x at the bottom of the chest (straps drift to the sides like a real backpack)
-    ctrl=[(sx*0.33,0.82,0.85),(sx*0.47,0.72,0.85),(sx*0.70,0.58,0.92),(sx*XT,0.42,ZT),(sx*XT,0.15,ZT),(sx*XT,-0.10,ZT)]
+    zs=DZ-0.30
+    ctrl=[(sx*0.33,0.75,0.85+zs),(sx*0.47,0.65,0.85+zs),(sx*0.70,0.56,0.92+zs),(sx*XT,0.42,ZT),(sx*XT,0.15,ZT),(sx*XT,-0.10,ZT)]
     ctrl+=[(sx*(XT+0.02*t/(math.pi/2)),Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
     ctrl+=[(sx*0.82,Y0,0.62),(sx*0.88,Y0,0.36),(sx*XF,Y0,0.10)]
     ctrl+=[(sx*xx,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t,xx in zip(np.linspace(0,math.pi/2,4),(XF,XF,XF,0.93))]   # bottom-front corner, tucks in under the arm
-    ctrl+=[(sx*0.90,0.10,ZB),(sx*0.85,0.42,ZB),(sx*0.62,0.60,-0.25),(sx*0.47,0.72,-0.25),(sx*0.33,0.82,-0.25)]
+    ctrl+=[(sx*0.90,0.10,ZB),(sx*0.85,0.42,ZB),(sx*0.62,0.56,-0.25+zs),(sx*0.47,0.65,-0.25+zs),(sx*0.33,0.75,-0.25+zs)]
     out=[]; 
     for p in ctrl:
         if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
@@ -388,10 +390,10 @@ order=[('inner',inner_fn),('cloud',cloud_fn),('bubble',bubbles_fn),('outline',ou
        ('strapR',lambda:strap_fn('Strap_R',SX,R['strapR']))]
 objs=[(k,fn()) for k,fn in order]
 # ---------- raise the whole machine higher on the back (straps are built in place) ----------
-DZ=0.30
+DY=-0.07   # higher on the back, and pressed against it (no gap between the pack and the back)
 for k_,ob in objs:
     if k_ not in ('strapL','strapR'):
-        for v in ob.data.vertices: v.co.z+=DZ
+        for v in ob.data.vertices: v.co.z+=DZ; v.co.y+=DY
 # ---------- fuse ----------
 me=bpy.data.meshes.new('GhostVac_UGC'); fin=bpy.data.objects.new('GhostVac_UGC',me); C['GhostVac_UGC'].objects.link(fin)
 bm=bmesh.new(); pid=[]
