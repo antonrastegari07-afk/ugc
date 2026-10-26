@@ -84,7 +84,7 @@ def anchors_fn():   # small clamps where the straps enter the blocks (built befo
 def collars_fn():   # round rings where the round glass meets the octagonal blocks
     bm,uvl=new_bm()
     for z0,z1 in ((-0.475,-0.425),(0.425,0.465)):
-        lathe(bm,uvl,[(0.44,z0),(0.48,z0),(0.48,z1),(0.44,z1),(0.44,z0)],20,R['jamb'],cy=TY,invert=True)   # stays behind the glass wall: invisible from inside
+        lathe(bm,uvl,[(0.44,z0),(0.48,z0),(0.48,z1),(0.44,z1),(0.44,z0)],16,R['jamb'],cy=TY,invert=True)   # stays behind the glass wall: invisible from inside
     return mkobj('Glass_Collars','Tank',bm)
 def bars_fn():
     bm,uvl=new_bm()
@@ -120,7 +120,7 @@ def cloud_h(x,y):
     return sum(v**6 for v in vals)**(1/6)
 CB=-0.46; CR=0.415
 def cloud_fn():
-    bm,uvl=new_bm(); Nc=28; rings=5
+    bm,uvl=new_bm(); Nc=24; rings=5
     center=bm.verts.new((0,TY,CB+cloud_h(0,0))); allr=[]
     for k in range(1,rings+1):
         t=k/rings; ring=[]
@@ -163,10 +163,10 @@ def ghost_geo(bm,uvl,rect,cap_rect,Ng,cap=True):
     for v in bm.verts:
         v.co=Vector((v.co.x*GS,TY+v.co.y*GS,GZ0+(v.co.z-0.265)*GS))
 def ghost_fn():
-    bm,uvl=new_bm(); ghost_geo(bm,uvl,R['ghost'],R['ghost_cap'],26); return mkobj('Ghost','Ghost',bm)
+    bm,uvl=new_bm(); ghost_geo(bm,uvl,R['ghost'],R['ghost_cap'],22); return mkobj('Ghost','Ghost',bm)
 OFF=0.012
 def outline_fn():
-    bm,uvl=new_bm(); ghost_geo(bm,uvl,R['outline'],R['outline'],26,cap=False)
+    bm,uvl=new_bm(); ghost_geo(bm,uvl,R['outline'],R['outline'],22,cap=False)
     bm.normal_update()
     for v in bm.verts: v.co=v.co+v.normal*OFF
     bmesh.ops.reverse_faces(bm,faces=bm.faces[:])
@@ -263,13 +263,57 @@ def funnel_fn():    # emitter head
     bm,uvl=new_bm()
     lathe(bm,uvl,[(0,-0.74),(0.12,-0.74),(0.17,-0.80),(0.18,-0.96),(0.15,-1.01),(0.10,-1.01),(0.08,-0.97),(0,-0.97)][::-1],8,R['funnel'],cx=GX,cy=TY,theta0=OCT0,smooth=False)
     return mkobj('Gun_Emitter','Gun',bm)
-def handle_fn():    # pistol grip, front grip, trigger, trigger guard
+def loft(bm,uvl,pts,secs,rect,ref=Vector((0,1,0)),caps=True):
+    # sweep with a different 2D section per point (secs[i] = list of (side,normal) offsets)
+    pts=[Vector(p) for p in pts]; n=len(pts); m=len(secs[0])
+    L=[0]
+    for a_,b_ in zip(pts[:-1],pts[1:]): L.append(L[-1]+(b_-a_).length)
+    rings=[]
+    for i,p in enumerate(pts):
+        t=(pts[min(i+1,n-1)]-pts[max(i-1,0)]).normalized()
+        side=(ref-ref.dot(t)*t).normalized(); nor=t.cross(side)
+        rings.append([bm.verts.new(p+side*a_+nor*b_) for a_,b_ in secs[i]])
+    for i in range(n-1):
+        for k in range(m):
+            k1=(k+1)%m
+            f=bm.faces.new([rings[i][k],rings[i][k1],rings[i+1][k1],rings[i+1][k]]); f.smooth=True
+            for lp,(u,v) in zip(f.loops,[(L[i],k),(L[i],k+1),(L[i+1],k+1),(L[i+1],k)]): lp[uvl].uv=rmap(rect,u/L[-1],v/m)
+    if caps:
+        for ring,rev in ((rings[0],True),(rings[-1],False)):
+            c=bm.verts.new(sum((v.co for v in ring),Vector())/m)
+            for k in range(m):
+                vs=[c,ring[k],ring[(k+1)%m]]
+                if rev: vs=vs[::-1]
+                f=bm.faces.new(vs); f.smooth=True
+                for lp in f.loops: lp[uvl].uv=rmap(rect,0.0 if rev else 1.0,0.5)
+def ellipse(w,d,m=8,front_bulge=0.0):
+    out=[]
+    for k in range(m):
+        a_=2*math.pi*k/m; c,s_=math.cos(a_),math.sin(a_)
+        out.append((w/2*c, d/2*s_*(1+front_bulge if s_<0 else 1)))
+    return out
+def handle_fn():    # ergonomic pistol grip (raked toward the stock, finger grooves, flared butt) + foregrip
     bm,uvl=new_bm()
-    box(bm,uvl,(GX-0.29,TY,0.74),(0.30,0.11,0.13),R['handle'],Matrix.Rotation(math.radians(22),3,'Y'))
-    box(bm,uvl,(GX-0.29,TY,0.10),(0.26,0.10,0.11),R['handle'])
-    box(bm,uvl,(GX-0.22,TY,0.62),(0.07,0.03,0.08),R['handle'])
-    box(bm,uvl,(GX-0.25,TY,0.565),(0.14,0.03,0.025),R['handle'])
+    base=Vector((GX-0.16,TY,0.66)); dirg=Vector((-math.cos(math.radians(20)),0,math.sin(math.radians(20))))
+    pts=[]; secs=[]
+    for i in range(9):
+        t=i/8; pts.append(base+dirg*0.44*t)
+        groove=0.022*max(0.0,math.sin((t-0.2)*math.pi*4.0/0.6*0.5)) if 0.2<t<0.8 else 0.0   # finger grooves on the front
+        flare=1.0+0.22*max(0.0,(t-0.82)/0.18)
+        secs.append(ellipse(0.10*flare,(0.20-0.03*t)*flare,8,front_bulge=-groove/0.09))
+    loft(bm,uvl,pts,secs,R['handle'])
+    # foregrip: rounded vertical handle under the barrel shroud
+    fp=[Vector((GX-0.17-0.30*t,TY,0.12)) for t in (0,0.15,0.3,0.45,0.6,0.75,0.9,1.0)]
+    fs=[ellipse(0.095*r,0.095*r,8) for r in (1,1.05,0.95,1.05,0.95,1.05,1.1,0.9)]
+    loft(bm,uvl,fp,fs,R['handle'])
     return mkobj('Gun_Grips','Gun',bm)
+def trigger_parts(bm,uvl):
+    # trigger guard: thin loop from the body to the front of the grip
+    gpts=[(GX-0.19,TY,0.46),(GX-0.30,TY,0.46),(GX-0.355,TY,0.51),(GX-0.36,TY,0.58),(GX-0.345,TY,0.64)]
+    loft(bm,uvl,catmull(gpts,2),[ellipse(0.045,0.03,4)]*len(catmull(gpts,2)),R['clips'])
+    # curved trigger blade
+    tpts=[(GX-0.17,TY,0.585),(GX-0.22,TY,0.57),(GX-0.27,TY,0.55),(GX-0.30,TY,0.525)]
+    loft(bm,uvl,tpts,[ellipse(0.04,0.032,4)]*4,R['clips'])
 def clips_fn():     # tank clips + top rail + sight
     bm,uvl=new_bm()
     for z in (0.40,-0.30):
@@ -280,6 +324,7 @@ def clips_fn():     # tank clips + top rail + sight
     for k_ in range(3):                                                         # emitter prongs
         a_=math.radians(90+k_*120); ox,oy=math.sin(a_)*0.135,math.cos(a_)*0.135
         box(bm,uvl,(GX+ox,TY+oy,-1.06),(0.045,0.045,0.15),R['clips'])            # sunk into the emitter rim
+    trigger_parts(bm,uvl)
     return mkobj('Gun_Rail_Clips','Gun',bm)
 # ---------- STRAPS (backpack style: over the shoulder, down the front, back under the arm) ----------
 D=0.12    # strap centre-line distance from the torso surface (loose fit for other body types)
