@@ -299,6 +299,13 @@ local function makeTool(rec)
 	if type(Config.Icon) == "string" and Config.Icon ~= "" then
 		tool.TextureId = Config.Icon:find("rbxassetid://") and Config.Icon or ("rbxassetid://" .. Config.Icon)
 	end
+	-- la faux ne touche jamais le décor ni les joueurs (sa lame contre un mur faisait rebondir le dash)
+	for _, p in ipairs(tool:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.CanCollide = false
+			p.Massless = true
+		end
+	end
 	tool:SetAttribute("JackScythe", true)
 	tool:SetAttribute("Serial", rec.serial)
 	tool:SetAttribute("Gold", rec.gold == true)

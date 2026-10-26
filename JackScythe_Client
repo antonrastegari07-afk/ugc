@@ -134,20 +134,36 @@ local function dirFromCamera(hrp)
 	local pitch = math.deg(math.asin(math.clamp(look.Y, -1, 1)))
 	local hum = humanoidOf(player.Character)
 	local grounded = hum and hum.FloorMaterial ~= Enum.Material.Air
-	pitch = math.clamp(pitch, grounded and 0 or -(D.MaxDownAngle or 18), D.MaxUpAngle or 28)
+	-- MaxUpAngle 85 = presque tout droit vers le haut (SCYTHE_CONFIG ▸ Dash peut le changer)
+	pitch = math.clamp(pitch, grounded and 0 or -(D.MaxDownAngle or 18), D.MaxUpAngle or 85)
 	local r = math.rad(pitch)
 	return (flat * math.cos(r) + Vector3.new(0, math.sin(r), 0)).Unit, flat
 end
 
+-- 🎥 FOV du dash : le FOV « normal » est mémorisé UNE fois par coup de FOV, jamais pendant
+--    qu'un coup est en cours (sinon un dash pendant le retour gardait 78° comme « normal »).
+--    Si un autre script change le FOV pendant le coup (dialogue, cinématique), on ne l'écrase pas.
+local fovKick = { id = 0, base = nil, peak = nil }
 local function kickCamera()
 	local cam = workspace.CurrentCamera
 	if not cam then return end
 	if (D.FovKick or 0) > 0 then
-		local base = cam.FieldOfView
-		local tw = TweenService:Create(cam, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { FieldOfView = base + D.FovKick })
-		tw:Play()
+		fovKick.id += 1
+		local id = fovKick.id
+		-- le FOV normal publié par UIFocusSystem (jamais une valeur en plein zoom de menu)
+		if not fovKick.base then fovKick.base = cam:GetAttribute("UIFocusNormalFOV") or cam.FieldOfView end
+		local base = fovKick.base
+		fovKick.peak = base + D.FovKick
+		TweenService:Create(cam, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { FieldOfView = fovKick.peak }):Play()
 		task.delay(0.12 + (D.Duration or 0.2), function()
-			TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = base }):Play()
+			if fovKick.id ~= id then return end
+			-- quelqu'un d'autre a pris la main sur le FOV : on le laisse faire
+			if math.abs(cam.FieldOfView - fovKick.peak) > 1 then fovKick.base = nil return end
+			local tw = TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = base })
+			tw.Completed:Connect(function()
+				if fovKick.id == id then fovKick.base = nil end
+			end)
+			tw:Play()
 		end)
 	end
 	if (D.Shake or 0) > 0 then
@@ -225,8 +241,9 @@ local function tryDash()
 					local v = dir * speed * (D.CarryOver or 0.35)
 					hrp.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, hrp.AssemblyLinearVelocity.Y * 0.3), v.Z)
 				end
-				-- 🛡️ anti-rebond : pendant un court instant, aucune vitesse ne dépasse celle du dash
-				local cap = speed * (D.CarryOver or 0.35) + 20
+				-- 🛡️ anti-rebond : pendant un court instant, aucune vitesse ne dépasse l'élan du dash
+				--    (bloqué par un obstacle : pas plus vite qu'en marchant → aucun rebond possible)
+				local cap = blocked and 16 or (speed * (D.CarryOver or 0.35) + 20)
 				local t1 = os.clock()
 				local guard
 				guard = RunService.Heartbeat:Connect(function()
@@ -241,18 +258,22 @@ local function tryDash()
 			end
 			dashing = false
 		end
-		-- 👀 regarde devant (pieds, ventre, tête) à chaque image : obstacle juste devant → on s'arrête AVANT de le percuter
+		-- 👀 à chaque image : le CORPS ENTIER (bras compris) est lancé devant toi ; obstacle juste devant
+		--    → arrêt AVANT de le percuter. Et si quand même freiné (coin, objet fin…) → arrêt immédiat.
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
 		params.FilterDescendantsInstances = { char }
 		params.RespectCanCollide = true
+		local BOX = Vector3.new(3.6, 4.6, 1.4)          -- R6 : largeur bras compris, des pieds à la tête
+		local t0 = os.clock()
 		watch = RunService.Heartbeat:Connect(function(dt)
 			if not hrp.Parent then finish(true) return end
-			local reach = dir * (speed * math.max(dt, 1 / 60) * 1.5 + 0.6)
-			for _, y in ipairs({ -2.2, 0, 1.4 }) do
-				local hit = workspace:Spherecast(hrp.Position + Vector3.new(0, y, 0), 0.9, reach, params)
-				if hit and hit.Normal:Dot(dir) < -0.3 then finish(true) return end
-			end
+			local reach = dir * (speed * math.max(dt, 1 / 60) * 2 + 0.4)
+			local box = CFrame.new(hrp.Position + Vector3.new(0, -0.4, 0)) * hrp.CFrame.Rotation
+			local hit = workspace:Blockcast(box, BOX, reach, params)
+			if hit and hit.Normal:Dot(dir) < -0.25 then finish(true) return end
+			-- freiné par quelque chose que le lancer n'a pas vu : on n'insiste pas (sinon la physique renvoie)
+			if os.clock() - t0 > 0.06 and hrp.AssemblyLinearVelocity:Dot(dir) < speed * 0.5 then finish(true) end
 		end)
 		task.delay(D.Duration or 0.2, function() finish(false) end)
 	end
@@ -278,9 +299,20 @@ local function unequip()
 	pcall(function() ContextActionService:UnbindAction("JackScytheDash") end)
 end
 
+-- la faux ne touche jamais le décor : sa grande lame contre un mur repoussait le joueur (rebond du dash)
+local function ghostTool(tool)
+	for _, p in ipairs(tool:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.CanCollide = false
+			p.Massless = true
+		end
+	end
+end
+
 local function equip(tool, char)
 	unequip()
 	cur.tool = tool
+	ghostTool(tool)
 	-- ⚡ poignée locale tout de suite (plus d'attente du serveur)
 	cur.grip = localGrip(tool, char)
 	if not cur.grip then
