@@ -54,7 +54,7 @@ fin.location=(0,0,0)
 print('ORIGIN SHIFT',tuple(round(c,3) for c in cen))
 bpy.ops.object.select_all(action='DESELECT'); fin.select_set(True); bpy.context.view_layer.objects.active=fin
 bpy.ops.wm.obj_export(filepath=OUT+'/GhostVac_UGC.obj',export_selected_objects=True,forward_axis='Z',up_axis='Y',export_materials=True,export_triangulated_mesh=True,path_mode='RELATIVE')
-bpy.ops.export_scene.fbx(filepath=OUT+'/GhostVac_UGC.fbx',use_selection=True,axis_forward='Z',axis_up='Y',apply_unit_scale=True,path_mode='RELATIVE',mesh_smooth_type='FACE')
+bpy.ops.export_scene.fbx(filepath=OUT+'/GhostVac_UGC.fbx',use_selection=True,axis_forward='Z',axis_up='Y',apply_unit_scale=True,global_scale=0.0097392,path_mode='RELATIVE',mesh_smooth_type='FACE')   # Roblox reads this FBX in cm: 0.0097392 -> imports at the fitted size (2.40 x 2.44 x 2.13 studs), no rescale needed
 for c in sc.view_layers[0].layer_collection.children:
     if c.name=='Preview_Mannequin': c.exclude=False
 fin.location=cen   # keep it on the preview mannequin in the .blend; origin stays at the centre

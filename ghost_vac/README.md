@@ -1,5 +1,6 @@
 # GhostVac — sac à dos aspirateur à fantômes (UGC accessoire de dos)
 
+- `GhostVac_UGC.fbx` : à utiliser pour l'import — s'importe directement à la bonne taille (2,40 × 2,44 × 2,13 studs), ne pas redimensionner dans Studio (sinon erreur « Mesh scale is too small »).
 - `GhostVac_UGC.obj` / `.fbx` : mesh final, 1 seul mesh, 1 seul matériau, **3 994 triangles**, environ 2,0 × 2,4 × 2,3 studs.
 - `GhostVac_UGC.blend` : scène Blender (textures intégrées, mannequin Blocky de preview dans `Preview_Mannequin`, pièces séparées dans les collections Tank, Tank_Inner_Inverted, Smoke, Ghost, Ghost_Outline_Inverted, Hose, Gun, Straps ; objet final `GhostVac_UGC`).
 - Textures 1024×1024 :
