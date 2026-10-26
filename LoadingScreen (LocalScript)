@@ -1,4 +1,4 @@
--- Loading script - ⚠️ À PLACER DANS ReplicatedFirst (PAS StarterPlayerScripts)
+-- Loading script - à mettre au MÊME endroit que ton ancien loader (StarterPlayer ▸ StarterPlayerScripts)
 -- LocalScript
 -- ✅ ANTI-FLASH : la fin du chargement est annoncée quand l'écran est encore 100 % noir.
 --    Le How to Play s'ouvre (et UIFocusSystem cache les autres UI) AVANT que le noir s'enlève :
