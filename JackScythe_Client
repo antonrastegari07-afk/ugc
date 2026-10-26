@@ -196,6 +196,7 @@ local function tryDash()
 		launched = true
 		if not hrp.Parent then dashing = false return end
 		hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flat)
+		local speed = D.Speed or 92
 		local a = Instance.new("Attachment")
 		a.Name = "JackScytheDash"
 		a.Parent = hrp
@@ -204,18 +205,56 @@ local function tryDash()
 		lv.Attachment0 = a
 		lv.RelativeTo = Enum.ActuatorRelativeTo.World
 		lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-		lv.MaxForce = math.huge
-		lv.VectorVelocity = dir * (D.Speed or 92)
+		-- force FINIE (avant : math.huge → contre un mur, la physique éjectait le joueur très loin)
+		lv.MaxForce = hrp.AssemblyMass * 4000
+		lv.VectorVelocity = dir * speed
 		lv.Parent = hrp
 		kickCamera()
-		task.delay(D.Duration or 0.2, function()
+		local finished = false
+		local watch
+		-- 🧱 fin du dash : en touchant un obstacle → arrêt net, sans élan ; sinon le petit élan normal
+		local function finish(blocked)
+			if finished then return end
+			finished = true
+			if watch then watch:Disconnect() end
 			lv:Destroy() ; a:Destroy()
 			if hrp.Parent then
-				local v = dir * (D.Speed or 92) * (D.CarryOver or 0.35)
-				hrp.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, hrp.AssemblyLinearVelocity.Y * 0.3), v.Z)
+				if blocked then
+					hrp.AssemblyLinearVelocity = Vector3.new(0, math.min(hrp.AssemblyLinearVelocity.Y, 0), 0)
+				else
+					local v = dir * speed * (D.CarryOver or 0.35)
+					hrp.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, hrp.AssemblyLinearVelocity.Y * 0.3), v.Z)
+				end
+				-- 🛡️ anti-rebond : pendant un court instant, aucune vitesse ne dépasse celle du dash
+				local cap = speed * (D.CarryOver or 0.35) + 20
+				local t1 = os.clock()
+				local guard
+				guard = RunService.Heartbeat:Connect(function()
+					if not hrp.Parent or os.clock() - t1 > 0.35 then guard:Disconnect() return end
+					-- seulement l'horizontal et la montée : une chute normale n'est jamais freinée
+					local v = hrp.AssemblyLinearVelocity
+					local h = Vector3.new(v.X, 0, v.Z)
+					local hx = h.Magnitude > cap and h.Unit * cap or h
+					local vy = math.min(v.Y, cap)
+					if hx ~= h or vy ~= v.Y then hrp.AssemblyLinearVelocity = Vector3.new(hx.X, vy, hx.Z) end
+				end)
 			end
 			dashing = false
+		end
+		-- 👀 regarde devant (pieds, ventre, tête) à chaque image : obstacle juste devant → on s'arrête AVANT de le percuter
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { char }
+		params.RespectCanCollide = true
+		watch = RunService.Heartbeat:Connect(function(dt)
+			if not hrp.Parent then finish(true) return end
+			local reach = dir * (speed * math.max(dt, 1 / 60) * 1.5 + 0.6)
+			for _, y in ipairs({ -2.2, 0, 1.4 }) do
+				local hit = workspace:Spherecast(hrp.Position + Vector3.new(0, y, 0), 0.9, reach, params)
+				if hit and hit.Normal:Dot(dir) < -0.3 then finish(true) return end
+			end
 		end)
+		task.delay(D.Duration or 0.2, function() finish(false) end)
 	end
 	if tr then
 		local c
