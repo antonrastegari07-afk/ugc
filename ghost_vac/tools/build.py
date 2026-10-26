@@ -345,12 +345,12 @@ SD=0.045; SX=0.84
 Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.22; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
-    XT,XF=0.76,0.895         # x over the shoulder -> x at the bottom of the chest (straps drift to the sides like a real backpack)
+    XT,XF=0.76,0.935         # x over the shoulder -> x at the bottom of the chest (straps drift to the sides like a real backpack)
     ctrl=[(sx*0.33,0.82,0.85),(sx*0.47,0.72,0.85),(sx*0.70,0.58,0.92),(sx*XT,0.42,ZT),(sx*XT,0.15,ZT),(sx*XT,-0.10,ZT)]
     ctrl+=[(sx*(XT+0.02*t/(math.pi/2)),Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
-    ctrl+=[(sx*0.83,Y0,0.62),(sx*0.87,Y0,0.36),(sx*XF,Y0,0.10)]
-    ctrl+=[(sx*XF,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner, at the side
-    ctrl+=[(sx*0.88,0.10,ZB),(sx*0.85,0.42,ZB),(sx*0.62,0.60,-0.25),(sx*0.47,0.72,-0.25),(sx*0.33,0.82,-0.25)]
+    ctrl+=[(sx*0.82,Y0,0.62),(sx*0.88,Y0,0.36),(sx*XF,Y0,0.10)]
+    ctrl+=[(sx*xx,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t,xx in zip(np.linspace(0,math.pi/2,4),(XF,XF,XF,0.93))]   # bottom-front corner, tucks in under the arm
+    ctrl+=[(sx*0.90,0.10,ZB),(sx*0.85,0.42,ZB),(sx*0.62,0.60,-0.25),(sx*0.47,0.72,-0.25),(sx*0.33,0.82,-0.25)]
     out=[]; 
     for p in ctrl:
         if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
