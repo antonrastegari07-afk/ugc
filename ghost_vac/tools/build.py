@@ -84,7 +84,7 @@ def anchors_fn():   # small clamps where the straps enter the blocks (built befo
 def collars_fn():   # round rings where the round glass meets the octagonal blocks
     bm,uvl=new_bm()
     for z0,z1 in ((-0.475,-0.425),(0.425,0.465)):
-        lathe(bm,uvl,[(0.44,z0),(0.48,z0),(0.48,z1),(0.44,z1),(0.44,z0)],28,R['jamb'],cy=TY,invert=True)   # stays behind the glass wall: invisible from inside
+        lathe(bm,uvl,[(0.44,z0),(0.48,z0),(0.48,z1),(0.44,z1),(0.44,z0)],20,R['jamb'],cy=TY,invert=True)   # stays behind the glass wall: invisible from inside
     return mkobj('Glass_Collars','Tank',bm)
 def bars_fn():
     bm,uvl=new_bm()
@@ -103,7 +103,8 @@ def handle_top_fn():
     return mkobj('Top_Handle','Tank',bm)
 def bubbles_fn():
     bm,uvl=new_bm()
-    for (ang,rad,zc,sz) in ((55,0.31,-0.12,0.035),(-60,0.30,0.05,0.028),(30,0.34,0.24,0.022),(-35,0.33,-0.26,0.03)):
+    for (ang,rad,zc,sz) in ((55,0.31,-0.12,0.035),(-60,0.30,0.05,0.028),(30,0.34,0.24,0.022),(-35,0.33,-0.26,0.03),
+                            (145,0.33,0.18,0.03),(-150,0.32,-0.05,0.034),(170,0.34,0.36,0.024),(-125,0.34,-0.30,0.028)):   # + behind the ghost
         a_=math.radians(ang); cx,cy=math.sin(a_)*rad,TY+math.cos(a_)*rad
         lathe(bm,uvl,[(0,zc+sz),(sz*0.87,zc+sz*0.5),(sz*0.87,zc-sz*0.5),(0,zc-sz)],6,R['bubble'],cx=cx,cy=cy)
     return mkobj('Bubbles','Smoke',bm)
