@@ -1,0 +1,127 @@
+-- Script LocalScript à mettre dans la Frame parente (doit être dans StarterGui)
+-- How to Play/HtpButton2 : s'affiche après le loading ET après le Rookie Guide.
+-- ✅ ANTI-FLASH : le How to Play s'ouvre pendant que l'écran du loader est encore NOIR.
+--    UIFocusSystem cache donc les autres UI avant la révélation : plus de flash.
+--    Le loader attend ce script grâce à PlayerGui.IntroHowToPlay ("waiting" → "shown" / "later").
+--    À la fermeture, UIFocusSystem remet toutes les UI comme avant.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local frame = script.Parent
+local button = frame:FindFirstChild("ShopToggle", true)
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Position centrale
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+-- Caché tant qu'on n'a pas décidé de l'afficher (sinon UIFocusSystem le
+-- considère ouvert sous le guide : flou + FOV 60)
+frame.Visible = false
+
+-- 📣 Prévient le loader qu'il doit attendre notre décision avant d'enlever le noir
+-- (seulement pendant le premier chargement, pas si ce script redémarre plus tard)
+local flagNow = ReplicatedStorage:FindFirstChild("LoadingCompleteFlag")
+if not (flagNow and flagNow.Value == true) then
+	playerGui:SetAttribute("IntroHowToPlay", "waiting")
+end
+local function setIntro(state)
+	if playerGui:GetAttribute("IntroHowToPlay") ~= nil then
+		playerGui:SetAttribute("IntroHowToPlay", state)
+	end
+end
+
+-- Variable pour éviter l'affichage multiple
+local hasShownOnce = false
+
+-- 🎬 le noir du loader est-il en train de s'enlever ? (ou le loader n'existe plus)
+local function loaderRevealed()
+	return playerGui:GetAttribute("LoaderRevealed") == true or not playerGui:FindFirstChild("LoadingScreen")
+end
+
+-- Fonction pour afficher le How to Play (avec l'animation d'entrée)
+local function ShowShop()
+	if hasShownOnce then return end
+	hasShownOnce = true
+
+	-- Le panneau intérieur reste caché tant que l'écran est noir :
+	-- son animation de rebond se joue au moment où le joueur voit l'écran.
+	local inner = frame:FindFirstChild("HtpButton")
+	if inner and inner:IsA("GuiObject") then
+		inner.Visible = false
+	end
+	-- La Frame visible = UIFocusSystem prend le focus et cache les autres UI (sous le noir)
+	frame.Visible = true
+	setIntro("shown")
+
+	if inner and inner:IsA("GuiObject") then
+		task.spawn(function()
+			local t = 0
+			while not loaderRevealed() and t < 10 do
+				task.wait(0.05)
+				t = t + 0.05
+			end
+			task.wait(0.05)
+			if inner.Parent and frame.Visible then inner.Visible = true end
+		end)
+	end
+end
+
+-- 🎓 ATTENDRE LA FIN DU ROOKIE GUIDE
+-- Le guide publie PlayerGui.RookieGuideState : "pending" -> "running" -> "done".
+local function waitRookieGuide()
+	-- Laisse au guide le temps de se déclarer (il le fait dès son lancement ;
+	-- s'il n'est pas installé : on n'attend pas plus)
+	local t = 0
+	while playerGui:GetAttribute("RookieGuideState") == nil and t < 2 do
+		task.wait(0.1)
+		t = t + 0.1
+	end
+	-- "pending" = vérification serveur en cours (sécurité : 60 s max)
+	t = 0
+	while playerGui:GetAttribute("RookieGuideState") == "pending" and t < 60 do
+		task.wait(0.2)
+		t = t + 0.2
+	end
+	-- "running" = le joueur fait le guide : le loader n'attend pas, on s'affiche à la fin du guide
+	if playerGui:GetAttribute("RookieGuideState") == "running" then
+		setIntro("later")
+	end
+	while playerGui:GetAttribute("RookieGuideState") == "running" do
+		playerGui:GetAttributeChangedSignal("RookieGuideState"):Wait()
+	end
+end
+
+-- 🔍 ATTENDRE LE FLAG DE FIN DU LOADING SCREEN
+task.spawn(function()
+	-- Attendre que le flag existe (max 30 secondes)
+	local loadingCompleteFlag = ReplicatedStorage:WaitForChild("LoadingCompleteFlag", 30)
+
+	if loadingCompleteFlag then
+		-- Si le flag n'est pas encore true, attendre qu'il le devienne
+		-- (le loader le met à true quand l'écran est encore noir)
+		while loadingCompleteFlag.Value ~= true do
+			loadingCompleteFlag.Changed:Wait()
+		end
+	else
+		-- Fallback si le flag n'existe pas
+		warn("⚠️ LoadingCompleteFlag introuvable après 30 secondes, utilisation du fallback")
+		setIntro("later")
+		if not player.Character then player.CharacterAdded:Wait() end
+		task.wait(2)
+	end
+
+	waitRookieGuide()
+	-- ⚡ tout de suite (plus de petite pause) : pas de moment où toutes les UI se montrent
+	ShowShop()
+end)
+
+-- Bouton de fermeture : UIFocusSystem remet toutes les autres UI comme avant
+if button then
+	button.MouseButton1Click:Connect(function()
+		frame.Visible = false
+	end)
+else
+	warn("Bouton ShopToggle introuvable dans les descendants de la frame")
+end
