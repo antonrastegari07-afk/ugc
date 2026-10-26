@@ -299,7 +299,7 @@ SD=0.045; SX=0.84
 Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.22; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
-    ctrl=[(sx*0.33,0.82,0.85),(sx*0.50,0.72,0.90),(sx*0.74,0.64,1.035),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
+    ctrl=[(sx*0.33,0.82,0.85),(sx*0.47,0.72,0.85),(sx*0.70,0.58,0.92),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
     ctrl+=[(x,Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
     ctrl+=[(x,Y0,0.55),(x,Y0,0.25)]
     ctrl+=[(x,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner
