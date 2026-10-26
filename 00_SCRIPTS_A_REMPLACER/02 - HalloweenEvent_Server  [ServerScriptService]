@@ -1212,18 +1212,44 @@ local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 pcall(function() rayParams.RespectCanCollide = true end)
 
-local function randomSpot()
+-- 📍 un coin apparaît dans la partie des zones PROCHE DU JOUEUR (≤ SpawnNear studs) :
+--    plus jamais dans une zone à l'autre bout de la map où il bloquait une place pour rien
+local SPAWN_NEAR = tonumber(Z.SpawnNear) or 150
+local function nearRect(p, me)
+	local l = p.CFrame:PointToObjectSpace(me)
+	local hx, hz = p.Size.X / 2 * 0.9, p.Size.Z / 2 * 0.9
+	local x0, x1 = math.max(-hx, l.X - SPAWN_NEAR), math.min(hx, l.X + SPAWN_NEAR)
+	local z0, z1 = math.max(-hz, l.Z - SPAWN_NEAR), math.min(hz, l.Z + SPAWN_NEAR)
+	if x0 >= x1 or z0 >= z1 then return nil end
+	return x0, x1, z0, z1
+end
+
+local function randomSpot(player)
 	if #zoneParts == 0 then return nil end
-	local total = 0
-	for _, p in ipairs(zoneParts) do total += p.Size.X * p.Size.Z end
-	local r = rng:NextNumber() * total
-	local part = zoneParts[#zoneParts]
+	local ch = player and player.Character
+	local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+	if not hrp then return nil end
+	local me = hrp.Position
+	local cands, total = {}, 0
 	for _, p in ipairs(zoneParts) do
-		r -= p.Size.X * p.Size.Z
-		if r <= 0 then part = p break end
+		if p.Parent then
+			local x0, x1, z0, z1 = nearRect(p, me)
+			if x0 then
+				local a = (x1 - x0) * (z1 - z0)
+				total += a
+				table.insert(cands, { p = p, a = a, x0 = x0, x1 = x1, z0 = z0, z1 = z1 })
+			end
+		end
 	end
-	local s = part.Size
-	local lx, lz = (rng:NextNumber() - 0.5) * s.X * 0.9, (rng:NextNumber() - 0.5) * s.Z * 0.9
+	if total <= 0 then return nil end                -- aucune zone près du joueur : rien à faire apparaître
+	local r = rng:NextNumber() * total
+	local c = cands[#cands]
+	for _, k in ipairs(cands) do
+		r -= k.a
+		if r <= 0 then c = k break end
+	end
+	local part, s = c.p, c.p.Size
+	local lx, lz = rng:NextNumber(c.x0, c.x1), rng:NextNumber(c.z0, c.z1)
 	local top = part.CFrame:PointToWorldSpace(Vector3.new(lx, s.Y / 2, lz))
 	local ignore = { workspace:FindFirstChild(Z.Folder or "HalloweenCoinZones") }
 	for _, pl in ipairs(Players:GetPlayers()) do if pl.Character then table.insert(ignore, pl.Character) end end
@@ -1309,6 +1335,22 @@ task.spawn(function()
 				local capped = st.d.zone.got >= (Z.DailyCap or 0)
 				if not open or capped then
 					clearCoins(pl, st)
+				elseif not AROUND then
+					-- ⏳ un coin pas ramassé ne garde pas sa place pour toujours :
+					--    trop vieux, ou laissé loin derrière toi → il disparaît et un nouveau apparaît près de toi
+					local ch = pl.Character
+					local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+					local life = tonumber(Z.CoinLifetime) or 90
+					local far = tonumber(Z.DespawnDistance) or 220
+					for id, c in pairs(cs.list) do
+						local age = t - (c.born or t)
+						local away = hrp and (c.pos - hrp.Position).Magnitude > far
+						if age > life or (away and age > 15) then
+							cs.list[id] = nil
+							cs.n -= 1
+							push(pl, "coinNo", { Id = id, Gone = true })
+						end
+					end
 				else
 					-- (AroundPlayer) les coins restés trop loin de toi disparaissent : de nouveaux apparaissent près de toi
 					if AROUND then
@@ -1327,13 +1369,13 @@ task.spawn(function()
 					end
 				end
 				if open and not capped and cs.n < (Z.MaxAlive or 6) and t >= cs.nextT then
-					local pos = AROUND and spotNear(pl) or (not AROUND and randomSpot()) or nil
+					local pos = AROUND and spotNear(pl) or (not AROUND and randomSpot(pl)) or nil
 					local rs = Z.RespawnEvery or { 8, 16 }
-					cs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)     -- pas de sol ici : on réessaie vite
+					cs.nextT = t + (pos and rng:NextNumber(rs[1], rs[2]) or 1.5)     -- pas de sol / pas de zone ici : on réessaie vite
 					if pos then
 						coinSeq += 1
 						local id = ("%x%04x"):format(coinSeq, rng:NextInteger(0, 0xffff))
-						cs.list[id] = { pos = pos }
+						cs.list[id] = { pos = pos, born = t }
 						cs.n += 1
 						push(pl, "coinAdd", { Id = id, P = { pos.X, pos.Y, pos.Z } })
 					end

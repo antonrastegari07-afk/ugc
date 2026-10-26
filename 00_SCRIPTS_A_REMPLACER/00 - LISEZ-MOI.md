@@ -6,7 +6,7 @@ Entre crochets : où le mettre. Remplace-les **tous en même temps** (certains s
 | # | Script | Où dans Roblox | Ce qui a été corrigé |
 |---|---|---|---|
 | 01 | checkpoints system | ServerScriptService | Prévient les quêtes Halloween à chaque checkpoint (touché / skip / rebirth), anti-exploit |
-| 02 | HalloweenEvent_Server | ServerScriptService | Quêtes checkpoints + playtime, rebirth, weekly renouvelées chaque samedi à minuit pour tous, sauvegardes retentées, moins de réseau (vues des quêtes regroupées) |
+| 02 | HalloweenEvent_Server | ServerScriptService | Quêtes checkpoints + playtime, rebirth, weekly renouvelées chaque samedi à minuit pour tous, sauvegardes retentées, moins de réseau (vues des quêtes regroupées), coins qui apparaissent près de toi et disparaissent s'ils sont oubliés (plus de blocage) |
 | 03 | HalloweenEvent_Client | même place que ton client Halloween | Compteur weekly ; coins loin de toi rangés (plus affichés ni animés, rien dans le vide) |
 | 04 | JackScytheService | ServerScriptService ▸ JackScythe | Faux jamais perdue, rendue après le PvP, faux DEV pour tous les admins, lame sans collision, anti-boucle si un autre script la retire |
 | 05 | JackScythe_Client | StarterPlayer ▸ StarterPlayerScripts | Sortie instantanée, plus de rebond au dash, dash vers le haut, bouton DASH mobile seulement faux en main, correction du FOV gardée |
