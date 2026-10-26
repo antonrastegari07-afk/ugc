@@ -76,11 +76,11 @@ RIN=0.42
 def anchors_fn():   # small clamps where the straps enter the blocks (built before the +DZ raise)
     bm,uvl=new_bm()
     for sx in (-1,1):
-        d=Vector((sx*0.33,-0.28,0)).normalized(); t=Vector((-d.y,d.x,0))
-        rot=Matrix.Rotation(math.atan2(t.y,t.x),3,'Z')
-        for zc in (0.55,-0.55):
+        for zc,ang in ((0.55,125.3),(-0.55,129.6)):   # centred on where each strap actually enters the block
+            a_=math.radians(ang); d=Vector((sx*math.sin(a_),math.cos(a_),0)); t=Vector((-d.y,d.x,0))
+            rot=Matrix.Rotation(math.atan2(t.y,t.x),3,'Z')
             c=Vector((0,TY,zc))+d*0.515
-            box(bm,uvl,tuple(c),(0.19,0.05,0.07),R['clips'],rot)
+            box(bm,uvl,tuple(c),(0.20,0.05,0.07),R['clips'],rot)
     return mkobj('Strap_Anchors','Straps',bm)
 def collars_fn():   # round rings where the round glass meets the octagonal blocks
     bm,uvl=new_bm()
