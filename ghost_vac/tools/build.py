@@ -16,7 +16,7 @@ R={
  'stock':(0.5,0.125,0.625,0.25),'gunbody':(0.625,0.125,0.75,0.25),'barrel':(0.75,0.125,0.875,0.25),'fins':(0.875,0.125,1.0,0.25),'funnel':(0.5,0.0,0.625,0.125),
  'handle':(0.625,0.0,0.75,0.125),'clips':(0.75,0.0,0.875,0.125),'chest':(0.875,0.0,1.0,0.125),
 }
-NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle','collar']
+NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle','collar','anchor']
 PID={k:i for i,k in enumerate(NAMES)}
 def rmap(rect,u,v):
     u0,v0,u1,v1=rect
@@ -72,6 +72,15 @@ def top_fn():
 def bottom_fn():
     bm,uvl=new_bm(); lathe(bm,uvl,BOT,8,R['bottom'],cy=TY,theta0=OCT0,smooth=False); return mkobj('Block_Bottom','Tank',bm)
 RIN=0.42
+def anchors_fn():   # small clamps where the straps enter the blocks (built before the +DZ raise)
+    bm,uvl=new_bm()
+    for sx in (-1,1):
+        d=Vector((sx*0.33,-0.28,0)).normalized(); t=Vector((-d.y,d.x,0))
+        rot=Matrix.Rotation(math.atan2(t.y,t.x),3,'Z')
+        for zc in (0.55,-0.55):
+            c=Vector((0,TY,zc))+d*0.515
+            box(bm,uvl,tuple(c),(0.19,0.05,0.07),R['clips'],rot)
+    return mkobj('Strap_Anchors','Straps',bm)
 def collars_fn():   # round rings where the round glass meets the octagonal blocks
     bm,uvl=new_bm()
     for z0,z1 in ((-0.475,-0.425),(0.425,0.465)):
@@ -290,11 +299,11 @@ SD=0.045; SX=0.84
 Y0=-0.5-SD; ZT=1.0+SD; ZB=-0.22; CR_=0.13
 def strap_path(x):
     sx=math.copysign(1,x)
-    ctrl=[(sx*0.46,0.74,0.98),(sx*0.74,0.64,1.035),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
+    ctrl=[(sx*0.33,0.82,0.85),(sx*0.50,0.72,0.90),(sx*0.74,0.64,1.035),(x,0.42,ZT),(x,0.15,ZT),(x,-0.10,ZT)]
     ctrl+=[(x,Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
     ctrl+=[(x,Y0,0.55),(x,Y0,0.25)]
     ctrl+=[(x,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t in np.linspace(0,math.pi/2,4)]   # bottom-front corner
-    ctrl+=[(x,0.10,ZB),(x,0.42,ZB),(sx*0.60,0.60,-0.27),(sx*0.44,0.72,-0.26)]
+    ctrl+=[(x,0.10,ZB),(x,0.42,ZB),(sx*0.62,0.60,-0.25),(sx*0.47,0.72,-0.25),(sx*0.33,0.82,-0.25)]
     out=[]; 
     for p in ctrl:
         if not out or (Vector(p)-Vector(out[-1])).length>0.02: out.append(p)
@@ -327,7 +336,7 @@ def chest_fn():
     return mkobj('Chest_Strap','Straps',bm)
 
 order=[('inner',inner_fn),('cloud',cloud_fn),('bubble',bubbles_fn),('outline',outline_fn),('ghost',ghost_fn),
-       ('top',top_fn),('bottom',bottom_fn),('collar',collars_fn),('bars',bars_fn),('hose',hose_fn),('conn',conn_fn),('stock',stock_fn),('gunbody',gunbody_fn),('barrel',barrel_fn),('fins',fins_fn),('funnel',funnel_fn),
+       ('top',top_fn),('bottom',bottom_fn),('collar',collars_fn),('anchor',anchors_fn),('bars',bars_fn),('hose',hose_fn),('conn',conn_fn),('stock',stock_fn),('gunbody',gunbody_fn),('barrel',barrel_fn),('fins',fins_fn),('funnel',funnel_fn),
        ('handle',handle_fn),('clips',clips_fn),('strapL',lambda:strap_fn('Strap_L',-SX,R['strapL'])),
        ('strapR',lambda:strap_fn('Strap_R',SX,R['strapR']))]
 objs=[(k,fn()) for k,fn in order]

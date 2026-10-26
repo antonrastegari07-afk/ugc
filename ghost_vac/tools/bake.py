@@ -3,7 +3,7 @@ from PIL import Image, ImageFilter
 from noise import fbm, worley
 S=1024
 d=np.load('geo.npz'); P=d['P']; UV=d['UV']; NN=d['N']; PID=d['pid']
-NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle','collar']
+NAMES=['inner','smokewall','cloud','outline','ghost','top','bottom','bars','hose','conn','stock','gunbody','barrel','fins','funnel','handle','clips','strapL','strapR','chest','plate','bubble','thandle','collar','anchor']
 ID={k:i for i,k in enumerate(NAMES)}
 R={'hose':(0.0,0.0,0.5,0.125)}
 TY=1.10; GS=1.5; GZ0=-0.385; GX=-0.84
@@ -100,6 +100,7 @@ for key,zl,zs,za in (('top',(0.50,0.60,0.68,0.72),0.62,0.75),('bottom',(-0.53,-0
     mt=np.where(haz,0.2,1.0)*(1-eT)*(1-0.8*scr)
     rgv=np.where(eT>0.3,0.2,np.where(scr>0.5,0.1,np.where(haz,0.55,rm)))
     setp(m,c,mt,rgv,eT,0.4*edges-0.5*seams-0.4*vent+0.2*accent+0.15*scratches+0.6*rv-0.2*scr)
+m=k==ID['anchor']; ca_,ra_=metal(np.array([0.34,0.36,0.40]),edge=np.clip(np.abs(noise1),0,1)); setp(m,ca_,1.0,ra_,0.0,0.1*scratches)
 m=k==ID['collar']; ccl,rcl=metal(np.array([0.30,0.32,0.36]),edge=np.clip(np.abs(noise1),0,1)); setp(m,ccl,1.0,rcl,0.0,0.1*scratches)
 m=k==ID['bars']; cb,rb=metal(np.array([0.30,0.32,0.36]),edge=np.clip(np.abs(noise1)*0.6,0,1)); setp(m,cb,1.0,rb,0.0,0.15*scratches)
 # ---------------- INNER WALL (seen through the window) ----------------
