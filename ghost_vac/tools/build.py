@@ -348,7 +348,7 @@ def strap_path(x):
     sx=math.copysign(1,x)
     XT,XF=0.76,0.935         # x over the shoulder -> x at the bottom of the chest (straps drift to the sides like a real backpack)
     zs=DZ-0.30
-    ctrl=[(sx*0.33,0.75,0.85+zs),(sx*0.47,0.65,0.85+zs),(sx*0.70,0.56,0.92+zs),(sx*XT,0.42,ZT),(sx*XT,0.15,ZT),(sx*XT,-0.10,ZT)]
+    ctrl=[(sx*0.33,0.75,0.85+zs),(sx*0.58,0.72,0.86+zs),(sx*0.74,0.65,0.88+zs),(sx*XT,0.58,0.91),(sx*XT,0.53,0.98),(sx*XT,0.42,ZT),(sx*XT,0.0,ZT)]   # turns while flat, then climbs straight (no twist)
     ctrl+=[(sx*(XT+0.02*t/(math.pi/2)),Y0+CR_-CR_*math.sin(t),ZT-CR_+CR_*math.cos(t)) for t in np.linspace(0,math.pi/2,4)]   # front-top corner
     ctrl+=[(sx*0.82,Y0,0.62),(sx*0.88,Y0,0.36),(sx*XF,Y0,0.10)]
     ctrl+=[(sx*xx,Y0+CR_-CR_*math.cos(t),ZB+CR_-CR_*math.sin(t)) for t,xx in zip(np.linspace(0,math.pi/2,4),(XF,XF,XF,0.93))]   # bottom-front corner, tucks in under the arm
