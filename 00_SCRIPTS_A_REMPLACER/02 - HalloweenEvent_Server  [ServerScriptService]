@@ -61,7 +61,10 @@ local function utc(t)
 end
 local START, FINISH = utc(C.StartUTC), utc(C.EndUTC)
 local RESET = (C.ResetHourUTC or 0) * 3600
-local WEEK = 7 * 86400                       -- hebdo : 7 jours PERSONNELS, comptés dès que le joueur ouvre la fenêtre ou gagne des coins
+-- 🗓️ hebdo : renouvelées pour TOUT LE MONDE le même jour de la semaine, à l'heure des daily (ResetHourUTC)
+--    C.WeeklyResetDay (HALLOWEEN_EVENT_CONFIG, optionnel) : "Saturday" par défaut = la nuit de vendredi à samedi
+local WEEKDAY_OFFSET = { Thursday = 0, Friday = 1, Saturday = 2, Sunday = 3, Monday = 4, Tuesday = 5, Wednesday = 6 }
+local WEEK_SHIFT = (WEEKDAY_OFFSET[C.WeeklyResetDay or "Saturday"] or 2) * 86400   -- le 1er janvier 1970 était un jeudi
 
 local function now() return os.time() end
 local function active(t) t = t or now() return t >= START and t < FINISH end
@@ -85,7 +88,8 @@ end
 local function dayIndex(t) return math.floor((t - RESET) / 86400) end
 local function dayEnds(t) return (dayIndex(t) + 1) * 86400 + RESET end
 -- fin de la semaine du joueur (pas encore commencée : une semaine pleine à partir de maintenant)
-local function weekEnds(d, t) return (d.weekly.s > 0 and d.weekly.s or t) + WEEK end
+local function weekIndex(t) return math.floor((t - RESET - WEEK_SHIFT) / 604800) end
+local function weekEnds(t) return (weekIndex(t) + 1) * 604800 + RESET + WEEK_SHIFT end
 
 -- ════════════════════════════════════════════════════════════════
 -- 📚 INDEX DE LA CONFIG
@@ -152,7 +156,7 @@ local function blank()
 		v = 1, coins = 0, earned = 0, pts = 0,
 		tiers = {},                               -- [tierId] = os.time() de l'achat
 		daily = { p = -1, list = {} },            -- list[i] = { id, n, c (réclamée) }
-		weekly = { p = -1, s = 0, list = {} },     -- s = os.time() du début de SA semaine (0 = pas encore commencée)
+		weekly = { p = -1, v = 2, list = {} },     -- p = numéro de la semaine ; v = 2 : semaine fixe (même jour pour tous)
 		rr = { day = -1, used = 0, credits = 0 },
 		zone = { day = -1, got = 0 },
 		rc = {},                                  -- derniers PurchaseId appliqués
@@ -174,7 +178,6 @@ local function sanitize(d)
 		if type(d[w].list) ~= "table" then d[w].list = {} end
 		if type(d[w].p) ~= "number" then d[w].p = -1 end
 	end
-	if type(d.weekly.s) ~= "number" then d.weekly.s = 0 end   -- ancienne sauvegarde (semaine du lundi) : la semaine perso démarre à la prochaine ouverture
 	return d
 end
 
@@ -276,12 +279,18 @@ local function ensurePeriods(d, t)
 		d.daily = { p = di, list = pick(Q.Daily or {}, Q.DailyPerDiff, avoid) }
 		changed = true
 	end
-	-- hebdo : nouvelles quêtes quand SES 7 jours sont écoulés ; la semaine suivante redémarre
-	-- à la prochaine ouverture de la fenêtre / au prochain coin gagné (startWeek)
-	if d.weekly.p == -1 or (d.weekly.s > 0 and t >= d.weekly.s + WEEK) then
+	-- hebdo : nouvelles quêtes au changement de semaine (même jour et même heure pour tout le monde)
+	local wi = weekIndex(t)
+	if d.weekly.v ~= 2 then
+		-- ancienne sauvegarde (semaine perso / semaine du lundi) : on GARDE ses quêtes et sa progression,
+		-- elles seront renouvelées au prochain jour de reset (aucun reroll à l'installation)
+		if #d.weekly.list == 0 then d.weekly.list = pick(Q.Weekly or {}, Q.WeeklyPerDiff, nil) end
+		d.weekly = { p = wi, v = 2, list = d.weekly.list }
+		changed = true
+	elseif d.weekly.p ~= wi then
 		local avoid = {}
 		for _, e in ipairs(d.weekly.list) do avoid[e.id] = true end
-		d.weekly = { p = 0, s = 0, list = pick(Q.Weekly or {}, Q.WeeklyPerDiff, avoid) }
+		d.weekly = { p = wi, v = 2, list = pick(Q.Weekly or {}, Q.WeeklyPerDiff, avoid) }
 		changed = true
 	end
 	if d.rr.day ~= di then d.rr.day, d.rr.used = di, 0 changed = true end
@@ -289,12 +298,9 @@ local function ensurePeriods(d, t)
 	return changed
 end
 
--- ⏱️ lance le décompte de 7 jours (fenêtre ouverte ou coins gagnés) s'il ne tourne pas déjà
+-- (ancien décompte perso) : la semaine est maintenant fixe, il suffit de tenir les périodes à jour
 local function startWeek(d, t)
-	ensurePeriods(d, t)
-	if d.weekly.s > 0 then return false end
-	d.weekly.s = t
-	return true
+	return ensurePeriods(d, t)
 end
 
 local function entryDone(e)
@@ -615,7 +621,7 @@ local function buildView(player)
 		testAllFree = (isTester(uid) and freeBuy(uid, 1)) or nil,              -- … même pour les produits déjà créés
 		coins = d.coins, owned = owned, nextTier = nextTier(d),
 		daily = { ends = dayEnds(t), list = list("daily") },
-		weekly = { ends = weekEnds(d, t), started = d.weekly.s > 0, list = list("weekly") },
+		weekly = { ends = weekEnds(t), started = true, list = list("weekly") },
 		free = freeRerollsLeft(d), credits = d.rr.credits or 0,
 		zone = { got = d.zone.got, cap = Z.DailyCap or 0 },
 		jack = jackSummary(player),

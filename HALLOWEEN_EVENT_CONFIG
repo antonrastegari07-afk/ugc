@@ -51,9 +51,11 @@ C.EndUTC   = { Year = 2026, Month = 11, Day = 10,  Hour = 0 }
 -- La fenêtre reste ouverte en lecture « Event ended » pendant … jours, puis le panneau disparaît.
 C.ShowAfterEndDays = 3
 
--- 🔁 Remise à zéro des quêtes : les daily tous les jours à ResetHourUTC ; les hebdo 7 jours après la 1re ouverture
---    de la fenêtre (ou le 1er coin gagné) par le joueur — chaque joueur a son propre décompte
+-- 🔁 Remise à zéro des quêtes : les daily tous les jours à ResetHourUTC ; les hebdo le jour WeeklyResetDay à cette heure
 C.ResetHourUTC = 4          -- 04:00 UTC = minuit à Montréal
+-- 🗓️ Jour du renouvellement des quêtes hebdo (même heure que les daily) : "Monday" … "Sunday"
+--    "Saturday" = la nuit de vendredi à samedi, à minuit (Montréal). Ligne optionnelle : "Saturday" par défaut.
+C.WeeklyResetDay = "Saturday"
 
 -- ════════════════════════════════════════════════════════════════
 -- 🎃 COINS HALLOWEEN
