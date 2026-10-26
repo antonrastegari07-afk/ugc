@@ -215,8 +215,9 @@ def bezier(P,n):
 def circle(r,m): return [(r*math.cos(2*math.pi*k/m),r*math.sin(2*math.pi*k/m)) for k in range(m)]
 # ---------- HOSE + connectors ----------
 GX=-0.84  # gun axis x (character's right side, front is -Y)
-HOSE_C=[(0,TY,0.86),(0,TY+0.02,1.12),(-0.16,TY+0.14,1.30),(-0.42,TY+0.36,1.12),(-0.52,TY+0.46,0.66),(-0.58,TY+0.48,0.26),
-        (-0.72,TY+0.46,0.10),(-0.86,TY+0.42,0.30),(-0.92,TY+0.38,0.80),(-0.92,TY+0.26,1.16),(-0.88,TY+0.10,1.30),(GX,TY+0.02,1.22),(GX,TY,1.10),(GX,TY,1.02)]
+HOSE_C=[(0,TY,0.86),(0,TY-0.02,1.12),(-0.25,0.95,1.28),(-0.65,0.70,1.22),(-0.95,0.64,0.95),(-0.98,0.64,0.55),
+        (-0.97,0.66,0.22),(-0.98,0.73,0.10),(-0.99,0.80,0.25),(-0.99,0.80,0.70),(-0.97,0.86,1.05),(-0.90,0.98,1.24),
+        (GX,1.08,1.22),(GX,TY,1.10),(GX,TY,1.02)]   # slack loop runs between the gun and the wearer's back
 def hose_fn():
     bm,uvl=new_bm(); sweep(bm,uvl,catmull(HOSE_C,2),circle(0.07,6),R['hose'],ref=Vector((0,1,0)))
     return mkobj('Hose','Hose',bm)
