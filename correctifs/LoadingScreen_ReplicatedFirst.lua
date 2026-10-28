@@ -45,12 +45,6 @@ instantCover.Parent = screenGui
 -- ========================================
 -- CONFIGURATION
 -- ========================================
--- 📱 MODE LÉGER (téléphones / tablettes) : pas de vue 3D de l'île pendant le chargement,
---    pas de flou, et le serveur ne charge PAS la zone de la CameraPart en plus de celle du
---    spawn. Moins de mémoire et de GPU pendant le chargement → plus de crash sur iPad.
---    Mets false pour garder la vue de l'île partout.
-local LITE_ON_TOUCH = true
-local LITE_MODE = LITE_ON_TOUCH and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 local GAME_TITLE = "Free UGC Grind 2"
 local LOGO_IMAGE = "rbxassetid://123545186780825"
 local CAMERA_PART_NAME = "CameraPart"
@@ -137,13 +131,6 @@ end
 -- 🎥 Caméra : on attend la CameraPart en arrière-plan (sans bloquer l'UI).
 --    Le décor arrive APRÈS le démarrage du script quand il est dans ReplicatedFirst.
 task.spawn(function()
-	-- 📱 mode léger : pas de vue 3D, le fond reste sombre jusqu'à la fin du chargement
-	if LITE_MODE then return end
-	-- Demande au serveur de charger aussi le décor autour de la CameraPart (PC / console seulement)
-	task.spawn(function()
-		local ev = ReplicatedStorage:WaitForChild("LoaderWantFocus", 30)
-		if ev then pcall(function() ev:FireServer() end) end
-	end)
 	local camModel = workspace:WaitForChild("CameraPartModel", 60)
 	cameraPart = camModel and camModel:WaitForChild(CAMERA_PART_NAME, 30)
 	if not cameraPart then
@@ -168,7 +155,7 @@ task.spawn(function()
 	revealScene()
 end)
 -- Sécurité : si rien n'est trouvé du tout, on n'affiche pas un écran noir indéfiniment
-if not LITE_MODE then task.delay(20, revealScene) end
+task.delay(20, revealScene)
 characterAddedConnection = player.CharacterAdded:Connect(function(character)
 	if screenGui and screenGui.Parent and cameraBound then
 		task.wait()
@@ -217,16 +204,13 @@ overlay.BackgroundTransparency = 0.3
 overlay.BorderSizePixel = 0
 overlay.ZIndex = 1001
 overlay.Parent = mainFrame
--- Flou du décor derrière le loader (inutile en mode léger : il n'y a pas de décor affiché)
-if not LITE_MODE then
-	local blurEffect = Instance.new("BlurEffect")
-	blurEffect.Name = "LoadingBlur"
-	blurEffect.Size = 0
-	blurEffect.Parent = game.Lighting
-	TweenService:Create(blurEffect, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = 15
-	}):Play()
-end
+local blurEffect = Instance.new("BlurEffect")
+blurEffect.Name = "LoadingBlur"
+blurEffect.Size = 0
+blurEffect.Parent = game.Lighting
+TweenService:Create(blurEffect, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+	Size = 15
+}):Play()
 local contentFrame = Instance.new("Frame")
 contentFrame.Size = UDim2.new(1, 0, 1, 0)
 contentFrame.Position = UDim2.new(0, 0, 0, 0)
@@ -946,8 +930,6 @@ startExit = function(fast)
 	-- ⬛ ÉCRAN 100% NOIR → on coupe TOUT le contenu du loader d'un coup.
 	-- (tips + bouton skip inclus : plus rien ne peut réapparaître pendant le fade-out)
 	contentFrame.Visible = false
-	-- 📱 mode léger : le fond sombre est resté jusqu'ici ; on l'enlève sous le noir
-	if instantCover and instantCover.Parent then instantCover:Destroy() end
 	if overlay then overlay.BackgroundTransparency = 1 end
 	mainFrame.BackgroundTransparency = 1
 	unbindCamera()

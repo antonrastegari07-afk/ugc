@@ -53,26 +53,3 @@ Fichier : `admin/AdminToolsGiver.lua`
 
 `GiftingClient` reste dans StarterPlayerScripts : il est pour tout le monde.
 `GIFT local` est désactivé, et c'est une copie exacte de `GiftingClient` : tu peux le supprimer.
-
-## 4. Chargement plus léger (iPad, téléphones)
-
-Dossier : `chargement/`. Fais une copie du jeu avant de commencer. Teste ensuite en Play, puis avec l'émulateur iPad (Test ▸ Device).
-
-### Ordre d'installation
-
-1. **Loader** : remplace le contenu du LocalScript `ReplicatedFirst ▸ Loading screen` par le nouveau `LoadingScreen_ReplicatedFirst.lua`.
-   Nouveau **mode léger** sur téléphone et tablette :
-   - pas de vue 3D de l'île pendant le chargement ;
-   - pas de flou ;
-   - pas de 2e zone de map chargée.
-
-   Sur PC, rien ne change. Pour désactiver le mode léger : `LITE_ON_TOUCH = false`.
-2. **Focus caméra** : remplace le Script `ServerScriptService ▸ LoaderStreamFocus` par `chargement/LoaderStreamFocus.lua`. Le serveur ne charge la zone de la caméra que si le loader la demande (PC seulement).
-3. **Scripts envoyés après le chargement** : ajoute un Script `LateClientScripts` dans ServerScriptService avec `chargement/LateClientScripts.lua`.
-4. **Rangement automatique** : colle `chargement/RANGEMENT_barre_de_commande.lua` dans la barre de commande, puis Entrée. Il :
-   - déplace 20 LocalScripts lourds (environ 820 Ko, 37 boucles par image) vers `ServerStorage ▸ LateClientScripts` : NpcDialog, Halloween, DeathCam, ArenaHUD, PVP voting, etc. ;
-   - range le code mort dans `ServerStorage ▸ RangementBackup` : `Shopold`, `WeaponController_OLD` (298 Ko) et 32 scripts désactivés (environ 347 Ko).
-
-   Les scripts désactivés dont le nom est cité dans un autre script sont gardés.
-5. **Glows** : section 2 ci-dessus. **Pas encore fait dans ta version** : les 27 glows créent toujours des milliers de Frames au démarrage. C'est un des plus gros coûts pour iPad.
-6. **Workspace** : `StreamingTargetRadius` 350 → **256** (moins de map gardée en mémoire autour du joueur).
