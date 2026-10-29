@@ -1,6 +1,6 @@
 # Doublons FOV / zoom : causes et correctifs
 
-Analysé sur ta version « whole game after all little script part unity ». **Fais une copie du jeu avant.**
+Analysé sur ta version « whole game after all little script part unity » (le dernier fichier envoyé sur le dépôt). Chaque « Cherche » ci-dessous a été vérifié : il existe **une seule fois** dans le script de ce jeu. **Fais une copie du jeu avant.**
 
 ## La cause commune
 
@@ -21,6 +21,7 @@ UIFocus aggravait le problème : il **« apprenait »** comme nouveau FOV normal
 | 5 | **ZiplineClient** | Mémorise le FOV à l'accroche. | Remis en descendant de la zipline. |
 | 6 | **NpcDialog_Client** et **HideoutSpectate** | Mémorisent le FOV au début. | Remis à la fin. |
 | 7 | **WeaponMechanics** | Dès qu'une arme est **dans le sac**, il ramène le FOV à 70 **à chaque image**, en doublon d'UIFocus. | Il se bat avec le zoom d'achat, le boost du jetpack et la zipline : zoom / dézoom, effets à moitié visibles. |
+| 8 | **WeaponController** (patch déjà donné, **pas installé** dans ce jeu) | Une arme « fantôme » d'une vie précédente continue d'écrire le FOV. | Zoom / dézoom en boucle jusqu'au rejoin. |
 
 ## La correction
 
@@ -33,11 +34,12 @@ UIFocus aggravait le problème : il **« apprenait »** comme nouveau FOV normal
   - `InNpcDialog` (déjà là) ;
   - une caméra non `Custom` (killcam, dialogue, spectate).
 - **Filet de sécurité dans UIFocus** : si le FOV reste différent de 70 plus d'1 s et que **personne** ne le pilote, il est remis à 70 en douceur. Aucun bug restant ne peut donc bloquer le FOV.
-- **WeaponMechanics** n'écrit plus le FOV que pendant son propre effet (sprint / vitesse) et le temps de revenir à 70.
+- **WeaponMechanics** n'écrit plus le FOV que pendant son propre effet (sprint / vitesse) et le temps de revenir à 70. Il ajoute le FOV de la zipline, comme le WeaponController, et laisse le jetpack piloter quand il est en main.
+- **WeaponController** : seule l'arme tenue par le perso vivant écrit le FOV.
 
 Les menus gardent leur zoom et leur flou, et les armes gardent visée, sprint et zipline : ces scripts-là ne sont pas modifiés.
 
-## Installation (9 scripts)
+## Installation (10 scripts)
 
 ### 1. StarterGui ▸ UIFocusSystem ▸ SceneEffects
 Remplace **tout** le contenu par `fov_doublons/SceneEffects_COMPLET.lua`.
@@ -155,11 +157,13 @@ Cherche (Ctrl+F) :
 ```
 Remplace par :
 ```lua
-			local target = cfg.Sprint.HipFOV + fovKick
+			-- 🩹 + FOV de la zipline (comme le WeaponController) : les deux visent la même valeur
+			local target = cfg.Sprint.HipFOV + fovKick + (player:GetAttribute("ZiplineFOVAdd") or 0)
 			-- 🩹 On n'écrit le FOV que pendant NOTRE effet (sprint / vitesse) et le temps de revenir.
 			--    Avant : ramené à 70 à CHAQUE image dès qu'une arme était dans le sac → ça se battait
 			--    avec le zoom d'achat, le boost du jetpack et la zipline (zoom / dézoom).
-			local cam = workspace.CurrentCamera
+			--    Jetpack en main : c'est lui qui pilote le FOV.
+			local cam = (character and character:GetAttribute("JetpackFOV")) and nil or workspace.CurrentCamera
 			if cam and (fovKick > 0.01 or mechFOVActive) then
 				cam.FieldOfView += (target - cam.FieldOfView) * math.clamp(dt * 10, 0, 1)
 				local still = fovKick > 0.01 or math.abs(target - cam.FieldOfView) > 0.05
@@ -171,13 +175,29 @@ Remplace par :
 			end
 ```
 
+### 9. ReplicatedStorage ▸ WeaponSystem ▸ WeaponController
+
+Cherche (Ctrl+F) :
+```lua
+			camera.FieldOfView = BaseFOV + FireFOVOffset + WeaponSharedState.GetMoveFOV() + (zipFOV or 0)
+```
+Remplace par :
+```lua
+			-- 🩹 n'écrit le FOV que si CETTE arme est tenue par le perso actuel, vivant
+			--    (sinon une arme « fantôme » d'une vie précédente se bat avec la nouvelle)
+			local holder = tool.Parent
+			local holderHum = holder and holder:FindFirstChildOfClass("Humanoid")
+			if holder == Players.LocalPlayer.Character and holderHum and holderHum.Health > 0 then
+				camera.FieldOfView = BaseFOV + FireFOVOffset + WeaponSharedState.GetMoveFOV() + (zipFOV or 0)
+			end
+```
+
 ## Peut être supprimé (inutile, ne tourne pas)
 - `ReplicatedStorage ▸ RobuxPromptFX (old one)` : aucun script ne le charge.
 - `StarterPlayerScripts ▸ test effeect screen robux` et `StarterPlayerScripts ▸ test` : désactivés.
 - Dans les armes de ServerStorage (AK47, Deagle, Sniper, Minigun, ShotGun, AutoPistol, RPG), les anciens scripts désactivés (`ak47`, `sniper`, `Clienttest`, `deagle 2.0`…) changeaient le FOV eux-mêmes. Ils sont **désactivés** et ne posent pas de problème. Seuls les `new …` tournent, et ils passent par le WeaponController.
 
 ## Gardés tels quels (pas de doublon)
-- **WeaponController** : FOV des armes en main ; UIFocus ne le corrige pas, le patch FOV précédent est déjà installé.
 - **JackScythe_Client** : coup de FOV du dash ; il revient déjà au FOV normal d'UIFocus.
 - **WeaponDeathCleanup** : remet 70 si la lunette est restée après la mort ; filet utile.
 - **Loading screen** : met 70 au chargement.
