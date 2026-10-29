@@ -32,3 +32,8 @@ Analysé sur « final final ready publish ». Chaque objet du Workspace est ratt
 ## Vérifié
 - Chaque « Cherche » existe **une seule fois** dans ton script actuel.
 - Syntaxe OK sur les 9 scripts modifiés et sur le nouveau.
+
+## Si une barre ne tourne plus
+- **Cause la plus probable : le RunContext n'est pas sur `Client`.** Le script tourne alors sur le serveur, et `RenderStepped` y est interdit. Tu vois l'erreur « RenderStepped event can only be used from local scripts » dans l'Output.
+- **La version avec garde-fou** (dans le message de Claude) affiche à la place un warn qui donne le chemin exact du script à corriger.
+- **Niveaux 91-92 (`Bouncingpart`) :** leurs `spin Script` **et** leurs `killCode` sont **désactivés** dans toutes les versions envoyées. Ces barres n'ont jamais tourné ni tué. Pour les activer, coche `Enabled` sur les deux scripts, puis applique le même remplacement et `RunContext = Client` au `spin Script`.
