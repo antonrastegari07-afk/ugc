@@ -54,7 +54,7 @@ Fichier : `admin/AdminToolsGiver.lua`
 `GiftingClient` reste dans StarterPlayerScripts : il est pour tout le monde.
 `GIFT local` est désactivé, et c'est une copie exacte de `GiftingClient` : tu peux le supprimer.
 
-## 5. Les 1 173 scripts copiés-collés du Workspace → 1 script
+## 5. Les 1 177 scripts copiés-collés du Workspace → 1 script serveur + 1 script joueur
 
 Dossier : `workspace_scripts/`. **Fais une copie du jeu avant.**
 
@@ -70,6 +70,7 @@ Ce qui est converti (même fonctionnement, code recopié de tes scripts d'origin
 | Projection blocs / BouncePad | 47 | Force avant, force haut, cooldown |
 | Fondu au toucher | 43 | — |
 | Spots qui clignotent | 32 | → tourne **chez le joueur** (plus rien envoyé par le réseau) |
+| Flashing Brick (transparence seulement) | 4 | → tourne **chez le joueur**, la collision ne change pas |
 | Son de bouton | 19 | — |
 | Tapis roulants (Hard obby) | 13 | — |
 | Danseurs | 13 | Leur animation |
@@ -82,18 +83,18 @@ Les ≈ 90 scripts uniques (boutons parcours, timers, etc.) ne sont pas touchés
 ### Installation
 1. **ModuleScript** `WorkspaceScriptsConverter` dans **ServerStorage** ← `workspace_scripts/WorkspaceScriptsConverter.lua`
 2. **Script** `WorkspaceScriptsManager` dans **ServerScriptService** ← `workspace_scripts/WorkspaceScriptsManager.lua`
-3. **LocalScript** `BlinkingLights` dans **StarterPlayer ▸ StarterPlayerScripts** ← `workspace_scripts/BlinkingLightsClient.lua`
+3. **LocalScript** `VisualEffects` dans **StarterPlayer ▸ StarterPlayerScripts** ← `workspace_scripts/VisualEffectsClient.lua`
 4. **Barre de commande, test** (ne change rien) :
    ```lua
    require(game.ServerStorage.WorkspaceScriptsConverter).Run()
    ```
-   L'Output doit afficher **TOTAL 1173**, avec le détail par famille.
+   L'Output doit afficher **TOTAL 1177**, avec le détail par famille.
 5. **Barre de commande, conversion** :
    ```lua
    require(game.ServerStorage.WorkspaceScriptsConverter).Run(true)
    ```
    Les anciens scripts sont **déplacés** (pas supprimés) dans `ServerStorage ▸ WorkspaceScriptsBackup`.
-6. Teste en Play : drop parts, kill bricks, dégâts, coils, projections, portails, danseurs, spots.
+6. Teste en Play : drop parts, kill bricks, dégâts, coils, projections, bounce pads, portails, danseurs, spots, Flashing Brick.
 7. Pour tout remettre comme avant :
    ```lua
    require(game.ServerStorage.WorkspaceScriptsConverter).Restore()
@@ -101,3 +102,15 @@ Les ≈ 90 scripts uniques (boutons parcours, timers, etc.) ne sont pas touchés
    Ctrl+Z marche aussi juste après la conversion.
 
 Le convertisseur enregistre aussi éteintes les particules de `DonationEffect2`. Tes scripts de dons les éteignaient déjà 5 s après le démarrage du serveur, et les rallument pendant un don comme avant.
+
+### Vérifications faites (sur ta version « final copy after glow and other fixes »)
+- **879 réglages** comparés un par un avec le code d'origine (délais, dégâts, forces dont −170, ID de pass, RemoteEvents) : **0 différence**.
+- Chaque famille est reconnue **en entier**, et aucun script reconnu n'est écarté.
+- **Aucun autre script du jeu** n'accède à ces scripts par leur nom, ne les désactive, ne clone ou ne déplace leurs parts. Les plateformes mobiles qui portent des kill bricks ne font que les déplacer.
+- **Comportement testé** dans un environnement Roblox simulé : 19 vérifications OK.
+- **Restent sur le serveur, volontairement :**
+  - les hélices et les spin kill bricks (ils contiennent des kill bricks) ;
+  - les cylindres, flèches et missiles (ils tuent) ;
+  - tous les systèmes de données, d'économie et d'anti-triche.
+
+  Les passer côté joueur changerait le gameplay.

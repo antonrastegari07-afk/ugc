@@ -15,8 +15,9 @@
 --     ignorés). S'il est différent, même d'un caractère : le script n'est PAS touché.
 --   • recopie ses réglages (délai, dégâts, forces, ID de pass…) en attributs "WSM_<Famille>_<Réglage>"
 --     sur la part
---   • pose un Tag sur la part (lu par WorkspaceScriptsManager / BlinkingLightsClient)
+--   • pose un Tag sur la part (lu par WorkspaceScriptsManager / VisualEffectsClient)
 --   • déplace le script dans ServerStorage ▸ WorkspaceScriptsBackup (rien n'est supprimé)
+-- Les spots et les Flashing Brick sont animés côté joueur par VisualEffectsClient.
 -- Éteint aussi dans le fichier les particules de DonationEffect2 (tes scripts de dons les
 -- éteignent déjà 5 s après le démarrage du serveur : même résultat, sans les 5 premières s).
 -- Tout est annulable avec Ctrl+Z (ou Restore()).
@@ -647,6 +648,60 @@ end
 ]====],
 		},
 	},
+	{
+		id = "FlashingBrick", tag = "WSM_FlashingBrick", target = "parent", class = "BasePart",
+		params = {},
+		fixed = {},
+		strip = {},
+		sources = {
+			[====[--Made by: ScriptingCar
+
+while true do
+wait(.1)
+script.Parent.Transparency = .1
+wait(.1)
+script.Parent.Transparency = .2
+wait(.1)
+script.Parent.Transparency = .3
+wait(.1)
+script.Parent.Transparency = .4
+wait(.1)
+script.Parent.Transparency = .5
+wait(.1)
+script.Parent.Transparency = .6
+wait(.1)
+script.Parent.Transparency = .7
+wait(.1)
+script.Parent.Transparency = .8
+wait(.1)
+script.Parent.Transparency = .9
+wait(.1)
+script.Parent.Transparency = 1
+wait(.1)
+script.Parent.Transparency = .9
+wait(.1)
+script.Parent.Transparency = .8
+wait(.1)
+script.Parent.Transparency = .7
+wait(.1)
+script.Parent.Transparency = .6
+wait(.1)
+script.Parent.Transparency = .5
+wait(.1)
+script.Parent.Transparency = .4
+wait(.1)
+script.Parent.Transparency = .3
+wait(.1)
+script.Parent.Transparency = .2
+wait(.1)
+script.Parent.Transparency = .1
+wait(.1)
+script.Parent.Transparency = 0
+end
+]====],
+		},
+	},
+
 }
 
 -- Modèles normalisés (calculés une fois)
