@@ -11,7 +11,7 @@
 -- Pourquoi c'est beaucoup plus léger :
 --   1. Les COINS étaient dessinés pixel par pixel : des centaines de Frames par coin
 --      (≈ 36 000 Frames créées d'un coup au démarrage pour les 27 glows sur PC).
---      Maintenant : 1 image par coin, avec EXACTEMENT la même formule de dégradé.
+--      Maintenant : une vingtaine de cercles empilés par coin, avec la même formule de dégradé.
 --      Les côtés restent les mêmes segments qu'avant.
 --   2. Plus de CanvasGroup (une texture hors-écran en mémoire vidéo, redessinée 30×/s).
 --      Le shimmer s'applique directement sur la transparence : résultat identique.
@@ -19,12 +19,8 @@
 --   4. Tout s'arrête quand le glow n'est pas à l'écran (shop fermé, ScreenGui désactivé…),
 --      et le LED ne recolore pas un glow sorti de la zone visible d'une liste qui défile.
 --
--- ⚠️ TEXTURE : uploade le fichier glow_texture.png (fourni à côté) dans Roblox
---    (Asset Manager ▸ Import, ou Toolbox ▸ Mes images) puis colle son ID ci-dessous.
---    Sans ID, le module essaie de générer la texture lui-même (EditableImage) ; ça ne marche que
---    si "Allow Mesh / Image APIs" est autorisé dans Game Settings ▸ Security.
+-- Aucune image à uploader : tout est fait avec des Frames.
 -- ============================================================
-local TEXTURE_ID = "" -- ex: "rbxassetid://1234567890"
 
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -32,85 +28,83 @@ local HttpService = game:GetService("HttpService")
 
 local GlowEngine = {}
 
+-- Sens du dégradé de couleur de chaque coin (de "début" vers "fin" du coin, sens horaire)
+local CORNER_ROTATION = { TopRight = 45, BottomRight = 135, BottomLeft = 225, TopLeft = 315 }
+
 -- ============================================================
--- TEXTURE : disque blanc, alpha = 1 - distance/rayon (dégradé linéaire = falloff 1.0,
--- exactement la formule des anciens pixels). Chaque coin = un quart du disque,
--- chaque côté = une ligne de pixels qui passe par le centre.
+-- COINS SANS TEXTURE : dégradé radial fait de cercles empilés
 -- ============================================================
-local TEX = 256
-local HALF = TEX / 2
-
-local textureContent -- Content (EditableImage) si pas d'ID
-local textureReady = TEXTURE_ID ~= ""
-local textureWarned = false
-
-local function buildEditableTexture()
-	if textureReady or textureContent then return end
-	local ok, result = pcall(function()
-		local AssetService = game:GetService("AssetService")
-		local image = AssetService:CreateEditableImage({ Size = Vector2.new(TEX, TEX) })
-		local buf = buffer.create(TEX * TEX * 4)
-		for y = 0, TEX - 1 do
-			for x = 0, TEX - 1 do
-				local dx = x + 0.5 - HALF
-				local dy = y + 0.5 - HALF
-				local a = 1 - math.sqrt(dx * dx + dy * dy) / HALF
-				if a < 0 then a = 0 end
-				local i = (y * TEX + x) * 4
-				buffer.writeu8(buf, i, 255)
-				buffer.writeu8(buf, i + 1, 255)
-				buffer.writeu8(buf, i + 2, 255)
-				buffer.writeu8(buf, i + 3, math.floor(a * 255 + 0.5))
-			end
-		end
-		image:WritePixelsBuffer(Vector2.zero, Vector2.new(TEX, TEX), buf)
-		return Content.fromObject(image)
-	end)
-	if ok and result then
-		textureContent = result
-	elseif not textureWarned then
-		textureWarned = true
-		warn("[GlowEngine] Mets l'ID de glow_texture.png dans TEXTURE_ID (ReplicatedStorage.GlowEngine). Erreur : " .. tostring(result))
-	end
-end
-
-local function applyTexture(img)
-	if textureReady then
-		img.Image = TEXTURE_ID
-	else
-		buildEditableTexture()
-		if textureContent then
-			img.ImageContent = textureContent
-		end
-	end
-end
-
--- Pièces de la texture
-local RECT = {
-	TopLeft     = { Vector2.new(0, 0),       Vector2.new(HALF, HALF) },
-	TopRight    = { Vector2.new(HALF, 0),    Vector2.new(HALF, HALF) },
-	BottomLeft  = { Vector2.new(0, HALF),    Vector2.new(HALF, HALF) },
-	BottomRight = { Vector2.new(HALF, HALF), Vector2.new(HALF, HALF) },
-	Top         = { Vector2.new(HALF, 0),    Vector2.new(1, HALF) },
-	Bottom      = { Vector2.new(HALF, HALF), Vector2.new(1, HALF) },
-	Left        = { Vector2.new(0, HALF),    Vector2.new(HALF, 1) },
-	Right       = { Vector2.new(HALF, HALF), Vector2.new(HALF, 1) },
+-- L'ancien script dessinait chaque coin pixel par pixel avec, pour chaque pixel à la
+-- distance d du coin : opacité = intensité × (1 - d / glowSize).
+-- Ici : N cercles centrés sur le coin (rayons glowSize/N, 2·glowSize/N … glowSize), rognés
+-- dans le carré du coin. Leurs opacités sont calculées pour que l'empilement donne EXACTEMENT
+-- cette opacité au milieu de chaque anneau → même dégradé, par marches de la même taille que
+-- les pixels de l'ancien script, avec N cercles au lieu de centaines de Frames.
+-- Aucune image à uploader.
+local CORNER_CENTER = { -- position du coin de l'élément dans le carré du coin
+	TopLeft = UDim2.fromScale(1, 1), TopRight = UDim2.fromScale(0, 1),
+	BottomLeft = UDim2.fromScale(1, 0), BottomRight = UDim2.fromScale(0, 0),
 }
+local function cornerSquarePos(corner, g)
+	if corner == "TopLeft" then return UDim2.new(0, -g, 0, -g)
+	elseif corner == "TopRight" then return UDim2.new(1, 0, 0, -g)
+	elseif corner == "BottomLeft" then return UDim2.new(0, -g, 1, 0)
+	else return UDim2.new(1, 0, 1, 0) end
+end
+-- opacité de chaque cercle (du plus petit au plus grand) pour obtenir le dégradé voulu
+local function ringAlphas(n, intensity)
+	local target = {}
+	for j = 1, n do
+		target[j] = math.clamp(intensity * (1 - (j - 0.5) / n), 0, 0.999)
+	end
+	local alphas = {}
+	for j = n, 1, -1 do
+		local outer = (j < n) and target[j + 1] or 0
+		alphas[j] = math.clamp(1 - (1 - target[j]) / (1 - outer), 0, 1)
+	end
+	return alphas
+end
+-- Construit un coin. Renvoie le carré (Frame) et la liste { {cercle, opacité} }.
+-- withGradient = true → chaque cercle reçoit un UIGradient (LED rotatif), sinon couleur fixe.
+local function buildCornerRings(parent, corner, g, intensity, bands, z, color, withGradient, gradientList)
+	local square = Instance.new("Frame")
+	square.Name = "GlowCorner_" .. corner
+	square.BackgroundTransparency = 1
+	square.BorderSizePixel = 0
+	square.Active = false
+	square.ClipsDescendants = true
+	square.Size = UDim2.fromOffset(g, g)
+	square.Position = cornerSquarePos(corner, g)
+	square.ZIndex = z
 
-local function newPiece(piece, size, position, zIndex, parent)
-	local img = Instance.new("ImageLabel")
-	img.Name = "Glow_" .. piece
-	img.BackgroundTransparency = 1
-	img.BorderSizePixel = 0
-	img.Active = false
-	img.ImageRectOffset = RECT[piece][1]
-	img.ImageRectSize = RECT[piece][2]
-	img.Size = size
-	img.Position = position
-	img.ZIndex = zIndex
-	applyTexture(img)
-	img.Parent = parent
-	return img
+	local discs = {}
+	local alphas = ringAlphas(bands, intensity)
+	for k = bands, 1, -1 do
+		local r = g * k / bands
+		local disc = Instance.new("Frame")
+		disc.Name = "Ring" .. k
+		disc.AnchorPoint = Vector2.new(0.5, 0.5)
+		disc.Position = CORNER_CENTER[corner]
+		disc.Size = UDim2.fromOffset(2 * r, 2 * r)
+		disc.BorderSizePixel = 0
+		disc.Active = false
+		disc.ZIndex = z
+		disc.BackgroundColor3 = withGradient and Color3.new(1, 1, 1) or color
+		disc.BackgroundTransparency = 1 - alphas[k]
+		local round = Instance.new("UICorner")
+		round.CornerRadius = UDim.new(0.5, 0)
+		round.Parent = disc
+		if withGradient then
+			local grad = Instance.new("UIGradient")
+			grad.Rotation = CORNER_ROTATION[corner]
+			grad.Parent = disc
+			table.insert(gradientList, { grad, corner })
+		end
+		disc.Parent = square
+		table.insert(discs, { disc, alphas[k] })
+	end
+	square.Parent = parent
+	return square, discs
 end
 
 -- ============================================================
@@ -204,8 +198,6 @@ local U = {
 	Top = 0.00, TopRight = 0.20, Right = 0.25, BottomRight = 0.45,
 	Bottom = 0.50, BottomLeft = 0.70, Left = 0.75, TopLeft = 0.95,
 }
--- Sens du dégradé de couleur de chaque coin (de "début" vers "fin" du coin, sens horaire)
-local CORNER_ROTATION = { TopRight = 45, BottomRight = 135, BottomLeft = 225, TopLeft = 315 }
 
 local function paletteColor(palette, t)
 	local n = #palette
@@ -243,7 +235,7 @@ function GlowEngine.ImageGlow(imageLabel, userConfig)
 	local glowFrame        -- remplace l'ancien CanvasGroup
 	local sparkleContainer
 	local segments = {}    -- { {Frame, u} } : segments des côtés (LED rotatif)
-	local gradients = {}   -- [coin] = UIGradient (LED rotatif)
+	local gradients = {}   -- { {UIGradient, coin} } : cercles des coins (LED rotatif)
 	local fadeTargets = {} -- { {inst, prop, alpha} } : éléments affectés par le shimmer
 	local shimmerTweens = {}
 	local colorConn, rayConn
@@ -332,12 +324,21 @@ function GlowEngine.ImageGlow(imageLabel, userConfig)
 			local s = segments[i]
 			s[1].BackgroundColor3 = paletteColor(palette, s[2] - offset)
 		end
-		for piece, grad in pairs(gradients) do
-			local u0 = U[piece]
-			grad.Color = ColorSequence.new(
-				paletteColor(palette, u0 - offset),
-				paletteColor(palette, u0 + CORNER_W - offset)
-			)
+		local cache = {}
+		for _, e in ipairs(gradients) do
+			local corner = e[2]
+			local seq = cache[corner]
+			if not seq then
+				-- le quart visible du cercle couvre 0.25 → 0.75 du dégradé
+				local c0 = paletteColor(palette, U[corner] - offset)
+				local c1 = paletteColor(palette, U[corner] + CORNER_W - offset)
+				seq = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, c0), ColorSequenceKeypoint.new(0.25, c0),
+					ColorSequenceKeypoint.new(0.75, c1), ColorSequenceKeypoint.new(1, c1),
+				})
+				cache[corner] = seq
+			end
+			e[1].Color = seq
 		end
 	end
 	local function colorCycleActive()
@@ -456,25 +457,14 @@ function GlowEngine.ImageGlow(imageLabel, userConfig)
 
 		local cycle = colorCycleActive()
 		if CONFIG.rectEnableCorners then
-			local g = glowSize
-			local corners = {
-				TopLeft = UDim2.new(0, -g, 0, -g),
-				TopRight = UDim2.new(1, 0, 0, -g),
-				BottomLeft = UDim2.new(0, -g, 1, 0),
-				BottomRight = UDim2.new(1, 0, 1, 0),
-			}
-			for corner, pos in pairs(corners) do
-				local img = newPiece(corner, UDim2.new(0, g, 0, g), pos, z, glowFrame)
-				img.Name = "GlowCorner_" .. corner
-				table.insert(fadeTargets, { img, "ImageTransparency", intensity })
-				if cycle then
-					img.ImageColor3 = Color3.new(1, 1, 1)
-					local grad = Instance.new("UIGradient")
-					grad.Rotation = CORNER_ROTATION[corner]
-					grad.Parent = img
-					gradients[corner] = grad
-				else
-					img.ImageColor3 = CONFIG.glowColor
+			-- même taille de marche que les "macro-pixels" de l'ancien script (rectCornerPixelSize)
+			local pixelSize = math.max(math.floor(CONFIG.rectCornerPixelSize or 1), 1)
+			local bands = math.clamp(math.ceil(glowSize / pixelSize), 4, 24)
+			for _, corner in ipairs({ "TopLeft", "TopRight", "BottomLeft", "BottomRight" }) do
+				local _, discs = buildCornerRings(glowFrame, corner, glowSize, intensity, bands, z,
+					CONFIG.glowColor, cycle, gradients)
+				for _, d in ipairs(discs) do
+					table.insert(fadeTargets, { d[1], "BackgroundTransparency", d[2] })
 				end
 			end
 		end
@@ -844,17 +834,11 @@ function GlowEngine.FrameGlow(frame, cfg)
 	end
 
 	local function cornerGlow(corner, glowSize)
-		local pos = ({
-			TopLeft = UDim2.new(0, -glowSize, 0, -glowSize),
-			TopRight = UDim2.new(1, 0, 0, -glowSize),
-			BottomLeft = UDim2.new(0, -glowSize, 1, 0),
-			BottomRight = UDim2.new(1, 0, 1, 0),
-		})[corner]
-		local img = newPiece(corner, UDim2.new(0, glowSize, 0, glowSize), pos, frame.ZIndex - 1, frame)
-		img.Name = "GlowCorner_" .. corner
-		img.ImageColor3 = glowColor
-		img.ImageTransparency = edgeAlpha
-		img:SetAttribute("FrameGlow", true)
+		-- l'ancien script : pixels de 1 px → 1 anneau par pixel (24 max)
+		local bands = math.clamp(glowSize, 4, 24)
+		local square = buildCornerRings(frame, corner, glowSize, glowIntensity, bands,
+			frame.ZIndex - 1, glowColor, false)
+		square:SetAttribute("FrameGlow", true)
 	end
 
 	local function build()

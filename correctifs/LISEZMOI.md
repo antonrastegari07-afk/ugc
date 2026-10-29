@@ -24,19 +24,18 @@ Pourquoi la caméra partait sur le perso dans ReplicatedFirst, et ce qui est cor
 
 Fichiers dans `glow/`
 
-1. Upload `glow/glow_texture.png` dans Roblox (Asset Manager ▸ Import), puis copie son ID.
-2. Crée un **ModuleScript** nommé **GlowEngine** dans **ReplicatedStorage** et colle `glow/GlowEngine.lua`. Mets l'ID à la ligne `local TEXTURE_ID = "rbxassetid://..."`.
-3. Colle `glow/CONVERTIR_LES_GLOWS_barre_de_commande.lua` dans la **barre de commande** de Studio (Affichage ▸ Barre de commande), puis appuie sur Entrée.
+1. Crée un **ModuleScript** nommé **GlowEngine** dans **ReplicatedStorage** et colle `glow/GlowEngine.lua`. Aucune image à uploader.
+2. Colle `glow/CONVERTIR_LES_GLOWS_barre_de_commande.lua` dans la **barre de commande** de Studio (Affichage ▸ Barre de commande), puis appuie sur Entrée.
    - Les 27 scripts glow sont convertis, avec la même CONFIG (couleurs, palette, tailles, vitesse, étincelles).
    - L'ancien code est sauvegardé dans ServerStorage ▸ GlowBackup (jamais envoyé aux joueurs).
+   - Si tu as déjà fait la conversion, il suffit de remplacer le contenu de `GlowEngine` : les scripts convertis restent bons.
 
-**Même glow qu'avant** : même forme, mêmes couleurs, même taille, même LED (les mêmes 24 blocs de couleur par côté, qui tournent à la même vitesse), même shimmer, mêmes étincelles. Les côtés sont recréés exactement comme dans ton script. Seuls les **coins** changent de technique : 1 image par coin au lieu de centaines de Frames « pixels », avec la même formule de dégradé.
+**Même glow qu'avant** : même forme, mêmes couleurs, même taille, même LED (les mêmes 24 blocs de couleur par côté, qui tournent à la même vitesse), même shimmer, mêmes étincelles. Les côtés sont recréés exactement comme dans ton script. Seuls les **coins** changent de technique : une vingtaine de cercles empilés par coin au lieu de centaines de Frames « pixels », réglés pour donner le même dégradé, par marches de la même taille.
 
 | | Avant | Après |
 |---|---|---|
-| Objets créés au démarrage (27 glows, PC 1080p) | **≈ 36 000** | **≈ 4 750** |
-| Coins d'un petit glow (UGCshop, Daily, Rebirth) | ≈ 2 900 Frames de 1 px | 4 images |
-| Coins d'un gros glow | ≈ 450 Frames | 4 images |
+| Objets créés au démarrage (27 glows, PC 1080p) | **≈ 36 000** | **≈ 9 000** |
+| Coins d'un petit glow (UGCshop, Daily, Rebirth) | ≈ 2 900 Frames de 1 px | ≈ 200 objets |
 | CanvasGroup (texture cachée redessinée 30×/s) | 18 | 0 |
 | LED rotatif | Toujours actif, même shop fermé (≈ 270 000 changements de couleur/s) | Seulement quand le glow est à l'écran |
 | Étincelles | Objets créés et détruits en boucle | Mêmes objets réutilisés |
