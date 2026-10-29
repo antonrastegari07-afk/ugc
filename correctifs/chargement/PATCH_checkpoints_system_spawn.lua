@@ -1,0 +1,23 @@
+-- ============================================================
+-- PATCH : ServerScriptService ▸ checkpoints system  (1 ligne à ajouter)
+-- ============================================================
+-- Problème : tes 164 SpawnLocation (checkpoints, spawns d'arène…) sont toutes Enabled et
+-- Neutral. À l'arrivée, Roblox fait apparaître le joueur sur L'UNE D'ELLES AU HASARD
+-- (133 sont à plus de 700 studs du loader, médiane 1 674 studs). Le jeu charge donc une
+-- zone de map au hasard pour rien, puis ton script téléporte au FirstSpawn (2e zone), puis
+-- au checkpoint sauvegardé (3e zone). Avec "PauseOutsideLoadedArea", le jeu se met en pause
+-- à chaque fois le temps de charger.
+--
+-- Correctif : le joueur apparaît TOUJOURS au FirstSpawn (24 studs de la caméra du loader,
+-- donc dans la zone déjà chargée). Le reste de ton système ne change pas : il téléporte
+-- ensuite au checkpoint sauvegardé comme avant. Le 1v1 sauvegarde et restaure lui-même
+-- RespawnLocation, il continue de marcher.
+--
+-- OÙ : cherche (Ctrl+F) cette ligne (≈ ligne 900) :
+--
+--     Players.PlayerAdded:Connect(function(player)
+--
+-- et ajoute JUSTE EN DESSOUS (avant "setupLeaderboard(player)") :
+
+	-- 🚀 Apparition toujours au FirstSpawn (pas sur une des 164 SpawnLocation au hasard)
+	player.RespawnLocation = firstSpawn

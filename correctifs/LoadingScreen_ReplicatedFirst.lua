@@ -912,7 +912,8 @@ startExit = function(fast)
 	vignette.BorderSizePixel = 0
 	vignette.ZIndex = 2000
 	vignette.Parent = screenGui
-	local closeDur    = fast and 0.35 or 1.2
+	-- ⚡ fondu vers le noir plus court (1,2 s → 0,5 s) : moins de temps sur un écran noir
+	local closeDur    = fast and 0.35 or 0.5
 	local fadeInTween = TweenInfo.new(closeDur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
 	local fadeTween   = TweenInfo.new(closeDur * 0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	TweenService:Create(logoImage, fadeTween, { Size = UDim2.new(0, 0, 0, 0) }):Play()
@@ -1022,9 +1023,9 @@ startExit = function(fast)
 	-- 2 images : UIFocusSystem applique son masquage avant le rendu (aucune UI ne clignote)
 	RunService.RenderStepped:Wait()
 	RunService.RenderStepped:Wait()
-	task.wait(fast and 0.05 or 0.5)
+	task.wait(fast and 0.05 or 0.1)
 	local vignetteOpen = TweenService:Create(vignette,
-		TweenInfo.new(fast and 0.45 or 1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+		TweenInfo.new(fast and 0.45 or 0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
 		{ BackgroundTransparency = 1 })
 	-- 🎬 le noir commence à s'enlever : le How to Play peut jouer son animation d'entrée
 	playerGui:SetAttribute("LoaderRevealed", true)
@@ -1082,23 +1083,10 @@ task.spawn(function()
 	updateProgress(65, LOADING_STEPS[4])
 	task.wait(0.3)
 	if skipRequested then return end
-	local extraWait = 0
-	while (not loadingEvents.friendsLoaded or not loadingEvents.questsLoaded)
-		and extraWait < 3 and not skipRequested do
-		task.wait(0.1)
-		extraWait = extraWait + 0.1
-	end
-	if skipRequested then return end
-	if not loadingEvents.friendsLoaded then
-		updateProgress(75, LOADING_STEPS[5])
-		task.wait(0.2)
-	end
-	if skipRequested then return end
-	if not loadingEvents.questsLoaded then
-		updateProgress(85, LOADING_STEPS[6])
-		task.wait(0.2)
-	end
-	if skipRequested then return end
+	-- ⚡ Amis / quêtes : on ne les attend plus. Le serveur envoie QuestsLoaded au moins 4,6 s
+	--    après les données : le loader attendait presque toujours ses 3 s pour rien.
+	--    Ces interfaces se remplissent toutes seules quand les infos arrivent.
+	updateProgress(85, LOADING_STEPS[6])
 	local charWait = 0
 	while not loadingEvents.characterReady and charWait < 3 and not skipRequested do
 		task.wait(0.1)
@@ -1117,6 +1105,6 @@ task.spawn(function()
 	end
 	if skipRequested then return end
 	updateProgress(100, "Complete")
-	task.wait(0.5)
+	task.wait(0.2)
 	startExit(false)
 end)
