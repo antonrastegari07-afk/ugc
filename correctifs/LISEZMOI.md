@@ -30,12 +30,12 @@ Fichiers dans `glow/`
    - L'ancien code est sauvegardé dans ServerStorage ▸ GlowBackup (jamais envoyé aux joueurs).
    - Si tu as déjà fait la conversion, il suffit de remplacer le contenu de `GlowEngine` : les scripts convertis restent bons.
 
-**Même glow qu'avant** : même forme, mêmes couleurs, même taille, même LED (les mêmes 24 blocs de couleur par côté, qui tournent à la même vitesse), même shimmer, mêmes étincelles. Les côtés sont recréés exactement comme dans ton script. Seuls les **coins** changent de technique : une vingtaine de cercles empilés par coin au lieu de centaines de Frames « pixels », réglés pour donner le même dégradé, par marches de la même taille.
+**Même glow qu'avant** : même forme, mêmes couleurs, même taille, même LED (les mêmes 24 blocs de couleur par côté, qui tournent à la même vitesse), même shimmer, mêmes étincelles. Les côtés sont recréés exactement comme dans ton script. Seuls les **coins** changent de technique : 12 bandes par coin au lieu de centaines de Frames « pixels ». Chaque bande porte un dégradé qui reprend la même formule d'opacité et de couleur que ton script, placé au pixel près (pas de ligne aux jonctions).
 
 | | Avant | Après |
 |---|---|---|
-| Objets créés au démarrage (27 glows, PC 1080p) | **≈ 36 000** | **≈ 9 000** |
-| Coins d'un petit glow (UGCshop, Daily, Rebirth) | ≈ 2 900 Frames de 1 px | ≈ 200 objets |
+| Objets créés au démarrage (27 glows, PC 1080p) | **≈ 36 000** | **≈ 7 300** |
+| Coins d'un glow | 450 à 2 900 Frames « pixels » | 100 objets (4 × 12 bandes + leurs dégradés) |
 | CanvasGroup (texture cachée redessinée 30×/s) | 18 | 0 |
 | LED rotatif | Toujours actif, même shop fermé (≈ 270 000 changements de couleur/s) | Seulement quand le glow est à l'écran |
 | Étincelles | Objets créés et détruits en boucle | Mêmes objets réutilisés |
