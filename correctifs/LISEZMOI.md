@@ -53,3 +53,51 @@ Fichier : `admin/AdminToolsGiver.lua`
 
 `GiftingClient` reste dans StarterPlayerScripts : il est pour tout le monde.
 `GIFT local` est désactivé, et c'est une copie exacte de `GiftingClient` : tu peux le supprimer.
+
+## 5. Les 1 173 scripts copiés-collés du Workspace → 1 script
+
+Dossier : `workspace_scripts/`. **Fais une copie du jeu avant.**
+
+Ce qui est converti (même fonctionnement, code recopié de tes scripts d'origine) :
+
+| Famille | Scripts | Réglages repris script par script |
+|---|---|---|
+| Drop parts | 400 | Délai avant disparition (0,05 / 0,25 / 0,5 / 1 s) |
+| Kill bricks (Undermapkill, Part9) | 416 | — |
+| Blocs de dégâts | 99 | Dégâts (10 à 49), temps d'attente (0,04 à 1 s) |
+| Achats au toucher (coils) | 60 | ID du pass, nom du RemoteEvent |
+| Achat au toucher x2 coins | 20 | ID du pass |
+| Projection blocs / BouncePad | 47 | Force avant, force haut, cooldown |
+| Fondu au toucher | 43 | — |
+| Spots qui clignotent | 32 | → tourne **chez le joueur** (plus rien envoyé par le réseau) |
+| Son de bouton | 19 | — |
+| Tapis roulants (Hard obby) | 13 | — |
+| Danseurs | 13 | Leur animation |
+| Portails | 11 | — |
+
+Seule différence : les lignes `print("… est assez proche pour acheter le pass.")` de 2 coils ne s'affichent plus dans l'Output du serveur.
+
+Les ≈ 90 scripts uniques (boutons parcours, timers, etc.) ne sont pas touchés. Un script dont le code diffère, même d'un caractère, de sa famille n'est pas touché non plus.
+
+### Installation
+1. **ModuleScript** `WorkspaceScriptsConverter` dans **ServerStorage** ← `workspace_scripts/WorkspaceScriptsConverter.lua`
+2. **Script** `WorkspaceScriptsManager` dans **ServerScriptService** ← `workspace_scripts/WorkspaceScriptsManager.lua`
+3. **LocalScript** `BlinkingLights` dans **StarterPlayer ▸ StarterPlayerScripts** ← `workspace_scripts/BlinkingLightsClient.lua`
+4. **Barre de commande, test** (ne change rien) :
+   ```lua
+   require(game.ServerStorage.WorkspaceScriptsConverter).Run()
+   ```
+   L'Output doit afficher **TOTAL 1173**, avec le détail par famille.
+5. **Barre de commande, conversion** :
+   ```lua
+   require(game.ServerStorage.WorkspaceScriptsConverter).Run(true)
+   ```
+   Les anciens scripts sont **déplacés** (pas supprimés) dans `ServerStorage ▸ WorkspaceScriptsBackup`.
+6. Teste en Play : drop parts, kill bricks, dégâts, coils, projections, portails, danseurs, spots.
+7. Pour tout remettre comme avant :
+   ```lua
+   require(game.ServerStorage.WorkspaceScriptsConverter).Restore()
+   ```
+   Ctrl+Z marche aussi juste après la conversion.
+
+Le convertisseur enregistre aussi éteintes les particules de `DonationEffect2`. Tes scripts de dons les éteignaient déjà 5 s après le démarrage du serveur, et les rallument pendant un don comme avant.
