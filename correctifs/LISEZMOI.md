@@ -30,15 +30,16 @@ Fichiers dans `glow/`
    - Les 27 scripts glow sont convertis, avec la même CONFIG (couleurs, palette, tailles, vitesse, étincelles).
    - L'ancien code est sauvegardé dans ServerStorage ▸ GlowBackup (jamais envoyé aux joueurs).
 
-Le rendu reste le même : même dégradé (formule identique), mêmes couleurs, même LED qui tourne, même shimmer, mêmes étincelles. Une seule différence : les couleurs du LED glissent en continu au lieu de 24 petits blocs par côté.
+**Même glow qu'avant** : même forme, mêmes couleurs, même taille, même LED (les mêmes 24 blocs de couleur par côté, qui tournent à la même vitesse), même shimmer, mêmes étincelles. Les côtés sont recréés exactement comme dans ton script. Seuls les **coins** changent de technique : 1 image par coin au lieu de centaines de Frames « pixels », avec la même formule de dégradé.
 
 | | Avant | Après |
 |---|---|---|
-| Objets par gros glow | ~550 Frames + 1 CanvasGroup | 8 images |
-| Objets par petit glow (UGCshop, Daily, Rebirth) | 2 000 à 4 000 Frames de 1 px | 4 Frames + 4 images |
-| LED rotatif | ~18 000 changements de couleur/s par glow | 8 dégradés à 30 images/s |
+| Objets créés au démarrage (27 glows, PC 1080p) | **≈ 36 000** | **≈ 4 750** |
+| Coins d'un petit glow (UGCshop, Daily, Rebirth) | ≈ 2 900 Frames de 1 px | 4 images |
+| Coins d'un gros glow | ≈ 450 Frames | 4 images |
+| CanvasGroup (texture cachée redessinée 30×/s) | 18 | 0 |
+| LED rotatif | Toujours actif, même shop fermé (≈ 270 000 changements de couleur/s) | Seulement quand le glow est à l'écran |
 | Étincelles | Objets créés et détruits en boucle | Mêmes objets réutilisés |
-| Shop fermé | **Tout continuait de tourner** (ils ne s'arrêtaient que si l'ImageLabel lui-même devenait invisible) | Tout s'arrête dès que le glow n'est plus à l'écran |
 
 ## 3. Outils admin seulement pour les admins
 

@@ -5,17 +5,19 @@
 --   • ImageGlow  = l'ancien "IMAGE GLOW - VERSION POLISHED + LED ROTATIF" (Shop, PointsShop, VIP…)
 --   • FrameGlow  = l'ancien "Script pour créer un effet glow autour d'un Frame" (UGCshop, Daily, Rebirth)
 --
+-- MÊME RENDU : mêmes couleurs, mêmes tailles, même forme, même LED (24 segments par côté,
+-- recolorés de la même façon), même shimmer, mêmes étincelles. Tous tes réglages CONFIG restent.
+--
 -- Pourquoi c'est beaucoup plus léger :
---   1. Les coins étaient dessinés avec des centaines de Frames "pixels" (≈ 500-600 Frames par glow,
---      ≈ 2 000-4 000 pour les petits glows en 1 px). Maintenant : 1 image par coin (dégradé radial
---      identique), 1 image par côté → 8 objets par glow au lieu de centaines.
---   2. Le LED rotatif recolorait CHAQUE Frame 30×/s (≈ 18 000 changements/s par glow).
---      Maintenant : 8 UIGradient mis à jour 30×/s.
---   3. Plus de CanvasGroup (texture hors-écran en mémoire vidéo + re-rendu à chaque changement de
---      couleur). Le shimmer est fait directement sur la transparence des images (même résultat).
---   4. Les étincelles réutilisent toujours les mêmes objets au lieu d'en créer/détruire en boucle.
---   5. TOUT s'arrête quand le glow n'est pas réellement à l'écran (shop fermé, ScreenGui désactivé,
---      Frame parent invisible…), pas seulement quand l'ImageLabel lui-même est invisible.
+--   1. Les COINS étaient dessinés pixel par pixel : des centaines de Frames par coin
+--      (≈ 36 000 Frames créées d'un coup au démarrage pour les 27 glows sur PC).
+--      Maintenant : 1 image par coin, avec EXACTEMENT la même formule de dégradé.
+--      Les côtés restent les mêmes segments qu'avant.
+--   2. Plus de CanvasGroup (une texture hors-écran en mémoire vidéo, redessinée 30×/s).
+--      Le shimmer s'applique directement sur la transparence : résultat identique.
+--   3. Les étincelles réutilisent les mêmes objets au lieu d'en créer/détruire en boucle.
+--   4. Tout s'arrête quand le glow n'est pas à l'écran (shop fermé, ScreenGui désactivé…),
+--      et le LED ne recolore pas un glow sorti de la zone visible d'une liste qui défile.
 --
 -- ⚠️ TEXTURE : uploade le fichier glow_texture.png (fourni à côté) dans Roblox
 --    (Asset Manager ▸ Import, ou Toolbox ▸ Mes images) puis colle son ID ci-dessous.
@@ -111,33 +113,6 @@ local function newPiece(piece, size, position, zIndex, parent)
 	return img
 end
 
--- Construit les 8 pièces (4 côtés + 4 coins) autour de `parent` (qui a la taille de l'élément)
-local function buildRectPieces(parent, glowSize, zIndex, enable)
-	local g = glowSize
-	local pieces = {}
-	enable = enable or {}
-	local function on(k) return enable[k] ~= false end
-	if on("Top") then
-		pieces.Top = newPiece("Top", UDim2.new(1, 0, 0, g), UDim2.new(0, 0, 0, -g), zIndex, parent)
-	end
-	if on("Bottom") then
-		pieces.Bottom = newPiece("Bottom", UDim2.new(1, 0, 0, g), UDim2.new(0, 0, 1, 0), zIndex, parent)
-	end
-	if on("Left") then
-		pieces.Left = newPiece("Left", UDim2.new(0, g, 1, 0), UDim2.new(0, -g, 0, 0), zIndex, parent)
-	end
-	if on("Right") then
-		pieces.Right = newPiece("Right", UDim2.new(0, g, 1, 0), UDim2.new(1, 0, 0, 0), zIndex, parent)
-	end
-	if on("Corners") then
-		pieces.TopLeft = newPiece("TopLeft", UDim2.new(0, g, 0, g), UDim2.new(0, -g, 0, -g), zIndex, parent)
-		pieces.TopRight = newPiece("TopRight", UDim2.new(0, g, 0, g), UDim2.new(1, 0, 0, -g), zIndex, parent)
-		pieces.BottomLeft = newPiece("BottomLeft", UDim2.new(0, g, 0, g), UDim2.new(0, -g, 1, 0), zIndex, parent)
-		pieces.BottomRight = newPiece("BottomRight", UDim2.new(0, g, 0, g), UDim2.new(1, 0, 1, 0), zIndex, parent)
-	end
-	return pieces
-end
-
 -- ============================================================
 -- VISIBILITÉ RÉELLE : l'élément et TOUS ses parents sont visibles + ScreenGui activé
 -- ============================================================
@@ -231,7 +206,6 @@ local U = {
 }
 -- Sens du dégradé de couleur de chaque coin (de "début" vers "fin" du coin, sens horaire)
 local CORNER_ROTATION = { TopRight = 45, BottomRight = 135, BottomLeft = 225, TopLeft = 315 }
-local SIDE_KEYPOINTS = 11
 
 local function paletteColor(palette, t)
 	local n = #palette
@@ -268,8 +242,8 @@ function GlowEngine.ImageGlow(imageLabel, userConfig)
 
 	local glowFrame        -- remplace l'ancien CanvasGroup
 	local sparkleContainer
-	local pieces = {}      -- pièces du rectangle
-	local gradients = {}   -- [piece] = UIGradient (LED rotatif)
+	local segments = {}    -- { {Frame, u} } : segments des côtés (LED rotatif)
+	local gradients = {}   -- [coin] = UIGradient (LED rotatif)
 	local fadeTargets = {} -- { {inst, prop, alpha} } : éléments affectés par le shimmer
 	local shimmerTweens = {}
 	local colorConn, rayConn
@@ -349,31 +323,38 @@ function GlowEngine.ImageGlow(imageLabel, userConfig)
 	end
 
 	-- ---------- LED rotatif ----------
+	-- Côtés : chaque segment prend la couleur de la palette à SA position, exactement comme
+	-- l'ancien script (24 segments par côté → mêmes blocs de couleur).
+	-- Coins : dégradé entre la couleur de début et de fin du coin (le coin = 5 % du contour).
 	local function paintColors(offset)
 		local palette = CONFIG.rectColorCyclePalette
+		for i = 1, #segments do
+			local s = segments[i]
+			s[1].BackgroundColor3 = paletteColor(palette, s[2] - offset)
+		end
 		for piece, grad in pairs(gradients) do
-			if piece == "Top" or piece == "Right" or piece == "Bottom" or piece == "Left" then
-				local kps = table.create(SIDE_KEYPOINTS)
-				local reverse = (piece == "Bottom" or piece == "Left")
-				for k = 0, SIDE_KEYPOINTS - 1 do
-					local p = k / (SIDE_KEYPOINTS - 1)
-					local u = U[piece] + (reverse and (1 - p) or p) * SIDE_W
-					kps[k + 1] = ColorSequenceKeypoint.new(p, paletteColor(palette, u - offset))
-				end
-				grad.Color = ColorSequence.new(kps)
-			else
-				local u0 = U[piece]
-				grad.Color = ColorSequence.new(
-					paletteColor(palette, u0 - offset),
-					paletteColor(palette, u0 + CORNER_W - offset)
-				)
-			end
+			local u0 = U[piece]
+			grad.Color = ColorSequence.new(
+				paletteColor(palette, u0 - offset),
+				paletteColor(palette, u0 + CORNER_W - offset)
+			)
 		end
 	end
 	local function colorCycleActive()
 		local palette = CONFIG.rectColorCyclePalette
 		return CONFIG.rectColorCycleEnabled and CONFIG.glowMode == "rectangle"
 			and palette ~= nil and #palette >= 2
+	end
+	-- Dans une liste qui défile : pas la peine de recolorer un glow sorti de la zone visible
+	-- (il n'est pas dessiné). Ses couleurs sont recalculées dès qu'il revient.
+	local clipper = imageLabel:FindFirstAncestorWhichIsA("ScrollingFrame")
+	local function inView()
+		if not clipper then return true end
+		local p, s = imageLabel.AbsolutePosition, imageLabel.AbsoluteSize
+		local cp, cs = clipper.AbsolutePosition, clipper.AbsoluteSize
+		local m = 80 -- marge : le glow dépasse de l'image
+		return p.X + s.X + m >= cp.X and p.X - m <= cp.X + cs.X
+			and p.Y + s.Y + m >= cp.Y and p.Y - m <= cp.Y + cs.Y
 	end
 	local startTime = os.clock()
 	local function stopColorCycle()
@@ -389,34 +370,112 @@ function GlowEngine.ImageGlow(imageLabel, userConfig)
 			accum += dt
 			if accum < interval then return end
 			accum %= interval
+			if not inView() then return end
 			paintColors((os.clock() - startTime) / cycleDur)
 		end)
 	end
 
 	-- ---------- construction ----------
+	-- Côtés : copie EXACTE de l'ancien script (segments + UIGradient de transparence).
+	-- Coins : 1 image radiale au lieu de centaines de "pixels" Frame (même formule de dégradé).
 	local function buildRectangle()
 		local scale = computeScale(CONFIG)
 		local glowSize = math.max(math.floor(CONFIG.rectGlowSize * scale), 6)
-		pieces = buildRectPieces(glowFrame, glowSize, imageLabel.ZIndex - 1, {
-			Top = CONFIG.rectEnableTop, Bottom = CONFIG.rectEnableBottom,
-			Left = CONFIG.rectEnableLeft, Right = CONFIG.rectEnableRight,
-			Corners = CONFIG.rectEnableCorners,
-		})
-		local cycle = colorCycleActive()
-		for piece, img in pairs(pieces) do
-			table.insert(fadeTargets, { img, "ImageTransparency", CONFIG.rectIntensity })
-			if cycle then
-				img.ImageColor3 = Color3.new(1, 1, 1)
-				local grad = Instance.new("UIGradient")
-				if piece == "Left" or piece == "Right" then
-					grad.Rotation = 90
-				elseif CORNER_ROTATION[piece] then
-					grad.Rotation = CORNER_ROTATION[piece]
+		local intensity = CONFIG.rectIntensity
+		local segCount = math.max(CONFIG.rectColorCycleSegments or 24, 1)
+		local z = imageLabel.ZIndex - 1
+		local nearAlpha = math.clamp(1 - intensity, 0, 1) -- = rectAlpha(0) de l'ancien script
+		local farAlpha = 1                                 -- = rectAlpha(1)
+
+		local function createSideGlow(side)
+			for i = 1, segCount do
+				local t0 = (i - 1) / segCount
+				local segLen = 1 / segCount
+				local segCenter = t0 + segLen * 0.5
+
+				local seg = Instance.new("Frame")
+				seg.Name = "GlowSide_" .. side .. "_" .. i
+				seg.BackgroundColor3 = CONFIG.glowColor
+				seg.BorderSizePixel = 0
+				seg.Active = false
+				seg.ZIndex = z
+
+				local gradient = Instance.new("UIGradient")
+				if side == "Top" then
+					seg.Size = UDim2.new(segLen, 0, 0, glowSize)
+					seg.Position = UDim2.new(t0, 0, 0, -glowSize)
+					gradient.Rotation = 90
+					gradient.Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, farAlpha),
+						NumberSequenceKeypoint.new(1, nearAlpha)
+					})
+				elseif side == "Bottom" then
+					seg.Size = UDim2.new(segLen, 0, 0, glowSize)
+					seg.Position = UDim2.new(t0, 0, 1, 0)
+					gradient.Rotation = 90
+					gradient.Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, nearAlpha),
+						NumberSequenceKeypoint.new(1, farAlpha)
+					})
+				elseif side == "Left" then
+					seg.Size = UDim2.new(0, glowSize, segLen, 0)
+					seg.Position = UDim2.new(0, -glowSize, t0, 0)
+					gradient.Rotation = 0
+					gradient.Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, farAlpha),
+						NumberSequenceKeypoint.new(1, nearAlpha)
+					})
+				elseif side == "Right" then
+					seg.Size = UDim2.new(0, glowSize, segLen, 0)
+					seg.Position = UDim2.new(1, 0, t0, 0)
+					gradient.Rotation = 0
+					gradient.Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, nearAlpha),
+						NumberSequenceKeypoint.new(1, farAlpha)
+					})
 				end
-				grad.Parent = img
-				gradients[piece] = grad
-			else
-				img.ImageColor3 = CONFIG.glowColor
+				gradient.Parent = seg
+
+				local u
+				if side == "Top" or side == "Right" then
+					u = U[side] + segCenter * SIDE_W
+				else
+					u = U[side] + (1 - segCenter) * SIDE_W -- sens horaire
+				end
+				table.insert(segments, { seg, u })
+				-- shimmer : BackgroundTransparency 0 → g donne exactement GroupTransparency = g
+				table.insert(fadeTargets, { seg, "BackgroundTransparency", 1 })
+				seg.Parent = glowFrame
+			end
+		end
+
+		if CONFIG.rectEnableTop then createSideGlow("Top") end
+		if CONFIG.rectEnableBottom then createSideGlow("Bottom") end
+		if CONFIG.rectEnableLeft then createSideGlow("Left") end
+		if CONFIG.rectEnableRight then createSideGlow("Right") end
+
+		local cycle = colorCycleActive()
+		if CONFIG.rectEnableCorners then
+			local g = glowSize
+			local corners = {
+				TopLeft = UDim2.new(0, -g, 0, -g),
+				TopRight = UDim2.new(1, 0, 0, -g),
+				BottomLeft = UDim2.new(0, -g, 1, 0),
+				BottomRight = UDim2.new(1, 0, 1, 0),
+			}
+			for corner, pos in pairs(corners) do
+				local img = newPiece(corner, UDim2.new(0, g, 0, g), pos, z, glowFrame)
+				img.Name = "GlowCorner_" .. corner
+				table.insert(fadeTargets, { img, "ImageTransparency", intensity })
+				if cycle then
+					img.ImageColor3 = Color3.new(1, 1, 1)
+					local grad = Instance.new("UIGradient")
+					grad.Rotation = CORNER_ROTATION[corner]
+					grad.Parent = img
+					gradients[corner] = grad
+				else
+					img.ImageColor3 = CONFIG.glowColor
+				end
 			end
 		end
 		if cycle then
@@ -661,6 +720,7 @@ function GlowEngine.ImageGlow(imageLabel, userConfig)
 		stopAnimations()
 		table.clear(fadeTargets)
 		table.clear(gradients)
+		table.clear(segments)
 		raysWrapper = nil
 		makeContainers()
 		if CONFIG.glowMode == "rectangle" then
