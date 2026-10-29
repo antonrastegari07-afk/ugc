@@ -114,3 +114,10 @@ Le convertisseur enregistre aussi éteintes les particules de `DonationEffect2`.
   - tous les systèmes de données, d'économie et d'anti-triche.
 
   Les passer côté joueur changerait le gameplay.
+
+### Mise à jour : ProximityPrompt sur les coils et le x2 Points
+Seul `WorkspaceScriptsManager` change : remplace son contenu par la nouvelle version. **Ne relance pas la conversion.**
+
+Chacune des 80 stations d'achat (20 Speed Coil, 20 Gravity Coil, 20 Fusion Coil, 20 x2 Points) reçoit un prompt « Get Speed Coil », « Get Gravity Coil », « Get Fusion Coil » ou « Get x2 Points » (touche E, à 12 studs maximum). Il ouvre **la même fenêtre d'achat** que le toucher : même RemoteEvent, même ID de pass. Le toucher marche toujours.
+
+Pour changer le texte sur une station : ajoute sur sa part un attribut texte `WSM_TouchPass_PromptText`.

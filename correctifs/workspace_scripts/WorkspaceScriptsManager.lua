@@ -168,7 +168,14 @@ end
 
 -- ------------------------------------------------------------
 -- ACHAT AU TOUCHER (coils, x2 coins) — même RemoteEvent, même ID de pass
+-- + un ProximityPrompt « Get … » quand le joueur est proche
 -- ------------------------------------------------------------
+local PROMPT_TEXT = {
+	fenetredachatSPEEDCOIL = "Get Speed Coil",
+	fenetreachatGRAVITYCOIL = "Get Gravity Coil",
+	FenetreachatFUSIONCOIL = "Get Fusion Coil",
+	x2cointouch = "Get x2 Points",
+}
 HANDLERS.WSM_TouchPass = function(part)
 	if not part:IsA("BasePart") then return end
 	local GAMEPASS_ID = attr(part, "WSM_TouchPass", "GamepassId", 0)
@@ -209,6 +216,24 @@ HANDLERS.WSM_TouchPass = function(part)
 			touchedPlayers[player] = nil
 		end)
 	end)
+
+	-- ProximityPrompt en plus du toucher : ouvre la MÊME fenêtre d'achat (même RemoteEvent,
+	-- même ID de pass). Texte modifiable par part avec l'attribut "WSM_TouchPass_PromptText".
+	local promptText = attr(part, "WSM_TouchPass", "PromptText", PROMPT_TEXT[REMOTE_NAME])
+	if promptText then
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "WSM_PurchasePrompt"
+		prompt.ActionText = promptText
+		prompt.ObjectText = ""
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.HoldDuration = 0
+		prompt.MaxActivationDistance = 12
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = part
+		prompt.Triggered:Connect(function(player)
+			remote:FireClient(player, GAMEPASS_ID)
+		end)
+	end
 end
 
 -- ------------------------------------------------------------
