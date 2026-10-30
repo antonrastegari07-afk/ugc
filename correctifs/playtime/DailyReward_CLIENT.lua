@@ -799,7 +799,7 @@ local function claimReward(config, cache)
 			local cancelSound = SoundService:FindFirstChild("buycancel")
 			if cancelSound then cancelSound:Play() end
 			-- cette carte = la PROCHAINE récompense (celle d'aujourd'hui est déjà prise)
-			rewardToast("Not ready yet!", "Come back tomorrow: available in " .. formatShort(currentTimeRemaining))
+			rewardToast("Not ready yet!", "Available in " .. formatShort(currentTimeRemaining))
 		end
 		return
 	end
