@@ -41,8 +41,10 @@ local REWARD_IMAGES = {
 }
 local TOASTS            = true      -- petites notifications quand on clique sur une récompense pas disponible
 local TOAST_TIME        = 2.2       -- secondes à l'écran
-local TAP_HAND_IMAGE    = "rbxassetid://78515108577271"   -- main qui tape sur une récompense prête ("" = aucune)
+local TAP_HAND_IMAGE    = ""        -- main qui tape sur une récompense prête : "rbxassetid://78515108577271" pour la remettre
 local TAP_HAND_ROTATION = -18       -- inclinaison vers la gauche (degrés)
+local HOVER_TIME        = 1.1       -- « CLAIM! » : secondes pour monter (puis autant pour redescendre)
+local HOVER_HEIGHT      = 0.05      -- hauteur du flottement (en part de la carte)
 local TILE_SCALE        = 1        -- taille du fond par rapport au bouton image (1 = exactement le bouton, comme l'ancienne image)
 local RAYS_IMAGE        = "rbxassetid://79497376602630"   -- rayons derrière les coffres ("" = aucun)
 local RAYS_TRANSPARENCY = 0.35                             -- 0 = rayons pleins, 1 = invisibles
@@ -246,12 +248,13 @@ local function rewardToast(title, sub)
 end
 
 -- ============================================================
--- 👆 RÉCOMPENSE PRÊTE : petite main qui tape + « CLAIM! » qui pulse
+-- 👆 RÉCOMPENSE PRÊTE : « CLAIM! » qui flotte doucement (+ main qui tape si TAP_HAND_IMAGE)
 -- ============================================================
+local hoverTweens = {}
 local function setReadyFx(btn, label, on)
 	if not NEW_LOOK then return end
 	local hand = btn:FindFirstChild("TapHand")
-	local pulse = label and label:FindFirstChild("ClaimPulse")
+	local pulse = label and label:GetAttribute("Hover") and label
 	if on then
 		if not hand and TAP_HAND_IMAGE ~= "" then
 			hand = Instance.new("ImageLabel")
@@ -275,16 +278,26 @@ local function setReadyFx(btn, label, on)
 				  Rotation = TAP_HAND_ROTATION - 6 }):Play()
 		end
 		if hand then hand.Visible = true end
+		-- flotte doucement de haut en bas (un UIScale ne marchait pas : la taille du texte
+		-- est plafonnée par son UITextSizeConstraint, le texte ne grossissait donc pas)
 		if label and not pulse then
-			pulse = Instance.new("UIScale")
-			pulse.Name = "ClaimPulse"
-			pulse.Parent = label
-			TweenService:Create(pulse, TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-				{ Scale = 1.15 }):Play()
+			label:SetAttribute("Hover", true)
+			label:SetAttribute("BaseY", label.Position.Y.Scale)
+			local base = label.Position
+			local tw = TweenService:Create(label, TweenInfo.new(HOVER_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - HOVER_HEIGHT, base.Y.Offset) })
+			hoverTweens[label] = tw
+			tw:Play()
 		end
 	else
 		if hand then hand:Destroy() end          -- détruit = son animation s'arrête aussi
-		if pulse then pulse:Destroy() end
+		if pulse then
+			local tw = hoverTweens[label]
+			if tw then tw:Cancel() hoverTweens[label] = nil end
+			local by = label:GetAttribute("BaseY")
+			if by then label.Position = UDim2.new(label.Position.X.Scale, label.Position.X.Offset, by, label.Position.Y.Offset) end
+			label:SetAttribute("Hover", nil)
+		end
 	end
 end
 
