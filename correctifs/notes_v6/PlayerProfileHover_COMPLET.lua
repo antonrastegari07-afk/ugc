@@ -852,82 +852,187 @@ end
 
 ---------------------------------------------------------------------
 -- 🎽 UGC RÉCUPÉRÉS — 🆕 TOUT EN HAUT de la fiche (la première chose qu'on voit)
---    Cadre doré : nombre d'UGC + bandeau de cartes qui défile de gauche à droite,
---    la plus récente à gauche, numérotée (#1 = la toute première récupérée).
+--    • Aperçu : les 4 derniers UGC (pas de mini-défilement) + carte « See all (N) ».
+--    • See all : la grille de TOUS les UGC, 4 par ligne, qui défile verticalement,
+--      à la place des stats ; « ← Back » revient à la fiche.
+--    • Cadre aux couleurs de la fiche ; doré seulement si le joueur est VIP.
 --    Source : la même que ta section admin (UGCRedeemLog_Server), via
 --    PublicProfile_Server → remote « GetPublicUGCs ». Que du public :
---    l'UGC et son image.
+--    l'UGC et son image. #1 = le tout premier UGC récupéré.
 ---------------------------------------------------------------------
-local UGC = { token = 0, rows = {} }
+local UGC_ICON = nil              -- 🖼️ mets "rbxassetid://ID" pour une icône devant « UGC Redeemed »
+local UGC_PREVIEW = 4             -- nombre d'UGC dans l'aperçu
+local UGC = { token = 0, rows = {}, all = {}, list = {}, total = 0 }
 
 UGC.box = new("Frame", {
-	Name = "UGCs", BackgroundColor3 = C.Tile, BackgroundTransparency = 0.35, LayoutOrder = 0,
+	Name = "UGCs", BackgroundColor3 = C.Tile, BackgroundTransparency = 0.25, LayoutOrder = 0,
 	Size = UDim2.fromScale(1, 0), AutomaticSize = Enum.AutomaticSize.Y,
 }, grid)
-corner(UGC.box, UDim.new(0, 14))
-stroke(UGC.box, C.Gold, 0.35, 1.5)
+corner(UGC.box, UDim.new(0, 12))
+UGC.stroke = stroke(UGC.box, C.White, 0.88, 1)
 new("UIPadding", {
-	PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8),
+	PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10),
 	PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
 }, UGC.box)
 new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, UGC.box)
 
-UGC.title = text(UGC.box, "🎽 UGC Redeemed", F.Heavy, C.Gold, 22, {
-	Size = UDim2.new(1, 0, 0, 28), LayoutOrder = 0, TextXAlignment = Enum.TextXAlignment.Left,
-})
+local function titleRow(parent, order)
+	local row = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 26), LayoutOrder = order }, parent)
+	local x = 0
+	if UGC_ICON then
+		new("ImageLabel", { BackgroundTransparency = 1, Image = UGC_ICON, ScaleType = Enum.ScaleType.Fit,
+			Size = UDim2.fromOffset(24, 24), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0) }, row)
+		x = 30
+	end
+	local lbl = text(row, "UGC Redeemed", F.Heavy, C.White, 20, {
+		Size = UDim2.new(1, -x, 1, 0), Position = UDim2.fromOffset(x, 0), TextXAlignment = Enum.TextXAlignment.Left,
+	})
+	return lbl, row
+end
+UGC.title = titleRow(UGC.box, 0)
 UGC.note = text(UGC.box, "", F.Medium, C.Sub, 15, {
 	Size = UDim2.new(1, 0, 0, 20), LayoutOrder = 1, TextXAlignment = Enum.TextXAlignment.Left,
 })
-UGC.strip = new("ScrollingFrame", {
-	BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = 2, Visible = false,
-	Size = UDim2.new(1, 0, 0, 128), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.X,
-	ScrollingDirection = Enum.ScrollingDirection.X,
-	ScrollBarThickness = 3, ScrollBarImageColor3 = C.Gold, ScrollBarImageTransparency = 0.4,
+
+-- Aperçu : 5 cases de même taille (4 UGC + « See all »), aucune barre de défilement
+UGC.preview = new("Frame", {
+	BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+	LayoutOrder = 2, Visible = false,
 }, UGC.box)
-new("UIListLayout", {
-	FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
+local previewLayout = new("UIGridLayout", {
+	CellSize = UDim2.new(0.2, -5, 0, 90), CellPadding = UDim2.fromOffset(6, 6),
 	SortOrder = Enum.SortOrder.LayoutOrder,
-}, UGC.strip)
-new("UIPadding", { PaddingBottom = UDim.new(0, 6) }, UGC.strip)
+}, UGC.preview)
+
+-- Vue « See all » : par-dessus la fiche, à la place des stats
+UGC.allView = new("ScrollingFrame", {
+	BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false,
+	Size = grid.Size, Position = grid.Position,
+	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollingDirection = Enum.ScrollingDirection.Y,
+	ScrollBarThickness = 3, ScrollBarImageColor3 = C.Accent, ScrollBarImageTransparency = 0.4,
+}, panel)
+new("UIPadding", {
+	PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8),
+	PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 6),
+}, UGC.allView)
+new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, UGC.allView)
+local allHead = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 0 }, UGC.allView)
+local backBtn = new("TextButton", {
+	Size = UDim2.fromOffset(84, 30), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
+	BackgroundColor3 = C.Tile, BackgroundTransparency = 0.1, AutoButtonColor = true,
+	Text = "← Back", FontFace = F.Bold, TextColor3 = C.White, TextSize = 16,
+}, allHead)
+corner(backBtn, UDim.new(0, 8))
+stroke(backBtn, C.White, 0.8, 1)
+UGC.allTitle = text(allHead, "UGC Redeemed", F.Heavy, C.White, 20, {
+	Size = UDim2.new(1, -96, 1, 0), Position = UDim2.fromOffset(96, 0), TextXAlignment = Enum.TextXAlignment.Left,
+})
+UGC.allGrid = new("Frame", {
+	BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1,
+}, UGC.allView)
+local allLayout = new("UIGridLayout", {
+	CellSize = UDim2.new(0.25, -6, 0, 100), CellPadding = UDim2.fromOffset(8, 8),
+	SortOrder = Enum.SortOrder.LayoutOrder,
+}, UGC.allGrid)
+
+-- Hauteur des cases = largeur × 1.3 (image + nom), pour toute taille d'écran
+local function fitUGCCells()
+	local w1 = UGC.preview.AbsoluteSize.X
+	if w1 > 0 then
+		local cw = (w1 - 6 * 4) / 5
+		previewLayout.CellSize = UDim2.new(0.2, -5, 0, math.floor(cw * 1.3))
+	end
+	local w2 = UGC.allGrid.AbsoluteSize.X
+	if w2 > 0 then
+		local cw = (w2 - 8 * 3) / 4
+		allLayout.CellSize = UDim2.new(0.25, -6, 0, math.floor(cw * 1.3))
+	end
+end
+UGC.preview:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitUGCCells)
+UGC.allGrid:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitUGCCells)
+
+local function showAll(on)
+	UGC.allView.Visible = on
+	grid.Visible = not on
+	if on then
+		UGC.allView.CanvasPosition = Vector2.zero
+		task.defer(fitUGCCells)
+	end
+end
+backBtn.Activated:Connect(function() showAll(false) end)
+
+-- Une carte UGC (taille donnée par la grille parente)
+local function ugcCard(parent, order, number, item, store)
+	local card = new("Frame", {
+		BackgroundColor3 = Color3.fromRGB(20, 24, 34), BackgroundTransparency = 0.15, LayoutOrder = order,
+	}, parent)
+	corner(card, UDim.new(0, 10))
+	stroke(card, C.White, 0.88, 1)
+	local img = new("ImageLabel", {
+		BackgroundTransparency = 1, Image = item.img or "", ScaleType = Enum.ScaleType.Fit,
+		Size = UDim2.fromScale(0.82, 0.62), AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.05),
+	}, card)
+	corner(img, UDim.new(0, 8))
+	text(card, "#" .. number, F.Heavy, C.Sub, 13, {
+		Size = UDim2.fromScale(0.5, 0.14), Position = UDim2.fromScale(0.05, 0.02),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
+	text(card, item.n or "UGC", F.Bold, C.White, 13, {
+		Size = UDim2.fromScale(0.92, 0.26), Position = UDim2.fromScale(0.04, 0.7),
+		TextWrapped = true, TextTruncate = Enum.TextTruncate.AtEnd,
+	})
+	table.insert(store, card)
+	return card
+end
 
 local function ugcClear()
 	for _, r in UGC.rows do r:Destroy() end
 	table.clear(UGC.rows)
-	UGC.strip.CanvasPosition = Vector2.zero
+	for _, r in UGC.all do r:Destroy() end
+	table.clear(UGC.all)
+	UGC.list, UGC.total, UGC.allBuilt = {}, 0, false
 end
 
-local function ugcRow(order, number, item)
-	local card = new("Frame", {
-		BackgroundColor3 = Color3.fromRGB(20, 24, 34), BackgroundTransparency = 0.1,
-		Size = UDim2.fromOffset(96, 116), LayoutOrder = order,
-	}, UGC.strip)
-	corner(card, UDim.new(0, 12))
-	stroke(card, C.White, 0.85, 1)
-	local img = new("ImageLabel", {
-		BackgroundTransparency = 1, Image = item.img or "", ScaleType = Enum.ScaleType.Fit,
-		Size = UDim2.fromOffset(74, 74), AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 6),
-	}, card)
-	corner(img, UDim.new(0, 8))
-	text(card, "#" .. number, F.Heavy, C.Gold, 13, {
-		Size = UDim2.fromOffset(36, 16), Position = UDim2.fromOffset(5, 3),
-		TextXAlignment = Enum.TextXAlignment.Left,
+-- La grille complète n'est construite qu'au 1er « See all » (fiche rapide à ouvrir)
+local function buildAll()
+	if UGC.allBuilt then return end
+	UGC.allBuilt = true
+	local list, total = UGC.list, UGC.total
+	local first = total - #list + 1
+	for i = #list, 1, -1 do                    -- plus récent en premier
+		ugcCard(UGC.allGrid, #list - i, first + i - 1, list[i], UGC.all)
+	end
+end
+
+local function seeAllCard(total)
+	local b = new("TextButton", {
+		BackgroundColor3 = C.Tile, BackgroundTransparency = 0.1, AutoButtonColor = true,
+		Text = "", LayoutOrder = 99,
+	}, UGC.preview)
+	corner(b, UDim.new(0, 10))
+	stroke(b, C.White, 0.75, 1)
+	text(b, ("See all\n(%d)"):format(total), F.Heavy, C.White, 16, {
+		Size = UDim2.fromScale(0.9, 0.6), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		TextWrapped = true,
 	})
-	text(card, item.n or "UGC", F.Bold, C.White, 13, {
-		Size = UDim2.new(1, -8, 0, 30), Position = UDim2.new(0, 4, 0, 82),
-		TextWrapped = true, TextTruncate = Enum.TextTruncate.AtEnd,
-	})
-	table.insert(UGC.rows, card)
+	b.Activated:Connect(function()
+		buildAll()
+		showAll(true)
+	end)
+	table.insert(UGC.rows, b)
 end
 
 local function loadUGCs(userId)
 	UGC.token += 1
 	local my = UGC.token
+	showAll(false)
 	ugcClear()
-	UGC.title.Text = "🎽 UGC Redeemed"
+	UGC.title.Text = "UGC Redeemed"
 	UGC.note.Text = "Loading…"
 	UGC.note.Visible = true
-	UGC.strip.Visible = false
+	UGC.preview.Visible = false
 
 	task.spawn(function()
 		local fn = ReplicatedStorage:WaitForChild("GetPublicUGCs", 10)
@@ -954,21 +1059,37 @@ local function loadUGCs(userId)
 		end
 		local list = res.list or {}
 		local total = math.max(tonumber(res.total) or 0, #list)
-		UGC.title.Text = ("🎽 UGC Redeemed · %d"):format(total)
+		UGC.list, UGC.total = list, total
+		UGC.title.Text = ("UGC Redeemed · %d"):format(total)
+		UGC.allTitle.Text = ("UGC Redeemed · %d"):format(total)
 		if #list == 0 then
 			UGC.note.Text = "No UGC redeemed yet."
 			return
 		end
-		-- numéro = ordre de récupération ; s'il manque les plus anciens,
-		-- la numérotation part du bon rang quand même
+		UGC.note.Visible = false
+		-- aperçu : les plus récents ; numéro = ordre de récupération
 		local first = total - #list + 1
-		UGC.note.Visible = total > #list
-		UGC.note.Text = ("Showing the last %d"):format(#list)
-		for i = #list, 1, -1 do              -- plus récent à gauche
-			ugcRow(#list - i, first + i - 1, list[i])
+		local shownN = math.min(UGC_PREVIEW, #list)
+		for k = 1, shownN do
+			local i = #list - k + 1
+			ugcCard(UGC.preview, k, first + i - 1, list[i], UGC.rows)
 		end
-		UGC.strip.Visible = true
+		if #list > UGC_PREVIEW then seeAllCard(total) end
+		UGC.preview.Visible = true
+		task.defer(fitUGCCells)
 	end)
+end
+
+-- 👑 Cadre UGC aux couleurs de la fiche : doré seulement pour un VIP
+do
+	local baseApplyVip = applyVipStyle
+	applyVipStyle = function(isVip)
+		baseApplyVip(isVip)
+		local gold = VIP_PROFILE_STYLE and isVip == true
+		UGC.stroke.Color = gold and VIP.GOLD or C.White
+		UGC.stroke.Transparency = gold and 0.35 or 0.88
+		UGC.stroke.Thickness = gold and 1.5 or 1
+	end
 end
 
 ---------------------------------------------------------------------
@@ -1160,6 +1281,7 @@ end)
 local function closeProfile()
 	if not panelOpen then return end
 	panelOpen = false
+	showAll(false)
 	shown = nil
 	remoteView = nil
 	tween(dim, BACK, { BackgroundTransparency = 1 })

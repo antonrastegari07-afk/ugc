@@ -45,13 +45,12 @@ Fais une copie du jeu avant. Chaque « Cherche » ci-dessous existe **une seule 
 
 ---
 
-## 2. 🛒 Shop : « UGCs restocked weekly! »
+## 2. 🛒 Shop : « Restocked weekly! »
 
-Ajoute le LocalScript `RestockInfo_SHOP.lua` **dans StarterGui ▸ UGCshop ▸ ShopFrame**.
-
-Il crée le texte à droite du titre « UGCs », entre le titre et le bouton X, avec la police du titre. La position se recalcule toute seule (PC, mobile, tablette).
-
-Pour changer le texte ou la couleur, modifie `TEXT` / `COLOR` en haut du script.
+LocalScript `RestockInfo_SHOP.lua` **dans StarterGui ▸ UGCshop ▸ ShopFrame** (remplace l'ancienne version si tu l'avais mise).
+- Le texte est **blanc, droit, sans emoji**, avec un contour noir.
+- Horizontalement, il est **centré sur la colonne du milieu** des UGC (calculé sur les vraies cartes).
+- Verticalement, il est **centré entre le haut du cadre principal et le haut de la liste**.
 
 ---
 
@@ -121,88 +120,49 @@ Un nouveau bouton **📨 INVITES & PUBS** apparaît à l'accueil de l'admin pane
 
 ---
 
-## 4. 🎽 UGC redeemed en premier dans les profils + « My UGCs & Stats »
+## 4. 🎽 UGC redeemed dans les profils + page « STATS & UGCS » des Settings
 
-### Fiche profil (la tienne et celle des autres)
-**StarterPlayerScripts ▸ PlayerProfileHover** (celui qui est **activé** ; l'autre copie est désactivée) : remplace **tout** par `PlayerProfileHover_COMPLET.lua`.
-- Les UGC récupérés sont maintenant **tout en haut**, dans un cadre doré : « 🎽 UGC Redeemed · N ».
-- Les UGC s'affichent dans un bandeau de cartes (image, nom, #numéro) qui défile de gauche à droite, la plus récente à gauche.
-- Les stats sont en dessous, sous un titre « Stats », dans le même style qu'avant.
-- Le reste ne change pas : bouton Gift, VIP, fiche ouverte depuis un leaderboard…
-- Nouveau : `_G.OpenMyProfile()` ouvre **ta propre fiche**.
+### Fiche profil
+**StarterPlayerScripts ▸ PlayerProfileHover** (celui qui est **activé**) : remplace **tout** par `PlayerProfileHover_COMPLET.lua`.
+- **En haut :** « UGC Redeemed · N » avec les **4 derniers UGC**, sans mini-défilement, et une carte **« See all (N) »**.
+- **See all :** la grille de **tous** les UGC (4 par ligne, défilement vertical) s'affiche à la place des stats. « ← Back » revient à la fiche.
+- **Couleurs :** le cadre a les couleurs de la fiche. Il est **doré seulement si le joueur est VIP**.
+- **Stats :** dessous, comme avant.
+- **Icône :** pour en mettre une devant « UGC Redeemed », écris `UGC_ICON = "rbxassetid://TON_ID"` en haut de la section.
 
-### Settings : onglet « Profile » avec un bouton
-**ReplicatedStorage ▸ SettingsConfig**, cherche :
-```lua
-C.Categories = {
-```
-Remplace par :
-```lua
-C.Categories = {
-	{
-		id = "profile", name = "Profile",
-		items = {
-			{ type = "button", label = "🎽 My UGCs & Stats", button = "Open", action = "myProfile" },
-		},
-	},
-```
+### Settings : le bouton STATS devient « STATS & UGCS »
+⚠️ Si tu avais déjà fait l'ancienne étape (onglet « Profile » + `buildButton`), **annule-la d'abord** : remets SettingsConfig et SettingsUI comme avant.
 
-**StarterPlayerScripts ▸ SettingsUI**, 3 remplacements :
+**ReplicatedStorage ▸ SettingsConfig** :
 
 Cherche :
 ```lua
-local function isPointer(input)
+	stats    = { name = "STATS",    title = "Stats" },
 ```
 Remplace par :
 ```lua
--- 🆕 Ligne avec un bouton (ex. « My UGCs & Stats » → ouvre ta fiche profil)
-local BUTTON_ACTIONS = {
-	myProfile = function()
-		if _G.OpenMyProfile then return _G.OpenMyProfile() end
-		return false
-	end,
-}
-local function buildButton(parent, item, order)
-	local f = card(parent, order, 60)
-	cardText(f, item, 150, true)
-	local holder = new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-		Size = UDim2.fromOffset(140, 42), BackgroundTransparency = 1 }, f)
-	local btn = button3D(holder, item.button or "Open", COL.blue, UDim2.fromScale(1, 1), 17)
-	btn.Activated:Connect(function()
-		local fn = BUTTON_ACTIONS[item.action]
-		if fn then pcall(fn) end
-	end)
-	return f
-end
-
-local function isPointer(input)
+	stats    = { name = "STATS & UGCS",    title = "Stats & UGCs" },
 ```
 
-Cherche :
-```lua
-		elseif item.type == "advanced" then
-```
-Remplace par :
-```lua
-		elseif item.type == "button" then
-			fr = buildButton(body, item, nextOrder())
-		elseif item.type == "advanced" then
-```
+**StarterPlayerScripts ▸ SettingsUI**, 5 changements :
 
-Cherche :
-```lua
-	corner(rb, 7)
-```
-Remplace par :
-```lua
-	corner(rb, 7)
-	-- pas de bouton Reset dans une section sans réglage (ex. Profile)
-	local hasKey = false
-	for _, item in ipairs(cat.items) do if item.key then hasKey = true end end
-	rb.Visible = hasKey
-```
+1. Cherche `	local p = statCard("PROGRESSION", 2)` et remplace par `	local p = statCard("PROGRESSION", 3)`.
+2. Cherche `	local s = statCard("STREAK", 3)` et remplace par `	local s = statCard("STREAK", 4)`.
+3. Cherche `	local l = statCard("RIGHT NOW", 4)` et remplace par `	local l = statCard("RIGHT NOW", 5)`.
+4. Cherche `local function fmtNum(n)`, colle **juste au-dessus** tout le contenu de `SettingsUI_UGC_SNIPPET.lua`, puis laisse la ligne `local function fmtNum(n)` en place.
+5. Cherche :
+   ```lua
+   		refreshStats()
+   		if reqCp then pcall(function() reqCp:FireServer() end) end
+   ```
+   Remplace par :
+   ```lua
+   		refreshStats()
+   		loadMyUGCs()
+   		if reqCp then pcall(function() reqCp:FireServer() end) end
+   ```
 
-« Profile » devient le 1er onglet des Settings. Le bouton ouvre ta fiche par-dessus les Settings ; quand tu la fermes, tu reviens aux Settings. La fiche ne s'ouvre pas en arène PvP, comme les autres fiches.
+Résultat : Settings ▸ **STATS & UGCS** ouvre la page Stats avec, en premier, **UGC REDEEMED** (« 12 UGCs redeemed » + la grille de tous tes UGC, 4 par ligne), puis Progression, Streak et Right now.
 
 ---
 
@@ -210,5 +170,5 @@ Remplace par :
 1. Redeem une UGC : le message violet arrive tout de suite dans le chat, une seule fois. Teste aussi avec 2 serveurs (Team Test).
 2. Ouvre le shop UGC : le texte « UGCs restocked weekly! » est à droite du titre, sur PC et en émulateur téléphone.
 3. Invite un ami, ferme le prompt, regarde une pub, puis attends 60 s en jeu publié : l'admin panel ▸ 📨 INVITES & PUBS affiche les compteurs. En Studio, rien n'est écrit, c'est normal.
-4. Ouvre la fiche d'un autre joueur : les UGC sont en haut, les stats en dessous.
-5. Settings ▸ Profile ▸ Open : ta fiche s'ouvre avec tes UGC.
+4. Ouvre la fiche d'un autre joueur : 4 UGC en haut, « See all », puis Back. Le cadre est doré seulement pour un VIP.
+5. Settings ▸ STATS & UGCS : tes UGC en premier, puis les stats.
