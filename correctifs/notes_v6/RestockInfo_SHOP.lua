@@ -32,9 +32,10 @@ stroke.Parent = label
 --  rendait le texte minuscule. La taille vient uniquement de la case ci-dessous.)
 label.Parent = frame
 
--- Taille du texte : proportionnelle à une carte UGC (et non à l'espace au-dessus de la
--- liste, trop petit dans ton shop → texte minuscule).
-local TEXT_HEIGHT = 0.17   -- hauteur du texte = 17 % de la largeur d'une carte (augmente pour plus gros)
+-- Taille du texte : une part FIXE du cadre du shop (ne dépend plus des cartes ni de l'espace
+-- au-dessus de la liste). 0.07 = le texte fait 7 % de la hauteur du shop.
+local TEXT_HEIGHT = 0.07   -- augmente pour plus gros (ex. 0.09), baisse pour plus petit
+local TEXT_WIDTH  = 0.34   -- largeur max de la zone de texte (34 % de la largeur du shop)
 
 -- Centre X + largeur de la carte du milieu de la 1re rangée (sinon : centre de la liste)
 local function middleColumnX()
@@ -63,10 +64,8 @@ local function place()
 	if gapTop < 4 then gapTop = fs.Y * 0.08 end
 	local midX, cardW = middleColumnX()
 	local cx = midX - fp.X
-	local h = math.max(cardW * TEXT_HEIGHT, 12)
-	local w = math.min(fs.X * 0.6, h * 9)
 	label.Position = UDim2.fromScale(cx / fs.X, (gapTop / 2) / fs.Y)
-	label.Size = UDim2.fromScale(w / fs.X, h / fs.Y)
+	label.Size = UDim2.fromScale(TEXT_WIDTH, TEXT_HEIGHT)
 end
 
 for _, obj in ipairs({ frame, scroll }) do
