@@ -31,6 +31,11 @@ function Engine.new(playerGui, ownGui, config, changed)
 	--    notifications. La règle 3 ne s'applique donc ni pendant les premières
 	--    secondes, ni aux interfaces qui existent dans StarterGui.
 	self.startedAt = os.clock()
+	-- fin du chargement : le loader met PlayerGui.LoaderRevealed = true quand le noir s'enlève
+	self.revealedAt = playerGui:GetAttribute("LoaderRevealed") and os.clock() or nil
+	table.insert(self.connections, playerGui:GetAttributeChangedSignal("LoaderRevealed"):Connect(function()
+		if playerGui:GetAttribute("LoaderRevealed") then self.revealedAt = os.clock() end
+	end))
 	self.starterNames = {}
 	pcall(function()
 		for _, g in ipairs(game:GetService("StarterGui"):GetChildren()) do
@@ -62,7 +67,13 @@ end
 
 -- 🔔 Règle 3 autorisée pour cette interface ? (pas au chargement, pas une interface de StarterGui)
 function Engine:_lateAllowed(gui)
-	if os.clock() - self.startedAt < (self.config.LateGraceSeconds or 30) then return false end
+	-- pas avant la fin du chargement (+ LateGraceSeconds) ; sans loader : 60 s après le départ
+	local grace = self.config.LateGraceSeconds or 10
+	if self.revealedAt then
+		if os.clock() - self.revealedAt < grace then return false end
+	elseif os.clock() - self.startedAt < 60 then
+		return false
+	end
 	if self.starterNames[gui.Name] then return false end
 	return true
 end
