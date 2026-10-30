@@ -6,7 +6,7 @@
 --
 --  Ce qu'il fait (purement visuel, aucune donnée, aucune récompense) :
 --   1) 🎨 Quête FINIE (« Claimed ») : même look partout, celui de « Like the game » :
---        bouton gris « Claimed » (texte gris clair + dégradé), barre grise « Completed ».
+--        bouton gris « Claimed » (texte gris clair + dégradé), barre grise vide.
 --        (Magnum jaune « Magnum ✓ », chasses « Completed ✓ »… passent au même gris.)
 --   2) 🌑 + un voile noir semi-transparent sur toute la quête, avec le check vert des
 --        récompenses Playtime et « Completed » en blanc, centrés.
@@ -232,8 +232,9 @@ local function start(questGui)
 				local fg = fill:FindFirstChildOfClass("UIGradient")
 				if fg and fg.Enabled then fg.Enabled = false end
 			end
+			-- pas de texte sur la barre : le voile dit déjà « Completed »
 			local lbl = bar:FindFirstChild("ProgressLabel")
-			if lbl and lbl.Text ~= DONE_TEXT then lbl.Text = DONE_TEXT end
+			if lbl and lbl.Text ~= "" then lbl.Text = "" end
 		end
 	end
 

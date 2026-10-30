@@ -7,3 +7,14 @@
   sans attente entre la vérification et la marque).
 - Anti-flood : 12 demandes d'un coup, puis 2/s.
 - Le pays du joueur (minuit local) est lu une fois par session au lieu de 2 appels web par claim.
+
+---
+
+# 🎨 Playtime Rewards — affichage (client)
+
+**StarterGui ▸ Daily tool ▸ DailyTool ▸ Playtime Reward ▸ local Playtime Reward** : remplace TOUT par `PlaytimeReward_CLIENT.lua`.
+
+Réglages en haut du script :
+- `NEW_LOOK = true` — `false` = l'ancien affichage, à l'identique.
+- `SHOW_CLAIM_ALL = true` — `false` = pas de bouton « Claim all ».
+- `BAND_TRANSPARENCY = 0.35` — opacité de la bande noire.
