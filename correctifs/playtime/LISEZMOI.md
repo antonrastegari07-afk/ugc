@@ -19,3 +19,11 @@ Réglages en haut du script :
 - `SHOW_CLAIM_ALL = false` — `true` = bouton « Claim all ».
 - `TILE_BACKGROUND = true` — fond des cartes dessiné par le script (bleu / vert quand prête / grisé). `TILE_STYLE` : cartes en or (pt_4, pt_9).
 - `BAND_TRANSPARENCY = 0.35` — opacité de la bande noire.
+
+---
+
+# 📅 Daily Rewards — affichage (client)
+
+**StarterGui ▸ Daily tool ▸ DailyTool ▸ Daily Reward ▸ local Daily affichage** : remplace TOUT par `DailyReward_CLIENT.lua`.
+- `NEW_LOOK = true` (`false` = ancien affichage à l'identique) : temps court sur bande en fondu,
+  « CLAIM! » sans fond, dégradé animé vert clair quand la récompense est prête.

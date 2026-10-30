@@ -23,7 +23,7 @@ local mainFrame = script.Parent
 --     • tout récupéré : une bande au milieu de la grille « All rewards claimed! / New rewards in 5:12:03 »
 --       (plus de texte caché par le check de la 1re carte)
 --     • chaque carte a son FOND dessiné par le script (carré bleu arrondi, comme l'ancienne image) :
---       bleu = pas encore prête · VERT = prête à récupérer · grisé = récupérée.
+--       bleu = pas encore prête · VERT = prête à récupérer · GRIS = récupérée.
 --       → les images peuvent n'avoir QUE les pièces, sans fond.
 --     • récompense prête : le dégradé animé derrière la carte passe au VERT clair
 --   SHOW_CLAIM_ALL = true → bouton « Claim all (N) » quand au moins 2 récompenses sont prêtes
@@ -527,6 +527,7 @@ local TILE_COLORS = {
 	blue  = { top = Color3.fromRGB(125, 175, 255), bottom = Color3.fromRGB(65, 110, 245), stroke = Color3.fromRGB(35, 60, 190) },
 	gold  = { top = Color3.fromRGB(255, 222, 105), bottom = Color3.fromRGB(240, 162, 30), stroke = Color3.fromRGB(185, 108, 10) },
 	green = { top = Color3.fromRGB(130, 245, 150), bottom = Color3.fromRGB(35, 185, 80),  stroke = Color3.fromRGB(15, 115, 45) },
+	grey  = { top = Color3.fromRGB(150, 150, 150), bottom = Color3.fromRGB(95, 95, 95),   stroke = Color3.fromRGB(60, 60, 60) },
 }
 
 local function getTile(cache)
@@ -538,8 +539,10 @@ local function getTile(cache)
 	tile.BackgroundColor3 = Color3.new(1, 1, 1)
 	tile.ZIndex = math.max(btn.ZIndex - 1, 0)
 	tile.Active = false
+	-- même arrondi que la carte (le UICorner du ButtonFrame)
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.14, 0)
+	local fc = cache.frame:FindFirstChildOfClass("UICorner")
+	corner.CornerRadius = fc and fc.CornerRadius or UDim.new(0.14, 0)
 	corner.Parent = tile
 	local grad = Instance.new("UIGradient")
 	grad.Rotation = 90
@@ -563,6 +566,13 @@ local function getTile(cache)
 	local function follow()
 		tile.AnchorPoint, tile.Position, tile.Size = btn.AnchorPoint, btn.Position, btn.Size
 		stroke.Thickness = math.max(2, btn.AbsoluteSize.X * 0.045)
+		-- arrondi identique EN PIXELS à celui de la carte (même si la carte est plus grande)
+		local fs, ts = cache.frame.AbsoluteSize, btn.AbsoluteSize
+		local tmin = math.min(ts.X, ts.Y)
+		if fc and tmin > 1 then
+			local px = fc.CornerRadius.Scale * math.min(fs.X, fs.Y) + fc.CornerRadius.Offset
+			corner.CornerRadius = UDim.new(math.clamp(px / tmin, 0, 0.5), 0)
+		end
 	end
 	follow()
 	btn:GetPropertyChangedSignal("Size"):Connect(follow)
@@ -578,11 +588,10 @@ local function styleTile(cache, mode)       -- "normal" | "ready" | "claimed"
 	if not (NEW_LOOK and TILE_BACKGROUND) then return end
 	if cache.tileMode == mode and cache.tile and cache.tile.Parent then return end
 	local tile = getTile(cache)
-	local key = (mode == "ready") and "green" or (TILE_STYLE[cache.config.id] or "blue")
+	local key = (mode == "ready") and "green" or (mode == "claimed") and "grey" or (TILE_STYLE[cache.config.id] or "blue")
 	local c = TILE_COLORS[key] or TILE_COLORS.blue
 	cache.tileGrad.Color = ColorSequence.new(c.top, c.bottom)
 	cache.tileStroke.Color = c.stroke
-	tile.BackgroundColor3 = (mode == "claimed") and Color3.fromRGB(105, 105, 105) or Color3.new(1, 1, 1)
 	cache.tileMode = mode
 end
 
