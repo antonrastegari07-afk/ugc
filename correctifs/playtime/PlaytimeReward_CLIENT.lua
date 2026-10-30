@@ -128,6 +128,25 @@ local function fadeBand(parent, name, zIndex)
 	return band
 end
 
+-- la bande du compteur est découpée dans la forme arrondie du bouton (ne dépasse jamais)
+local function bandClip(imageButton)
+	local clip = imageButton:FindFirstChild("BandClip")
+	if clip then return clip end
+	clip = Instance.new("CanvasGroup")
+	clip.Name = "BandClip"
+	clip.BackgroundTransparency = 1
+	clip.BorderSizePixel = 0
+	clip.Size = UDim2.fromScale(1, 1)
+	clip.ZIndex = 2
+	clip.Active = false
+	local c = Instance.new("UICorner")
+	local bc = imageButton:FindFirstChildOfClass("UICorner")
+	c.CornerRadius = bc and bc.CornerRadius or UDim.new(0, 0)
+	c.Parent = clip
+	clip.Parent = imageButton
+	return clip
+end
+
 local function formatPoints(pts)
 	if pts >= 1000000 then
 		return string.format("%.1fM", pts / 1000000)
@@ -351,7 +370,7 @@ local function createCountdownLabel(imageButton)
 
 	if NEW_LOOK then
 		-- bande en fondu + texte par-dessus (sans fond)
-		local band = fadeBand(imageButton, "CountdownBand", 2)
+		local band = fadeBand(bandClip(imageButton), "CountdownBand", 2)
 		band.AnchorPoint = Vector2.new(0.5, 0.5)
 		band.Position = UDim2.new(0.5, 0, 0.86, 0)
 		band.Size = UDim2.new(1, 0, 0.26, 0)      -- largeur du bouton : ne déborde pas sur la carte
@@ -600,6 +619,9 @@ local function getTile(cache)
 			local px = fc.CornerRadius.Scale * math.min(fs.X, fs.Y) + fc.CornerRadius.Offset
 			corner.CornerRadius = UDim.new(math.clamp(px / tmin, 0, 0.5), 0)
 		end
+		local clip = btn:FindFirstChild("BandClip")
+		local cc = clip and clip:FindFirstChildOfClass("UICorner")
+		if cc then cc.CornerRadius = corner.CornerRadius end
 	end
 	follow()
 	btn:GetPropertyChangedSignal("Size"):Connect(follow)
@@ -669,7 +691,7 @@ local function updateUI()
 		local check    = cache.greenCheck
 		local frameExcl = cache.frameExclamation  -- ExclamationPoint3 du ButtonFrame
 
-		local band = btn:FindFirstChild("CountdownBand")
+		local band = btn:FindFirstChild("CountdownBand", true)
 		local lblStroke = lbl:FindFirstChild("TextStroke")
 		if NEW_LOOK and allClaimed then
 			-- tout récupéré : chaque carte = check ; le temps est dans la bande du milieu

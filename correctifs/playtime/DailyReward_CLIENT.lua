@@ -41,8 +41,25 @@ local TOTAL_DAYS = #REWARDS_CONFIG
 --     • récompense prête : « CLAIM! » blanc avec contour vert, sans fond
 --     • récompense prête : le dégradé animé derrière la carte passe au VERT clair
 --       (avant il restait bleu : le script ne trouvait pas ce dégradé, créé plus tard)
+--     • chaque carte a son FOND dessiné par le script (bleu / or) : les images n'ont plus de fond.
+--       VERT = prête à récupérer · GRIS = récupérée. Cartes en or : rayons qui tournent derrière.
 local NEW_LOOK          = true
 local BAND_TRANSPARENCY = 0.35      -- bande noire : 0 = noir plein, 1 = invisible
+local TILE_BACKGROUND   = true      -- false = pas de fond dessiné (si tes images ont encore leur fond)
+local TILE_SCALE        = 1         -- taille du fond par rapport au bouton image (1 = exactement le bouton)
+-- jour → image (carrée, SANS fond) et style du fond ("blue" ou "gold")
+local DAY_LOOK = {
+	[1] = { image = "rbxassetid://75626092982039",  style = "blue" },   -- Speed Coil
+	[2] = { image = "rbxassetid://94792225645523",  style = "gold" },   -- 5 000 points
+	[3] = { image = "rbxassetid://85739633916759",  style = "blue" },   -- Gravity Coil
+	[4] = { image = "rbxassetid://131042216755824", style = "blue" },   -- Fusion Coil
+	[5] = { image = "rbxassetid://94792225645523",  style = "gold" },   -- 5 000 points
+	[6] = { image = "rbxassetid://75626092982039",  style = "blue" },   -- Speed Coil
+	[7] = { image = "rbxassetid://71325292424561",  style = "gold" },   -- Jetpack
+}
+local RAYS_IMAGE        = "rbxassetid://79497376602630"   -- rayons derrière les cartes en or ("" = aucun)
+local RAYS_TRANSPARENCY = 0.35
+local RAYS_TURN_TIME    = 30                               -- secondes pour un tour complet
 
 local READY_GRADIENT = ColorSequence.new({        -- même motif que le bleu animé, en vert clair
 	ColorSequenceKeypoint.new(0,    Color3.fromRGB(0, 185, 80)),
@@ -139,6 +156,111 @@ local function formatShort(seconds)
 	if h > 0 then return string.format("%d:%02d:%02d", h, m, sec) end
 	return string.format("%d:%02d", m, sec)
 end
+-- la bande du compteur est découpée dans la forme arrondie du bouton (ne dépasse jamais)
+local function bandClip(imageButton)
+	local clip = imageButton:FindFirstChild("BandClip")
+	if clip then return clip end
+	clip = Instance.new("CanvasGroup")
+	clip.Name = "BandClip"
+	clip.BackgroundTransparency = 1
+	clip.BorderSizePixel = 0
+	clip.Size = UDim2.fromScale(1, 1)
+	clip.ZIndex = 2
+	clip.Active = false
+	local c = Instance.new("UICorner")
+	local bc = imageButton:FindFirstChildOfClass("UICorner")
+	c.CornerRadius = bc and bc.CornerRadius or UDim.new(0, 0)
+	c.Parent = clip
+	clip.Parent = imageButton
+	return clip
+end
+
+-- ========================================
+-- 🆕 FOND DES CARTES (NEW_LOOK + TILE_BACKGROUND) — même rendu que les Playtime Rewards
+-- ========================================
+local TILE_COLORS = {
+	blue  = { Color3.fromRGB(82, 136, 245),  Color3.fromRGB(82, 136, 245) },
+	gold  = { Color3.fromRGB(254, 223, 49),  Color3.fromRGB(241, 180, 40) },
+	green = { Color3.fromRGB(95, 225, 115),  Color3.fromRGB(40, 185, 80) },
+	grey  = { Color3.fromRGB(150, 150, 150), Color3.fromRGB(115, 115, 115) },
+}
+local function getTile(cache)
+	if cache.tile and cache.tile.Parent then return cache.tile end
+	local btn = cache.imageButton
+	local look = DAY_LOOK[cache.config.day] or {}
+	local tile = Instance.new("CanvasGroup")
+	tile.Name = "TileBackground"
+	tile.BorderSizePixel = 0
+	tile.BackgroundTransparency = 1
+	tile.ZIndex = math.max(btn.ZIndex - 1, 0)
+	tile.Active = false
+	local corner = Instance.new("UICorner")
+	local fc = cache.frame:FindFirstChildOfClass("UICorner")
+	corner.CornerRadius = fc and fc.CornerRadius or UDim.new(0.14, 0)
+	corner.Parent = tile
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BorderSizePixel = 0
+	fill.BackgroundColor3 = Color3.new(1, 1, 1)
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.ZIndex = 1
+	local grad = Instance.new("UIGradient")
+	grad.Parent = fill
+	fill.Parent = tile
+	if look.style == "gold" and RAYS_IMAGE ~= "" then
+		local rays = Instance.new("ImageLabel")
+		rays.Name = "Rays"
+		rays.BackgroundTransparency = 1
+		rays.Image = RAYS_IMAGE
+		rays.ImageTransparency = RAYS_TRANSPARENCY
+		rays.AnchorPoint = Vector2.new(0.5, 0.5)
+		rays.Position = UDim2.fromScale(0.5, 0.5)
+		rays.Size = UDim2.fromScale(1.6, 1.6)
+		rays.ZIndex = 2
+		local a = Instance.new("UIAspectRatioConstraint")
+		a.AspectRatio = 1
+		a.DominantAxis = Enum.DominantAxis.Width   -- carte large (jour 7) : les rayons couvrent toute la largeur
+		a.Parent = rays
+		rays.Parent = tile
+		TweenService:Create(rays, TweenInfo.new(RAYS_TURN_TIME, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
+			{ Rotation = 360 }):Play()
+	end
+	local function follow()
+		local bs, ap = btn.Size, btn.AnchorPoint
+		tile.AnchorPoint = Vector2.new(0.5, 0.5)
+		tile.Position = btn.Position + UDim2.new(bs.X.Scale * (0.5 - ap.X), bs.X.Offset * (0.5 - ap.X),
+			bs.Y.Scale * (0.5 - ap.Y), bs.Y.Offset * (0.5 - ap.Y))
+		tile.Size = UDim2.new(bs.X.Scale * TILE_SCALE, bs.X.Offset * TILE_SCALE, bs.Y.Scale * TILE_SCALE, bs.Y.Offset * TILE_SCALE)
+		-- même arrondi EN PIXELS que la carte
+		local fs, ts = cache.frame.AbsoluteSize, btn.AbsoluteSize
+		local tmin = math.min(ts.X, ts.Y)
+		if fc and tmin > 1 then
+			local px = fc.CornerRadius.Scale * math.min(fs.X, fs.Y) + fc.CornerRadius.Offset
+			corner.CornerRadius = UDim.new(math.clamp(px / tmin, 0, 0.5), 0)
+		end
+		local clip = btn:FindFirstChild("BandClip")
+		local cc = clip and clip:FindFirstChildOfClass("UICorner")
+		if cc then cc.CornerRadius = corner.CornerRadius end
+	end
+	follow()
+	for _, p in ipairs({ "Size", "Position", "AnchorPoint", "AbsoluteSize" }) do
+		btn:GetPropertyChangedSignal(p):Connect(follow)
+	end
+	tile.Parent = btn.Parent
+	cache.tile, cache.tileGrad = tile, grad
+	return tile
+end
+local function styleTile(cache, mode)       -- "normal" | "ready" | "claimed"
+	if not (NEW_LOOK and TILE_BACKGROUND) then return end
+	if cache.tileMode == mode and cache.tile and cache.tile.Parent then return end
+	getTile(cache)
+	local look = DAY_LOOK[cache.config.day] or {}
+	local key = (mode == "ready") and "green" or (mode == "claimed") and "grey" or (look.style or "blue")
+	local c = TILE_COLORS[key] or TILE_COLORS.blue
+	cache.tileGrad.Color = ColorSequence.new(c[1], c[2])
+	cache.tileMode = mode
+end
+
 local function createConfetti(button)
 	local screenGui = button:FindFirstAncestorOfClass("ScreenGui")
 	if not screenGui then return end
@@ -205,6 +327,7 @@ local function frameGradient(cache)
 	return cache.gradient
 end
 local function setFrameGradientGreen(cache, isReady)
+	styleTile(cache, isReady and "ready" or "normal")
 	local gradient = frameGradient(cache)
 	if gradient and NEW_LOOK then
 		if not originalGradientColors[cache.frame] then originalGradientColors[cache.frame] = gradient.Color end
@@ -226,6 +349,7 @@ local function setFrameGradientGreen(cache, isReady)
 	end
 end
 local function setFrameGradientClaimed(cache)
+	styleTile(cache, "claimed")
 	local gradient = frameGradient(cache)
 	if gradient and NEW_LOOK and not originalGradientColors[cache.frame] then
 		originalGradientColors[cache.frame] = gradient.Color
@@ -258,7 +382,7 @@ local function createCountdownLabel(imageButton)
 			NumberSequenceKeypoint.new(1, 1),
 		})
 		g.Parent = band
-		band.Parent = imageButton
+		band.Parent = bandClip(imageButton)
 		local label = Instance.new("TextLabel")
 		label.Name = "CountdownLabel"
 		label.Size = UDim2.new(0.9, 0, 0.22, 0)
@@ -414,7 +538,7 @@ local function updateCountdown()
 		if NEW_LOOK and lbl.Visible then
 			-- « CLAIM! » : sans bande, contour vert · temps : blanc sur la bande en fondu
 			local isClaim = lbl.Text == "CLAIM!"
-			local band = btn:FindFirstChild("CountdownBand")
+			local band = btn:FindFirstChild("CountdownBand", true)
 			local st = lbl:FindFirstChild("TextStroke")
 			lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 			if st then
@@ -485,6 +609,12 @@ local function initializeButtons()
 				imageButton.AnchorPoint = Vector2.new(0.5, 0.5)
 				imageButton.Position = UDim2.new(0.5, 0, 0.5, 0)
 				originalSizes[imageButton] = imageButton.Size
+				local look = DAY_LOOK[config.day]
+				if NEW_LOOK and TILE_BACKGROUND and look then
+					imageButton.Image = look.image
+					imageButton.ScaleType = Enum.ScaleType.Fit     -- image carrée : jamais déformée (carte large du jour 7)
+					imageButton.BackgroundTransparency = 1
+				end
 				local textLabel = imageButton:FindFirstChild("CountdownLabel") or createCountdownLabel(imageButton)
 				local greenCheck = buttonFrame:FindFirstChild("GreenCheck")
 				if greenCheck then greenCheck.Visible = false end
