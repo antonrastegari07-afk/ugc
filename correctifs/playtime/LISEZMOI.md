@@ -16,5 +16,6 @@
 
 Réglages en haut du script :
 - `NEW_LOOK = true` — `false` = l'ancien affichage, à l'identique.
-- `SHOW_CLAIM_ALL = true` — `false` = pas de bouton « Claim all ».
+- `SHOW_CLAIM_ALL = false` — `true` = bouton « Claim all ».
+- `TILE_BACKGROUND = true` — fond des cartes dessiné par le script (bleu / vert quand prête / grisé). `TILE_STYLE` : cartes en or (pt_4, pt_9).
 - `BAND_TRANSPARENCY = 0.35` — opacité de la bande noire.

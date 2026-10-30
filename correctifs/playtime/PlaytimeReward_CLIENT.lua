@@ -22,10 +22,19 @@ local mainFrame = script.Parent
 --     • récompense prête : « CLAIM! » blanc avec contour vert, sans fond
 --     • tout récupéré : une bande au milieu de la grille « All rewards claimed! / New rewards in 5:12:03 »
 --       (plus de texte caché par le check de la 1re carte)
+--     • chaque carte a son FOND dessiné par le script (carré bleu arrondi, comme l'ancienne image) :
+--       bleu = pas encore prête · VERT = prête à récupérer · grisé = récupérée.
+--       → les images peuvent n'avoir QUE les pièces, sans fond.
+--     • récompense prête : le dégradé animé derrière la carte passe au VERT clair
 --   SHOW_CLAIM_ALL = true → bouton « Claim all (N) » quand au moins 2 récompenses sont prêtes
-local NEW_LOOK       = true
-local SHOW_CLAIM_ALL = true
+--   TILE_BACKGROUND = false → pas de fond dessiné (si tes images ont encore leur fond)
+local NEW_LOOK        = true
+local SHOW_CLAIM_ALL  = false
+local TILE_BACKGROUND = true
+-- fond des cartes pas encore prêtes : "blue" (défaut) ou "gold" pour une carte précise
+local TILE_STYLE = { pt_4 = "gold", pt_9 = "gold" }
 local BAND_TRANSPARENCY = 0.35      -- bande noire : 0 = noir plein, 1 = invisible
+local BANNER_AREA = "ImageLabel"     -- le fond à rayons des récompenses (DailyTool ▸ ImageLabel)
 
 local REWARDS_CONFIG = {
 	{id = "pt_1", buttonName = "ButtonFrame1", minutes = 1,  points = 500},
@@ -186,9 +195,27 @@ local function stopHeartbeat(imageButton)
 	end
 end
 
+local READY_GRADIENT = ColorSequence.new({        -- même motif que le bleu animé, en vert clair
+	ColorSequenceKeypoint.new(0,    Color3.fromRGB(0, 185, 80)),
+	ColorSequenceKeypoint.new(0.25, Color3.fromRGB(205, 255, 215)),
+	ColorSequenceKeypoint.new(0.5,  Color3.fromRGB(0, 185, 80)),
+	ColorSequenceKeypoint.new(0.75, Color3.fromRGB(195, 255, 205)),
+	ColorSequenceKeypoint.new(1,    Color3.fromRGB(0, 185, 80)),
+})
+
 local function setGradientGreen(cache, isReady)
 	local g = cache.gradient
+	if NEW_LOOK and (not g or not g.Parent) then
+		-- le dégradé animé est créé par le script de la carte, parfois APRÈS celui-ci
+		g = cache.frame:FindFirstChildOfClass("UIGradient")
+		cache.gradient = g
+	end
 	if not g then return end
+	if NEW_LOOK then
+		if not originalGradients[cache.frame] then originalGradients[cache.frame] = g.Color end
+		g.Color = isReady and READY_GRADIENT or originalGradients[cache.frame]
+		return
+	end
 	if not originalGradients[cache.frame] then
 		originalGradients[cache.frame] = g.Color
 	end
@@ -392,8 +419,26 @@ local function updateResetBanner(allClaimed, resetRemaining)
 		resetBanner = fadeBand(mainFrame, "AllClaimedBanner", 20)
 		resetBanner.AnchorPoint = Vector2.new(0.5, 0.5)
 		resetBanner.Position = UDim2.fromScale(0.5, 0.5)
-		resetBanner.Size = UDim2.fromScale(1.05, 0.3)
+		resetBanner.Size = UDim2.fromScale(1, 0.3)
 		resetBanner.Visible = false
+		-- 📐 la bande reste DANS le rectangle des récompenses (l'image de fond à rayons),
+		--    sans déborder sur la colonne des boutons Playtime / Daily
+		local area = mainFrame.Parent and mainFrame.Parent:FindFirstChild(BANNER_AREA)
+		if area and area:IsA("GuiObject") then
+			local function fit()
+				local ms, mp = mainFrame.AbsoluteSize, mainFrame.AbsolutePosition
+				local as, ap = area.AbsoluteSize, area.AbsolutePosition
+				if ms.X < 1 or ms.Y < 1 or as.X < 1 then return end
+				local cx = (ap.X + as.X / 2 - mp.X) / ms.X
+				resetBanner.Position = UDim2.fromScale(cx, 0.5)
+				resetBanner.Size = UDim2.fromScale(as.X / ms.X, 0.3)
+			end
+			fit()
+			for _, o in ipairs({ mainFrame, area }) do
+				o:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+				o:GetPropertyChangedSignal("AbsolutePosition"):Connect(fit)
+			end
+		end
 		local function line(name, y, h, size, color)
 			local t = Instance.new("TextLabel")
 			t.Name = name
@@ -471,6 +516,74 @@ local function updateClaimAll(readyCount)
 	end
 	claimAllBtn.Visible = readyCount >= 2
 	if readyCount >= 2 then claimAllBtn.Text = string.format("Claim all (%d)", readyCount) end
+end
+
+-- ============================================================
+-- 🆕 FOND DES CARTES (NEW_LOOK + TILE_BACKGROUND)
+--    Carré arrondi avec contour foncé et dégradé, derrière l'image (qui suit ses
+--    animations). bleu / or = pas prête · vert = prête · grisé = récupérée
+-- ============================================================
+local TILE_COLORS = {
+	blue  = { top = Color3.fromRGB(125, 175, 255), bottom = Color3.fromRGB(65, 110, 245), stroke = Color3.fromRGB(35, 60, 190) },
+	gold  = { top = Color3.fromRGB(255, 222, 105), bottom = Color3.fromRGB(240, 162, 30), stroke = Color3.fromRGB(185, 108, 10) },
+	green = { top = Color3.fromRGB(130, 245, 150), bottom = Color3.fromRGB(35, 185, 80),  stroke = Color3.fromRGB(15, 115, 45) },
+}
+
+local function getTile(cache)
+	if cache.tile and cache.tile.Parent then return cache.tile end
+	local btn = cache.imageButton
+	local tile = Instance.new("Frame")
+	tile.Name = "TileBackground"
+	tile.BorderSizePixel = 0
+	tile.BackgroundColor3 = Color3.new(1, 1, 1)
+	tile.ZIndex = math.max(btn.ZIndex - 1, 0)
+	tile.Active = false
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.14, 0)
+	corner.Parent = tile
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Parent = tile
+	local stroke = Instance.new("UIStroke")
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Parent = tile
+	local shine = Instance.new("Frame")             -- léger reflet en haut
+	shine.Name = "Shine"
+	shine.BackgroundColor3 = Color3.new(1, 1, 1)
+	shine.BackgroundTransparency = 0.85
+	shine.BorderSizePixel = 0
+	shine.AnchorPoint = Vector2.new(0.5, 0)
+	shine.Position = UDim2.fromScale(0.5, 0.06)
+	shine.Size = UDim2.fromScale(0.86, 0.4)
+	shine.ZIndex = tile.ZIndex
+	local sc = Instance.new("UICorner")
+	sc.CornerRadius = UDim.new(0.25, 0)
+	sc.Parent = shine
+	shine.Parent = tile
+	local function follow()
+		tile.AnchorPoint, tile.Position, tile.Size = btn.AnchorPoint, btn.Position, btn.Size
+		stroke.Thickness = math.max(2, btn.AbsoluteSize.X * 0.045)
+	end
+	follow()
+	btn:GetPropertyChangedSignal("Size"):Connect(follow)
+	btn:GetPropertyChangedSignal("Position"):Connect(follow)
+	btn:GetPropertyChangedSignal("AnchorPoint"):Connect(follow)
+	btn:GetPropertyChangedSignal("AbsoluteSize"):Connect(follow)
+	tile.Parent = btn.Parent
+	cache.tile, cache.tileGrad, cache.tileStroke = tile, grad, stroke
+	return tile
+end
+
+local function styleTile(cache, mode)       -- "normal" | "ready" | "claimed"
+	if not (NEW_LOOK and TILE_BACKGROUND) then return end
+	if cache.tileMode == mode and cache.tile and cache.tile.Parent then return end
+	local tile = getTile(cache)
+	local key = (mode == "ready") and "green" or (TILE_STYLE[cache.config.id] or "blue")
+	local c = TILE_COLORS[key] or TILE_COLORS.blue
+	cache.tileGrad.Color = ColorSequence.new(c.top, c.bottom)
+	cache.tileStroke.Color = c.stroke
+	tile.BackgroundColor3 = (mode == "claimed") and Color3.fromRGB(105, 105, 105) or Color3.new(1, 1, 1)
+	cache.tileMode = mode
 end
 
 -- ============================================================
@@ -607,6 +720,7 @@ local function updateUI()
 			setGradientGreen(cache, false)
 			stopHeartbeat(btn)
 		end
+		styleTile(cache, (allClaimed or state.isClaimed) and "claimed" or (state.canClaim and "ready") or "normal")
 	end
 
 	if NEW_LOOK then
@@ -787,6 +901,7 @@ local function checkNewClaims()
 				if cache.frameExclamation then cache.frameExclamation.Visible = false end  -- caché après claim
 				setGradientClaimed(cache)
 				stopHeartbeat(cache.imageButton)
+				styleTile(cache, "claimed")
 
 				createConfetti(cache.imageButton)
 				for _, r in ipairs(serverState.rewards or {}) do
