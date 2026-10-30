@@ -248,7 +248,7 @@ local function createCountdownLabel(imageButton)
 		band.ZIndex = 2
 		band.AnchorPoint = Vector2.new(0.5, 0.5)
 		band.Position = UDim2.new(0.5, 0, 0.86, 0)
-		band.Size = UDim2.new(1.15, 0, 0.26, 0)
+		band.Size = UDim2.new(1, 0, 0.26, 0)      -- largeur du bouton : ne déborde pas sur la carte
 		band.Visible = false
 		local g = Instance.new("UIGradient")
 		g.Transparency = NumberSequence.new({
