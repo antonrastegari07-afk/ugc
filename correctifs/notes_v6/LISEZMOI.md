@@ -120,7 +120,7 @@ Un nouveau bouton **📨 INVITES & PUBS** apparaît à l'accueil de l'admin pane
 
 ---
 
-## 4. 🎽 UGC redeemed dans les profils + page « STATS & UGCS » des Settings
+## 4. 🎽 UGC redeemed dans les profils + page « PROFILE » des Settings
 
 ### Fiche profil
 **StarterPlayerScripts ▸ PlayerProfileHover** (celui qui est **activé**) : remplace **tout** par `PlayerProfileHover_COMPLET.lua`.
@@ -130,7 +130,7 @@ Un nouveau bouton **📨 INVITES & PUBS** apparaît à l'accueil de l'admin pane
 - **Stats :** dessous, comme avant.
 - **Icône :** pour en mettre une devant « UGC Redeemed », écris `UGC_ICON = "rbxassetid://TON_ID"` en haut de la section.
 
-### Settings : le bouton STATS devient « STATS & UGCS »
+### Settings : le bouton STATS devient « PROFILE »
 ⚠️ Si tu avais déjà fait l'ancienne étape (onglet « Profile » + `buildButton`), **annule-la d'abord** : remets SettingsConfig et SettingsUI comme avant.
 
 **ReplicatedStorage ▸ SettingsConfig** :
@@ -141,7 +141,7 @@ Cherche :
 ```
 Remplace par :
 ```lua
-	stats    = { name = "STATS & UGCS",    title = "Stats & UGCs" },
+	stats    = { name = "PROFILE",    title = "Profile" },
 ```
 
 **StarterPlayerScripts ▸ SettingsUI**, 5 changements :
@@ -162,7 +162,7 @@ Remplace par :
    		if reqCp then pcall(function() reqCp:FireServer() end) end
    ```
 
-Résultat : Settings ▸ **STATS & UGCS** ouvre la page Stats avec, en premier, **UGC REDEEMED** (« 12 UGCs redeemed » + la grille de tous tes UGC, 4 par ligne), puis Progression, Streak et Right now.
+Résultat : Settings ▸ **PROFILE** ouvre la page Stats avec, en premier, **UGC REDEEMED** (« 12 UGCs redeemed » + la grille de tous tes UGC, 4 par ligne), puis Progression, Streak et Right now.
 
 ---
 
@@ -171,4 +171,4 @@ Résultat : Settings ▸ **STATS & UGCS** ouvre la page Stats avec, en premier, 
 2. Ouvre le shop UGC : le texte « UGCs restocked weekly! » est à droite du titre, sur PC et en émulateur téléphone.
 3. Invite un ami, ferme le prompt, regarde une pub, puis attends 60 s en jeu publié : l'admin panel ▸ 📨 INVITES & PUBS affiche les compteurs. En Studio, rien n'est écrit, c'est normal.
 4. Ouvre la fiche d'un autre joueur : 4 UGC en haut, « See all », puis Back. Le cadre est doré seulement pour un VIP.
-5. Settings ▸ STATS & UGCS : tes UGC en premier, puis les stats.
+5. Settings ▸ PROFILE : tes UGC en premier, puis les stats.

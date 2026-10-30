@@ -172,7 +172,7 @@ C.Categories = {
 
 -- Boutons du bas : ce ne sont PAS des réglages, ils ouvrent leur propre page
 C.Info = {
-	stats    = { name = "STATS & UGCS",    title = "Stats & UGCs" },
+	stats    = { name = "PROFILE",    title = "Profile" },
 	feedback = { name = "FEEDBACK", title = "Feedback" },
 }
 
