@@ -39,6 +39,7 @@ local REWARD_IMAGES = {
 	pt_4    = "rbxassetid://122148400972593",   -- x1000 (coffre)
 	pt_9    = "rbxassetid://122148400972593",   -- x1000 (coffre)
 }
+local TILE_SCALE        = 1        -- taille du fond par rapport au bouton image (1 = exactement le bouton, comme l'ancienne image)
 local RAYS_IMAGE        = "rbxassetid://79497376602630"   -- rayons derrière les coffres ("" = aucun)
 local RAYS_TRANSPARENCY = 0.35                             -- 0 = rayons pleins, 1 = invisibles
 local RAYS_TURN_TIME    = 30                               -- secondes pour un tour complet (lent)
@@ -586,7 +587,12 @@ local function getTile(cache)
 			{ Rotation = 360 }):Play()
 	end
 	local function follow()
-		tile.AnchorPoint, tile.Position, tile.Size = btn.AnchorPoint, btn.Position, btn.Size
+		-- même centre que le bouton, taille = bouton × TILE_SCALE
+		local bs, ap = btn.Size, btn.AnchorPoint
+		tile.AnchorPoint = Vector2.new(0.5, 0.5)
+		tile.Position = btn.Position + UDim2.new(bs.X.Scale * (0.5 - ap.X), bs.X.Offset * (0.5 - ap.X),
+			bs.Y.Scale * (0.5 - ap.Y), bs.Y.Offset * (0.5 - ap.Y))
+		tile.Size = UDim2.new(bs.X.Scale * TILE_SCALE, bs.X.Offset * TILE_SCALE, bs.Y.Scale * TILE_SCALE, bs.Y.Offset * TILE_SCALE)
 		-- arrondi identique EN PIXELS à celui de la carte (même si la carte est plus grande)
 		local fs, ts = cache.frame.AbsoluteSize, btn.AbsoluteSize
 		local tmin = math.min(ts.X, ts.Y)

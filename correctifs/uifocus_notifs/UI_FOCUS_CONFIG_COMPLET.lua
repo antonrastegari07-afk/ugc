@@ -29,6 +29,10 @@ C.NotificationScreenGuis = {
 }
 -- 2) Mots-clés : une interface dont le nom CONTIENT un de ces mots (majuscules
 --    ignorées) est une notification. Couvre aussi les futures notifs.
+-- 3) Règle « créée ou allumée pendant qu'une fenêtre est ouverte » : ignorée pendant
+--    les premières secondes (chargement + How to Play) et pour les interfaces de StarterGui.
+C.LateGraceSeconds = 30
+
 C.NotificationNamePatterns = {
 	"notif", "toast", "popup", "error", "result", "confirm", "warning", "notice",
 	"message", "alert", "banner", "announce", "verifying", "frozen", "restricted",

@@ -26,6 +26,17 @@ function Engine.new(playerGui, ownGui, config, changed)
 		connections = {}, destroyed = false,
 		late = {}, wasEnabled = {}, raised = {}, notifCache = {},
 	}, Engine)
+	-- ⏳ Au chargement, les interfaces du jeu (copiées de StarterGui, armes, HUD…)
+	--    arrivent parfois APRÈS l'ouverture du How to Play : elles ne sont pas des
+	--    notifications. La règle 3 ne s'applique donc ni pendant les premières
+	--    secondes, ni aux interfaces qui existent dans StarterGui.
+	self.startedAt = os.clock()
+	self.starterNames = {}
+	pcall(function()
+		for _, g in ipairs(game:GetService("StarterGui"):GetChildren()) do
+			if g:IsA("ScreenGui") then self.starterNames[g.Name] = true end
+		end
+	end)
 	self.notifNames = {}
 	for _, name in ipairs(config.NotificationScreenGuis or {}) do self.notifNames[name] = true end
 	local function dirty() self.structureDirty = true end
@@ -45,8 +56,15 @@ function Engine:_trackScreen(object)
 		self.screenSet[object] = true
 		table.insert(self.trackedScreens, object)
 		-- 🔔 créée pendant qu'une fenêtre est ouverte → notification (règle 3)
-		if self.active then self.late[object] = true end
+		if self.active and self:_lateAllowed(object) then self.late[object] = true end
 	end
+end
+
+-- 🔔 Règle 3 autorisée pour cette interface ? (pas au chargement, pas une interface de StarterGui)
+function Engine:_lateAllowed(gui)
+	if os.clock() - self.startedAt < (self.config.LateGraceSeconds or 30) then return false end
+	if self.starterNames[gui.Name] then return false end
+	return true
 end
 
 -- 🔔 Notification par son nom (règles 1 et 2)
@@ -266,7 +284,7 @@ function Engine:Step(now)
 		local wantedOn = self:_field(gui, "Enabled").wanted
 		if not wantedOn then
 			self.late[gui] = nil
-		elseif self.wasEnabled[gui] == false and (active or self.active) then
+		elseif self.wasEnabled[gui] == false and (active or self.active) and self:_lateAllowed(gui) then
 			self.late[gui] = true
 		end
 		self.wasEnabled[gui] = wantedOn
