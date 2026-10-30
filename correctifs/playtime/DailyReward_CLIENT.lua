@@ -46,6 +46,10 @@ local TOTAL_DAYS = #REWARDS_CONFIG
 local NEW_LOOK          = true
 local BAND_TRANSPARENCY = 0.35      -- bande noire : 0 = noir plein, 1 = invisible
 local TILE_BACKGROUND   = true      -- false = pas de fond dessiné (si tes images ont encore leur fond)
+local TOASTS            = true      -- petites notifications quand on clique sur une récompense pas disponible
+local TOAST_TIME        = 2.2       -- secondes à l'écran
+local TAP_HAND_IMAGE    = "rbxassetid://78515108577271"   -- main qui tape sur une récompense prête ("" = aucune)
+local TAP_HAND_ROTATION = -18       -- inclinaison vers la gauche (degrés)
 local TILE_SCALE        = 1         -- taille du fond par rapport au bouton image (1 = exactement le bouton)
 -- jour → image (carrée, SANS fond) et style du fond ("blue" ou "gold")
 local DAY_LOOK = {
@@ -261,6 +265,143 @@ local function styleTile(cache, mode)       -- "normal" | "ready" | "claimed"
 	cache.tileMode = mode
 end
 
+-- ============================================================
+-- 🔔 PETITE NOTIFICATION (bande noire en fondu, descend du haut)
+--    Même interface pour Playtime et Daily ("RewardToastGui"). Le mot « Toast »
+--    dans son nom la garde visible au-dessus du menu ouvert (UIFocus).
+--    S'adapte à tous les écrans : largeur en % de l'écran, bornée en pixels.
+-- ============================================================
+local function rewardToast(title, sub)
+	if not TOASTS then return end
+	local gui = playerGui:FindFirstChild("RewardToastGui")
+	if not gui then
+		gui = Instance.new("ScreenGui")
+		gui.Name = "RewardToastGui"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = false
+		gui.DisplayOrder = 50
+		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		gui.Parent = playerGui
+	end
+	-- une seule à la fois : la précédente remonte et disparaît
+	for _, old in ipairs(gui:GetChildren()) do
+		if old:IsA("Frame") and old.Name == "Toast" then
+			old.Name = "ToastOut"
+			TweenService:Create(old, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+				{ Position = UDim2.new(0.5, 0, 0, -10), BackgroundTransparency = 1 }):Play()
+			for _, d in ipairs(old:GetDescendants()) do
+				if d:IsA("TextLabel") then
+					TweenService:Create(d, TweenInfo.new(0.2), { TextTransparency = 1 }):Play()
+				elseif d:IsA("UIStroke") then
+					TweenService:Create(d, TweenInfo.new(0.2), { Transparency = 1 }):Play()
+				end
+			end
+			task.delay(0.22, function() old:Destroy() end)
+		end
+	end
+	local hasSub = sub ~= nil and sub ~= ""
+	local f = Instance.new("Frame")
+	f.Name = "Toast"
+	f.AnchorPoint = Vector2.new(0.5, 1)
+	f.Position = UDim2.new(0.5, 0, 0, -10)
+	f.Size = UDim2.new(0.6, 0, 0, hasSub and 62 or 44)
+	f.BackgroundColor3 = Color3.new(0, 0, 0)
+	f.BackgroundTransparency = 0
+	f.BorderSizePixel = 0
+	f.Active = false
+	local sc = Instance.new("UISizeConstraint")
+	sc.MinSize = Vector2.new(260, 0)
+	sc.MaxSize = Vector2.new(620, 200)
+	sc.Parent = f
+	local g = Instance.new("UIGradient")
+	g.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(0.2, 0.3),
+		NumberSequenceKeypoint.new(0.8, 0.3),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	g.Parent = f
+	local function line(text, y, h, size, color)
+		local t = Instance.new("TextLabel")
+		t.BackgroundTransparency = 1
+		t.AnchorPoint = Vector2.new(0.5, 0.5)
+		t.Position = UDim2.fromScale(0.5, y)
+		t.Size = UDim2.fromScale(0.7, h)
+		t.Font = Enum.Font.FredokaOne
+		t.Text = text
+		t.TextScaled = true
+		t.TextColor3 = color
+		local c = Instance.new("UITextSizeConstraint")
+		c.MaxTextSize = size
+		c.Parent = t
+		local st = Instance.new("UIStroke")
+		st.Thickness = 1.5
+		st.Parent = t
+		t.Parent = f
+	end
+	if hasSub then
+		line(title, 0.33, 0.48, 26, Color3.fromRGB(255, 255, 255))
+		line(sub, 0.75, 0.34, 19, Color3.fromRGB(255, 220, 90))
+	else
+		line(title, 0.5, 0.7, 26, Color3.fromRGB(255, 255, 255))
+	end
+	f.Parent = gui
+	-- descend du haut, petit rebond
+	TweenService:Create(f, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14) }):Play()
+	task.delay(TOAST_TIME, function()
+		if f.Parent and f.Name == "Toast" then
+			f.Name = "ToastOut"
+			local info = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			TweenService:Create(f, info, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -10) }):Play()
+			task.delay(0.32, function() f:Destroy() end)
+		end
+	end)
+end
+
+-- ============================================================
+-- 👆 RÉCOMPENSE PRÊTE : petite main qui tape + « CLAIM! » qui pulse
+-- ============================================================
+local function setReadyFx(btn, label, on)
+	if not NEW_LOOK then return end
+	local hand = btn:FindFirstChild("TapHand")
+	local pulse = label and label:FindFirstChild("ClaimPulse")
+	if on then
+		if not hand and TAP_HAND_IMAGE ~= "" then
+			hand = Instance.new("ImageLabel")
+			hand.Name = "TapHand"
+			hand.BackgroundTransparency = 1
+			hand.Image = TAP_HAND_IMAGE
+			hand.ScaleType = Enum.ScaleType.Fit
+			hand.AnchorPoint = Vector2.new(0.25, 0.1)          -- le bout du doigt
+			hand.Position = UDim2.fromScale(0.66, 0.42)
+			hand.Size = UDim2.fromScale(0.42, 0.42)
+			hand.Rotation = TAP_HAND_ROTATION
+			hand.ZIndex = 4
+			local a = Instance.new("UIAspectRatioConstraint")
+			a.AspectRatio = 1
+			a.Parent = hand
+			hand.Parent = btn
+			-- tape : le doigt avance un peu vers le centre puis revient
+			hand:SetAttribute("Tween", true)
+			TweenService:Create(hand, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Position = UDim2.fromScale(0.62, 0.36), Size = UDim2.fromScale(0.38, 0.38),
+				  Rotation = TAP_HAND_ROTATION - 6 }):Play()
+		end
+		if hand then hand.Visible = true end
+		if label and not pulse then
+			pulse = Instance.new("UIScale")
+			pulse.Name = "ClaimPulse"
+			pulse.Parent = label
+			TweenService:Create(pulse, TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+				{ Scale = 1.15 }):Play()
+		end
+	else
+		if hand then hand:Destroy() end          -- détruit = son animation s'arrête aussi
+		if pulse then pulse:Destroy() end
+	end
+end
+
 local function createConfetti(button)
 	local screenGui = button:FindFirstAncestorOfClass("ScreenGui")
 	if not screenGui then return end
@@ -328,6 +469,7 @@ local function frameGradient(cache)
 end
 local function setFrameGradientGreen(cache, isReady)
 	styleTile(cache, isReady and "ready" or "normal")
+	setReadyFx(cache.imageButton, cache.textLabel, isReady and cache.textLabel and cache.textLabel.Visible)
 	local gradient = frameGradient(cache)
 	if gradient and NEW_LOOK then
 		if not originalGradientColors[cache.frame] then originalGradientColors[cache.frame] = gradient.Color end
@@ -350,6 +492,7 @@ local function setFrameGradientGreen(cache, isReady)
 end
 local function setFrameGradientClaimed(cache)
 	styleTile(cache, "claimed")
+	setReadyFx(cache.imageButton, cache.textLabel, false)
 	local gradient = frameGradient(cache)
 	if gradient and NEW_LOOK and not originalGradientColors[cache.frame] then
 		originalGradientColors[cache.frame] = gradient.Color
@@ -556,16 +699,26 @@ end
 local function claimReward(config, cache)
 	if not claimDailyRewardEvent then return end
 	if claimDebounce then return end
-	claimDebounce = true
-	task.delay(2, function() claimDebounce = false end)
+	if not NEW_LOOK then
+		claimDebounce = true
+		task.delay(2, function() claimDebounce = false end)
+	end
 	if config.day ~= playerData.currentDay then
 		local cancelSound = SoundService:FindFirstChild("buycancel")
 		if cancelSound then cancelSound:Play() end
+		if config.day < playerData.currentDay then
+			rewardToast("Already claimed!", "Come back every day for the next rewards")
+		else
+			local waitDays = config.day - playerData.currentDay
+			rewardToast("Not available yet!", waitDays == 1 and "Unlocks tomorrow"
+				or ("Unlocks in " .. waitDays .. " days"))
+		end
 		return
 	end
 	if config.day == 1 and firstJoinData.active and getFirstJoinClientRemaining() > 0 then
 		local cancelSound = SoundService:FindFirstChild("buycancel")
 		if cancelSound then cancelSound:Play() end
+		rewardToast("Almost there!", "First reward in " .. formatShort(getFirstJoinClientRemaining()))
 		return
 	end
 	if playerData.claimedToday then
@@ -576,8 +729,15 @@ local function claimReward(config, cache)
 		else
 			local cancelSound = SoundService:FindFirstChild("buycancel")
 			if cancelSound then cancelSound:Play() end
+			rewardToast("Already claimed today!", "Next reward in " .. formatShort(currentTimeRemaining))
 		end
 		return
+	end
+	if NEW_LOOK then
+		-- anti double-clic seulement sur un vrai claim (un clic sur une carte verrouillée
+		-- ne bloque plus le clic suivant pendant 2 s)
+		claimDebounce = true
+		task.delay(2, function() claimDebounce = false end)
 	end
 	claimDailyRewardEvent:FireServer()
 end
@@ -702,6 +862,11 @@ if claimDailyRewardEvent then
 			end
 			local cancelSound = SoundService:FindFirstChild("buycancel")
 			if cancelSound then cancelSound:Play() end
+			if newData and newData.firstJoinBlocked and newData.firstJoinTimeRemaining then
+				rewardToast("Almost there!", "First reward in " .. formatShort(newData.firstJoinTimeRemaining))
+			else
+				rewardToast("Couldn't claim", "Please try again in a moment")
+			end
 		end
 	end)
 end
