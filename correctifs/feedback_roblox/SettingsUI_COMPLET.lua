@@ -1,0 +1,1646 @@
+--[[
+	SettingsUI  (LocalScript)
+	Emplacement : StarterPlayer > StarterPlayerScripts > SettingsUI
+
+	• Panneau au centre (fond noir translucide du CombatHUD), une seule liste
+	• Sections séparées par un grand espace, un titre et un trait bleu
+	• Onglets en haut : un clic = le haut de la section arrive en haut de la liste,
+	  l'onglet de la section visible s'allume en bleu pendant que tu défiles
+	• Stats / Feedback : boutons séparés en bas, ouvrent leur page (BACK pour revenir)
+	• Save / Cancel + fenêtre « Unsaved changes » à la fermeture
+	• Manette : Select ouvre / ferme, B retour, LB / RB changent de section
+	• Rien n'est envoyé au serveur avant que ta sauvegarde soit appliquée
+	Réglages : ReplicatedStorage > SettingsConfig
+]]
+
+local Players              = game:GetService("Players")
+local ReplicatedStorage    = game:GetService("ReplicatedStorage")
+local TweenService         = game:GetService("TweenService")
+local UserInputService     = game:GetService("UserInputService")
+local GuiService           = game:GetService("GuiService")
+local ContextActionService = game:GetService("ContextActionService")
+local RunService           = game:GetService("RunService")
+local Lighting             = game:GetService("Lighting")
+local StatsService         = game:GetService("Stats")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local C = require(ReplicatedStorage:WaitForChild("SettingsConfig"))
+if C.Enabled == false then return end
+local updateSetting = ReplicatedStorage:WaitForChild("UpdateSetting")
+
+local IS_TOUCH = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local D = IS_TOUCH and C.Design.Mobile or C.Design.PC
+
+---------------------------------------------------------------------
+-- 🎨 STYLE : panneau + boutons 3D de la roue, textes du CombatHUD
+---------------------------------------------------------------------
+local T = {}
+for k, v in pairs(C.Theme) do T[k] = v end
+if C.UseCombatStyle then
+	pcall(function()
+		local ws = ReplicatedStorage:WaitForChild("WeaponSystem", 5)
+		local st = require(ws:WaitForChild("CombatSettings", 5)).Style
+		if type(st) == "table" then
+			T.Dark       = st.Dark or T.Dark
+			T.White      = st.White or T.White
+			T.Sub        = st.Sub or T.Sub
+			T.FontFamily = st.FontFamily or T.FontFamily
+		end
+	end)
+end
+local F = {
+	Heavy  = Font.new(T.FontFamily, Enum.FontWeight.ExtraBold),
+	Bold   = Font.new(T.FontFamily, Enum.FontWeight.Bold),
+	Medium = Font.new(T.FontFamily, Enum.FontWeight.Medium),
+}
+local OUTLINE = Color3.fromRGB(20, 20, 30)
+local NAVY    = Color3.fromRGB(15, 25, 48)
+local WARN    = Color3.fromRGB(255, 190, 100)
+local GOOD    = Color3.fromRGB(120, 235, 150)
+local BAD     = Color3.fromRGB(255, 140, 120)
+local COL = {   -- dessus, dessous, socle (même recette que la roue)
+	green = { Color3.fromRGB(40, 185, 80),  Color3.fromRGB(12, 115, 42), Color3.fromRGB(8, 65, 25) },
+	red   = { Color3.fromRGB(245, 70, 65),  Color3.fromRGB(180, 25, 35), Color3.fromRGB(105, 12, 22) },
+	blue  = { Color3.fromRGB(55, 145, 240), Color3.fromRGB(20, 85, 180), Color3.fromRGB(12, 48, 110) },
+	grey  = { Color3.fromRGB(88, 94, 112),  Color3.fromRGB(50, 54, 68),  Color3.fromRGB(28, 30, 40) },
+	purple = { Color3.fromRGB(160, 95, 240), Color3.fromRGB(105, 45, 190), Color3.fromRGB(60, 22, 115) },
+	teal   = { Color3.fromRGB(40, 190, 180), Color3.fromRGB(15, 125, 120), Color3.fromRGB(8, 70, 68) },
+	orange = { Color3.fromRGB(255, 150, 40), Color3.fromRGB(215, 95, 15),  Color3.fromRGB(125, 52, 8) },
+}
+local SWITCH_ON, SWITCH_OFF = COL.green[1], Color3.fromRGB(58, 62, 78)
+
+---------------------------------------------------------------------
+-- 🧰 HELPERS
+---------------------------------------------------------------------
+local function new(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
+end
+local function corner(o, r) return new("UICorner", { CornerRadius = UDim.new(0, r) }, o) end
+local function stroke(o, col, th, tr)
+	return new("UIStroke", { Color = col, Thickness = th or 1, Transparency = tr or 0,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o)
+end
+local function pad(o, t, b, l, r)
+	return new("UIPadding", { PaddingTop = UDim.new(0, t), PaddingBottom = UDim.new(0, b),
+		PaddingLeft = UDim.new(0, l), PaddingRight = UDim.new(0, r) }, o)
+end
+local function tween(o, t, props, style, dir)
+	local tw = TweenService:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quint,
+		dir or Enum.EasingDirection.Out), props)
+	tw:Play()
+	return tw
+end
+local function text(parent, props)
+	local l = new("TextLabel", {
+		BackgroundTransparency = 1, FontFace = F.Medium, TextColor3 = T.White, TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true,
+	}, parent)
+	for k, v in pairs(props) do l[k] = v end
+	return l
+end
+-- Titre : FredokaOne blanc, sans contour
+local function title(parent, props)
+	local l = text(parent, { Font = Enum.Font.FredokaOne, TextColor3 = Color3.new(1, 1, 1), TextWrapped = false })
+	for k, v in pairs(props) do l[k] = v end
+	return l
+end
+
+-- Bouton 3D de la roue : socle fixe + face brillante qui s'enfonce
+local function button3D(parent, label, col, size, textSize, order)
+	local depth, radius = 4, 10
+	local slot = new("Frame", { Size = size, BackgroundTransparency = 1, LayoutOrder = order or 0 }, parent)
+	local edge = new("Frame", {
+		Size = UDim2.new(1, 0, 1, -depth), Position = UDim2.fromOffset(0, depth),
+		BackgroundColor3 = col[3], BorderSizePixel = 0,
+	}, slot)
+	corner(edge, radius)
+	local btn = new("TextButton", {
+		Size = UDim2.new(1, 0, 1, -depth), BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = 2,
+	}, slot)
+	corner(btn, radius)
+	local grad = new("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
+	local lbl = new("TextLabel", {
+		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = label,
+		Font = Enum.Font.FredokaOne, TextSize = textSize or 18, TextColor3 = Color3.new(1, 1, 1), ZIndex = 4,
+	}, btn)
+	local function press(down) btn.Position = UDim2.fromOffset(0, down and depth or 0) end
+	btn.MouseButton1Down:Connect(function() press(true) end)
+	btn.MouseButton1Up:Connect(function() press(false) end)
+	btn.MouseLeave:Connect(function() press(false) end)
+	btn.Activated:Connect(function() task.delay(0.08, function() press(false) end) end)
+	return btn, lbl, slot, grad, edge
+end
+local function recolor(grad, edge, col)
+	grad.Color = ColorSequence.new(col[1], col[2])
+	edge.BackgroundColor3 = col[3]
+end
+local function gamepadActive()
+	return UserInputService:GetLastInputType().Name:sub(1, 7) == "Gamepad"
+end
+
+---------------------------------------------------------------------
+-- 💾 ÉTAT DES RÉGLAGES
+---------------------------------------------------------------------
+local defs = {}
+local EXTRA = {                   -- clés gérées sans contrôle visible
+	SettingAimSensitivity = 30,   -- valeur absolue lue par le WeaponController actuel (50 × 60 %)
+	SettingPerfMode       = false,
+}
+for _, cat in ipairs(C.Categories) do
+	for _, item in ipairs(cat.items) do
+		if item.key then defs[item.key] = item end
+	end
+end
+
+local watchers, appliers = {}, {}
+local loaded, panelOpen = false, false
+local held, snapshot = {}, {}       -- envois retenus tant que le panneau est ouvert
+local pending, pendingCount = {}, 0 -- file d'envoi vers le serveur
+local applyingPreset = false
+local HOLD = 0                      -- jeton des appuis maintenus
+
+local function get(key)
+	local v = player:GetAttribute(key)
+	if v ~= nil then return v end
+	if defs[key] then return defs[key].default end
+	return EXTRA[key]
+end
+local function watch(key, fn)
+	watchers[key] = watchers[key] or {}
+	table.insert(watchers[key], fn)
+end
+local function push(key, value)
+	if panelOpen then held[key] = { value } return end
+	if pending[key] == nil then pendingCount += 1 end
+	pending[key] = { value }
+end
+
+-- Envoi au serveur : jamais avant le chargement, max 10 / s (anti-flood serveur à 15)
+task.spawn(function()
+	while true do
+		task.wait(0.2)
+		if loaded and pendingCount > 0 then
+			local sent = 0
+			for key, box in pairs(pending) do
+				pending[key] = nil
+				pendingCount -= 1
+				pcall(function() updateSetting:FireServer(key, box[1]) end)
+				sent += 1
+				if sent >= 10 then break end
+			end
+			if sent >= 10 then task.wait(1.1) end
+		end
+	end
+end)
+
+local setValue
+setValue = function(key, value, fromUser)
+	if player:GetAttribute(key) ~= nil and get(key) == value then return end
+	player:SetAttribute(key, value)
+	push(key, value)
+	-- 🎯 Sensi de visée relative : la valeur absolue reste à jour pour le WeaponController
+	if key == "SettingHipSensitivity" or key == "SettingAimSensRel" then
+		local hip = tonumber(get("SettingHipSensitivity")) or 50
+		local rel = tonumber(get("SettingAimSensRel")) or 100
+		setValue("SettingAimSensitivity", math.clamp(math.floor(hip * rel / 100 + 0.5), 1, 100))
+	end
+	-- Un réglage avancé touché à la main → préréglage « Custom »
+	if fromUser and not applyingPreset and defs[key] and defs[key].group == "advanced" then
+		setValue("SettingPerfPreset", 3)
+		setValue("SettingPerfMode", false)
+	end
+end
+
+local function applyPreset(id)
+	local p = C.PerfPresets[id]
+	if not p then return end
+	applyingPreset = true
+	setValue("SettingPerfPreset", id)
+	for k, v in pairs(p.values) do setValue(k, v) end
+	applyingPreset = false
+end
+
+local function matchPreset()
+	for id, p in pairs(C.PerfPresets) do
+		local same = true
+		for k, v in pairs(p.values) do
+			if get(k) ~= v then same = false break end
+		end
+		if same then return id end
+	end
+	return 3
+end
+
+---------------------------------------------------------------------
+-- 🖼️ PANNEAU (au centre de l'écran)
+---------------------------------------------------------------------
+local gui = new("ScreenGui", {
+	Name = "SettingsUI", ResetOnSpawn = false, IgnoreGuiInset = true,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling, DisplayOrder = 11, Enabled = false,
+}, playerGui)
+
+local dim = new("TextButton", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.5,
+	Text = "", AutoButtonColor = false, Selectable = false,
+}, gui)
+
+local root = new("Frame", {
+	Name = "Panel", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(D.W, D.H),
+	BackgroundColor3 = T.Dark, BackgroundTransparency = T.PanelT, Active = true, ZIndex = 2,
+}, gui)
+corner(root, 12)   -- fond noir translucide du CombatHUD
+local uiScale = new("UIScale", {}, root)
+
+local function topY()
+	return math.max(GuiService:GetGuiInset().Y, 36)
+end
+-- Centré dans la zone sous la barre Roblox
+local function openPos(opened)
+	return UDim2.new(0.5, 0, opened and 0.5 or 0.56, topY() / 2)
+end
+local function fit()
+	local vp = gui.AbsoluteSize
+	if vp.X < 2 or vp.Y < 2 then return end
+	uiScale.Scale = math.clamp(math.min((vp.Y - topY() - 20) / D.H, vp.X * C.MaxScreenWidth / D.W,
+		C.MaxScale or 1.1), 0.35, 1.3)
+	if panelOpen then root.Position = openPos(true) end
+end
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+
+-- En-tête
+title(root, { Text = "SETTINGS", TextSize = 26, Position = UDim2.fromOffset(18, 6), Size = UDim2.new(1, -90, 0, 46) })
+local closeBtn = button3D(root, "X", COL.red, UDim2.fromOffset(44, 46), 22)
+closeBtn.Parent.AnchorPoint = Vector2.new(1, 0)
+closeBtn.Parent.Position = UDim2.new(1, -12, 0, 8)
+
+---------------------------------------------------------------------
+-- 🗂️ ONGLETS + LISTE
+---------------------------------------------------------------------
+local LIST_Y = 114
+local tabsRow = new("Frame", { Position = UDim2.fromOffset(14, 60), Size = UDim2.new(1, -28, 0, 48),
+	BackgroundTransparency = 1 }, root)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6),
+	SortOrder = Enum.SortOrder.LayoutOrder }, tabsRow)
+
+local list = new("ScrollingFrame", {
+	Position = UDim2.fromOffset(14, LIST_Y), Size = UDim2.new(1, -28, 1, -(LIST_Y + 80)),
+	BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
+	ScrollBarImageColor3 = Color3.new(1, 1, 1), ScrollBarImageTransparency = 0.6,
+	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollingDirection = Enum.ScrollingDirection.Y, Selectable = false,
+}, root)
+new("UIListLayout", { Padding = UDim.new(0, 40), SortOrder = Enum.SortOrder.LayoutOrder }, list)  -- grand espace entre sections
+pad(list, 0, 0, 0, 10)
+-- Espace vide en fin de liste : permet à la DERNIÈRE section de monter tout en haut
+local spacer = new("Frame", { Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, LayoutOrder = 9999 }, list)
+
+local cover = new("TextButton", {
+	Position = list.Position, Size = list.Size, BackgroundColor3 = Color3.fromRGB(15, 15, 22),
+	BackgroundTransparency = 0.1, Text = "Loading your settings...", FontFace = F.Bold, TextSize = 17,
+	TextColor3 = T.Sub, AutoButtonColor = false, Selectable = false, ZIndex = 8,
+}, root)
+corner(cover, 10)
+
+local tabs, sectionHeaders, sectionOrder = {}, {}, {}
+local listOrder = 0
+local function nextOrder() listOrder += 1 return listOrder end
+
+---------------------------------------------------------------------
+-- 🎛️ CONTRÔLES
+---------------------------------------------------------------------
+-- Sous-titre de groupe (SENSITIVITY, AIM HELP…) avec un trait dessous
+local function smallHeader(parent, label, order)
+	local f = new("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, LayoutOrder = order }, parent)
+	text(f, { Text = label, FontFace = F.Heavy, TextSize = 12, TextColor3 = T.Sub,
+		Size = UDim2.new(1, 0, 1, -5), TextYAlignment = Enum.TextYAlignment.Bottom, TextWrapped = false })
+	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.85, BorderSizePixel = 0 }, f)
+	return f
+end
+
+-- fixedH = hauteur fixe (ligne simple : nom à gauche, contrôle à droite)
+local function card(parent, order, fixedH)
+	local f = new("Frame", { Size = UDim2.new(1, 0, 0, fixedH or 0),
+		AutomaticSize = fixedH and Enum.AutomaticSize.None or Enum.AutomaticSize.Y,
+		BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.94, LayoutOrder = order }, parent)
+	corner(f, 10); pad(f, 10, 10, 12, 10)
+	return f
+end
+
+local function cardText(f, item, rightW, centered)
+	-- Ligne simple : le nom est centré verticalement dans la carte
+	if centered then
+		return text(f, { Text = item.label, FontFace = F.Bold, TextSize = 17, Size = UDim2.new(1, -rightW, 1, 0),
+			TextYAlignment = Enum.TextYAlignment.Center, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd })
+	end
+	local col = new("Frame", { Size = UDim2.new(1, -rightW, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1 }, f)
+	new("UIListLayout", { Padding = UDim.new(0, 1), SortOrder = Enum.SortOrder.LayoutOrder }, col)
+	if item.hideLabel then return col end
+	text(col, { Text = item.label, FontFace = F.Bold, TextSize = 17, Size = UDim2.new(1, 0, 0, 22),
+		LayoutOrder = 1, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd })
+	return col
+end
+
+local function buildToggle(parent, item, order)
+	local f = card(parent, order, 56)
+	cardText(f, item, 70, true)
+	local track = new("TextButton", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(56, 30),
+		BackgroundColor3 = SWITCH_OFF, AutoButtonColor = false, Text = "",
+	}, f)
+	corner(track, 15)
+	local knob = new("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 4, 0.5, 0),
+		Size = UDim2.fromOffset(22, 22), BackgroundColor3 = Color3.new(1, 1, 1) }, track)
+	corner(knob, 11)
+	local function render(instant)
+		local on = get(item.key) == true
+		local tc = on and SWITCH_ON or SWITCH_OFF
+		local kp = on and UDim2.new(1, -26, 0.5, 0) or UDim2.new(0, 4, 0.5, 0)
+		if instant then
+			track.BackgroundColor3, knob.Position = tc, kp
+		else
+			tween(track, 0.15, { BackgroundColor3 = tc })
+			tween(knob, 0.2, { Position = kp }, Enum.EasingStyle.Back)
+		end
+	end
+	track.Activated:Connect(function()
+		if not loaded then return end
+		setValue(item.key, not (get(item.key) == true), true)
+	end)
+	watch(item.key, function() render(false) end)
+	render(true)
+	return f
+end
+
+local function isPointer(input)
+	return input and (input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch)
+end
+
+local function buildStepper(parent, item, order)
+	local f = card(parent, order, 66)
+	cardText(f, item, 150, true)
+	local box = new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
+		Size = UDim2.fromOffset(140, 46), BackgroundTransparency = 1 }, f)
+	local minus = button3D(box, "-", COL.grey, UDim2.fromOffset(40, 46), 24)
+	local plus = button3D(box, "+", COL.grey, UDim2.fromOffset(40, 46), 24)
+	plus.Parent.AnchorPoint = Vector2.new(1, 0)
+	plus.Parent.Position = UDim2.fromScale(1, 0)
+	local val = title(box, { TextSize = 19, TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(40, 0), Size = UDim2.new(1, -80, 1, -12) })
+	local barBg = new("Frame", { Position = UDim2.new(0, 48, 1, -11), Size = UDim2.new(1, -96, 0, 4),
+		BackgroundColor3 = SWITCH_OFF, BorderSizePixel = 0 }, box)
+	corner(barBg, 2)
+	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = COL.green[1], BorderSizePixel = 0 }, barBg)
+	corner(fill, 2)
+
+	local function render()
+		local v = tonumber(get(item.key)) or item.default
+		val.Text = tostring(v) .. (item.suffix or "")
+		fill.Size = UDim2.fromScale(math.clamp((v - item.min) / (item.max - item.min), 0, 1), 1)
+	end
+	local function step(dir)
+		if not loaded then return end
+		local v = tonumber(get(item.key)) or item.default
+		local nv = math.clamp(v + dir * item.step, item.min, item.max)
+		if nv ~= v then setValue(item.key, nv, true) end
+	end
+	local function bindStep(btn, dir)
+		-- Souris / doigt : un cran tout de suite, puis répétition accélérée si on maintient
+		btn.InputBegan:Connect(function(input)
+			if not isPointer(input) then return end
+			HOLD += 1
+			local my = HOLD
+			step(dir)
+			task.delay(0.35, function()
+				local d = 0.11
+				while HOLD == my and panelOpen do
+					step(dir)
+					task.wait(d)
+					d = math.max(0.03, d * 0.88)
+				end
+			end)
+		end)
+		btn.MouseLeave:Connect(function() HOLD += 1 end)
+		-- Manette (A) : un cran par appui
+		btn.Activated:Connect(function(input)
+			if isPointer(input) then return end
+			step(dir)
+		end)
+	end
+	bindStep(minus, -1)
+	bindStep(plus, 1)
+	watch(item.key, render)
+	render()
+	return f
+end
+
+local function buildChoice(parent, item, order)
+	local f = card(parent, order)
+	local col = cardText(f, item, 0)
+	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, LayoutOrder = 3 }, col)
+	new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder }, row)
+	local note = text(col, { TextSize = 13, TextColor3 = T.Sub, Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 4, Visible = false })
+	local n = #item.options
+	local cells = {}
+	local render
+	for i, opt in ipairs(item.options) do
+		local btn, lbl, _, grad, edge = button3D(row, opt.name, COL.grey,
+			UDim2.new(1 / n, -(6 * (n - 1)) / n, 1, 0), 15, i)
+		cells[i] = { lbl = lbl, grad = grad, edge = edge, opt = opt }
+		btn.Activated:Connect(function()
+			if not loaded then return end
+			if opt.owned and not opt.owned(player) then
+				note.Text = opt.locked or "Locked."
+				note.TextColor3 = WARN
+				note.Visible = true
+				task.delay(2.2, function() render() end)
+				return
+			end
+			if item.preset then applyPreset(opt.value) else setValue(item.key, opt.value, true) end
+		end)
+	end
+	render = function()
+		local cur = get(item.key)
+		local selDesc
+		for _, c in ipairs(cells) do
+			local owned = (not c.opt.owned) or c.opt.owned(player)
+			local on = cur == c.opt.value
+			recolor(c.grad, c.edge, on and COL.green or COL.grey)   -- vert = réglage choisi (bleu = onglets)
+			c.lbl.TextTransparency = owned and 0 or 0.5
+			if on and item.preset then selDesc = c.opt.desc end
+		end
+		if item.preset and cur == 3 then selDesc = C.PerfCustomDesc end
+		note.TextColor3 = T.Sub
+		note.Text = selDesc or ""
+		note.Visible = selDesc ~= nil
+	end
+	watch(item.key, render)
+	for _, a in ipairs(item.watchAttrs or {}) do watch(a, render) end
+	render()
+	return f
+end
+
+local function buildAdvanced(parent, item, order, group)
+	local b = new("TextButton", { Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.95, AutoButtonColor = false, Text = "", LayoutOrder = order }, parent)
+	corner(b, 10)
+	text(b, { Text = item.label, FontFace = F.Bold, TextSize = 16, Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(1, -60, 1, 0), TextWrapped = false })
+	local sign = title(b, { Text = "+", TextSize = 24, AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 0), Size = UDim2.new(0, 40, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Right })
+	local open = false
+	b.Activated:Connect(function()
+		open = not open
+		sign.Text = open and "-" or "+"
+		for _, fr in ipairs(group) do fr.Visible = open end
+	end)
+end
+
+---------------------------------------------------------------------
+-- 📋 LA LISTE (une section par catégorie)
+---------------------------------------------------------------------
+for ci, cat in ipairs(C.Categories) do
+	local N = #C.Categories
+
+	-- Onglet (+ petit texte dessous si « sub »)
+	local tcol = new("Frame", { Size = UDim2.new(1 / N, -(6 * (N - 1)) / N, 1, 0), BackgroundTransparency = 1,
+		LayoutOrder = ci }, tabsRow)
+	local tabLabel = cat.name
+	local tbtn, tlbl, _, tgrad, tedge = button3D(tcol, tabLabel, COL.grey, UDim2.new(1, 0, 0, 46), IS_TOUCH and 14 or 15)
+	tlbl.TextScaled = true
+	new("UITextSizeConstraint", { MaxTextSize = IS_TOUCH and 14 or 15, MinTextSize = 8 }, tlbl)
+	pad(tlbl, 0, 0, 4, 4)
+	if cat.sub then
+		text(tcol, { Text = cat.sub, TextSize = 12, TextColor3 = T.Sub, TextXAlignment = Enum.TextXAlignment.Center,
+			Position = UDim2.fromOffset(0, 47), Size = UDim2.new(1, 0, 0, 15), TextWrapped = false })
+	end
+	tabs[cat.id] = { btn = tbtn, grad = tgrad, edge = tedge }
+	table.insert(sectionOrder, cat.id)
+
+	-- Section : titre + trait bleu, puis ses réglages (pas de fond de bloc)
+	local sec = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, LayoutOrder = ci }, list)
+	new("UIListLayout", { Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder }, sec)
+
+	local head = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, LayoutOrder = 0 }, sec)
+	new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, head)
+	local titleRow = new("Frame", { Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, LayoutOrder = 1 }, head)
+	title(titleRow, { Text = string.upper(cat.name), TextSize = 24,
+		Size = UDim2.new(1, -80, 1, 0) })
+	new("Frame", { Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = COL.blue[1], BorderSizePixel = 0,
+		LayoutOrder = 2 }, head)
+	local rb = new("TextButton", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(70, 26),
+		BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.92, AutoButtonColor = false,
+		Text = "Reset", FontFace = F.Bold, TextSize = 13, TextColor3 = T.Sub,
+	}, titleRow)
+	corner(rb, 7)
+	rb.Activated:Connect(function()
+		if not loaded then return end
+		for _, item in ipairs(cat.items) do
+			if item.key then
+				if item.preset then applyPreset(item.default)
+				elseif item.group ~= "advanced" then setValue(item.key, item.default, true) end
+			end
+		end
+	end)
+
+	local body = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1, LayoutOrder = 1 }, sec)
+	pad(body, 10, 0, 0, 0)
+	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, body)
+	sectionHeaders[cat.id] = sec
+
+	-- Réglages
+	local advGroup = {}
+	for _, item in ipairs(cat.items) do
+		local fr
+		if item.type == "header" then
+			smallHeader(body, item.text, nextOrder())
+		elseif item.type == "toggle" then
+			fr = buildToggle(body, item, nextOrder())
+		elseif item.type == "stepper" then
+			fr = buildStepper(body, item, nextOrder())
+		elseif item.type == "choice" then
+			fr = buildChoice(body, item, nextOrder())
+		elseif item.type == "advanced" then
+			buildAdvanced(body, item, nextOrder(), advGroup)
+		end
+		if fr and item.group == "advanced" then
+			fr.Visible = false
+			table.insert(advGroup, fr)
+		end
+		if fr and item.visibleIf then
+			local function upd() fr.Visible = item.visibleIf(player) == true end
+			upd()
+			watch(item.visibleAttr, upd)
+		end
+	end
+end
+
+-- Onglet allumé = section visible en haut de la liste
+local lockTab, lockUntil = nil, 0
+-- Onglet actif en bleu, les autres en gris
+local function paintTabs(active)
+	for id, t in pairs(tabs) do
+		recolor(t.grad, t.edge, id == active and COL.blue or COL.grey)
+	end
+end
+local function visibleSection()
+	local limit = list.AbsolutePosition.Y + list.AbsoluteWindowSize.Y * 0.35
+	local cur = sectionOrder[1]
+	for _, id in ipairs(sectionOrder) do
+		if sectionHeaders[id].AbsolutePosition.Y <= limit then cur = id end
+	end
+	return cur
+end
+list:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+	if os.clock() < lockUntil then return end
+	paintTabs(visibleSection())
+end)
+local function maxCanvas()
+	return math.max(0, list.AbsoluteCanvasSize.Y - list.AbsoluteWindowSize.Y)
+end
+-- Le HAUT de la section arrive pile en haut de la liste
+local function scrollTo(id)
+	local h = sectionHeaders[id]
+	if not h then return end
+	local y = h.AbsolutePosition.Y - list.AbsolutePosition.Y + list.CanvasPosition.Y
+	lockTab, lockUntil = id, os.clock() + 0.5
+	paintTabs(id)
+	local tw = tween(list, 0.35, { CanvasPosition = Vector2.new(0, math.clamp(y, 0, maxCanvas())) })
+	tw.Completed:Connect(function(state)
+		if state ~= Enum.PlaybackState.Completed then return end
+		-- correction finale au pixel près (quelle que soit l'échelle de l'écran)
+		local off = h.AbsolutePosition.Y - list.AbsolutePosition.Y
+		if math.abs(off) > 1 then
+			list.CanvasPosition = Vector2.new(0, math.clamp(list.CanvasPosition.Y + off, 0, maxCanvas()))
+		end
+	end)
+end
+
+-- L'espace de fin = hauteur de la liste moins la dernière section
+local lastSection = sectionHeaders[sectionOrder[#sectionOrder]]
+local function updateSpacer()
+	local s = uiScale.Scale
+	if s <= 0 then return end
+	local need = (list.AbsoluteWindowSize.Y - lastSection.AbsoluteSize.Y) / s - 40
+	spacer.Size = UDim2.new(1, 0, 0, math.max(0, math.floor(need)))
+end
+lastSection:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateSpacer)
+list:GetPropertyChangedSignal("AbsoluteWindowSize"):Connect(updateSpacer)
+for id, t in pairs(tabs) do
+	t.btn.Activated:Connect(function() scrollTo(id) end)
+end
+paintTabs(sectionOrder[1])
+
+---------------------------------------------------------------------
+-- 💾 SAVE / CANCEL + 📊 STATS / 💬 FEEDBACK (en bas)
+---------------------------------------------------------------------
+local saveBar = new("Frame", { AnchorPoint = Vector2.new(0, 1), Size = UDim2.new(1, -28, 0, 54),
+	BackgroundTransparency = 1, Visible = false }, root)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
+	SortOrder = Enum.SortOrder.LayoutOrder }, saveBar)
+local saveBtn, saveLbl = button3D(saveBar, "SAVE", COL.green, UDim2.new(0.6, -4, 1, 0), 18, 1)
+local cancelBtn = button3D(saveBar, "CANCEL", COL.red, UDim2.new(0.4, -4, 1, 0), 18, 2)
+
+local bottomRow = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 14, 1, -12),
+	Size = UDim2.new(1, -28, 0, 54), BackgroundTransparency = 1 }, root)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
+	SortOrder = Enum.SortOrder.LayoutOrder }, bottomRow)
+local statsBtn = button3D(bottomRow, C.Info.stats.name, COL.blue, UDim2.new(0.5, -4, 1, 0), 18, 1)
+local feedbackBtn = button3D(bottomRow, C.Info.feedback.name, COL.blue, UDim2.new(0.5, -4, 1, 0), 18, 2)
+
+-- Pages Stats / Feedback (remplacent onglets + liste, BACK pour revenir)
+local sub = new("Frame", { Position = UDim2.fromOffset(0, 58), Size = UDim2.new(1, 0, 1, -58),
+	BackgroundTransparency = 1, Visible = false }, root)
+local backBtn = button3D(sub, "BACK", COL.grey, UDim2.fromOffset(96, 46), 18)
+backBtn.Parent.Position = UDim2.fromOffset(14, 2)
+local subTitle = title(sub, { TextSize = 22, Position = UDim2.fromOffset(122, 2), Size = UDim2.new(1, -136, 0, 42) })
+local subPages = {}
+local function makeSubPage(id)
+	local sf = new("ScrollingFrame", {
+		Position = UDim2.fromOffset(14, 58), Size = UDim2.new(1, -28, 1, -70), BackgroundTransparency = 1,
+		BorderSizePixel = 0, ScrollBarThickness = 4, ScrollBarImageColor3 = Color3.new(1, 1, 1),
+		ScrollBarImageTransparency = 0.6, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y, Selectable = false, Visible = false,
+	}, sub)
+	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, sf)
+	pad(sf, 0, 12, 0, 10)
+	subPages[id] = sf
+	return sf
+end
+
+local function layout()
+	local inSub = sub.Visible
+	local bottomH = inSub and 0 or 64
+	local saveH = saveBar.Visible and 64 or 0
+	bottomRow.Visible = not inSub
+	tabsRow.Visible = not inSub
+	list.Visible = not inSub
+	saveBar.Position = UDim2.new(0, 14, 1, -(12 + bottomH))
+	list.Size = UDim2.new(1, -28, 1, -(LIST_Y + 12 + bottomH + saveH))
+	cover.Size = list.Size
+	cover.Visible = (not loaded) and not inSub
+	sub.Size = UDim2.new(1, 0, 1, -(58 + saveH))
+end
+layout()
+
+---------------------------------------------------------------------
+-- 📊 STATS
+---------------------------------------------------------------------
+local statsScroll = makeSubPage("stats")
+local SV = {}
+local statCp, statKq = 0, 0
+local reqCp, reqKill
+local playtimeBase, playtimeStart = player:GetAttribute("PlaytimeSeconds") or 0, os.time()
+player:GetAttributeChangedSignal("PlaytimeSeconds"):Connect(function()
+	playtimeBase = player:GetAttribute("PlaytimeSeconds") or playtimeBase
+	playtimeStart = os.time()
+end)
+task.spawn(function()
+	local ev = ReplicatedStorage:WaitForChild("CheckpointQuestUpdate", 30)
+	if ev then ev.OnClientEvent:Connect(function(cp) statCp = tonumber(cp) or statCp end) end
+end)
+task.spawn(function()
+	local ev = ReplicatedStorage:WaitForChild("KillCountUpdate", 30)
+	if ev then ev.OnClientEvent:Connect(function(q) statKq = tonumber(q) or statKq end) end
+end)
+task.spawn(function() reqCp = ReplicatedStorage:WaitForChild("RequestCheckpointData", 30) end)
+task.spawn(function() reqKill = ReplicatedStorage:WaitForChild("RequestKillData", 30) end)
+
+do
+	local prof = new("Frame", { Size = UDim2.new(1, 0, 0, 80), BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.95, LayoutOrder = 1 }, statsScroll)
+	corner(prof, 10)
+	local av = new("ImageLabel", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 12, 0.5, 0),
+		Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Color3.fromRGB(28, 32, 44),
+		Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150" }, prof)
+	corner(av, 28)
+	text(prof, { Text = player.DisplayName, FontFace = F.Heavy, TextSize = 19, Position = UDim2.fromOffset(80, 16),
+		Size = UDim2.new(1, -92, 0, 24), TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd })
+	text(prof, { Text = "@" .. player.Name, TextSize = 13, TextColor3 = T.Sub, Position = UDim2.fromOffset(80, 42),
+		Size = UDim2.new(1, -92, 0, 18), TextWrapped = false })
+end
+local function statCard(label, order)
+	local f = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.95, LayoutOrder = order }, statsScroll)
+	corner(f, 10); pad(f, 8, 10, 12, 12)
+	new("UIListLayout", { Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder }, f)
+	smallHeader(f, label, 0)
+	return f
+end
+local function statRow(c, key, label, order)
+	local r = new("Frame", { Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, LayoutOrder = order }, c)
+	text(r, { Text = label, TextSize = 15, TextColor3 = T.Sub, Size = UDim2.new(0.6, 0, 1, 0), TextWrapped = false })
+	SV[key] = text(r, { Text = "-", FontFace = F.Bold, TextSize = 15, Position = UDim2.fromScale(0.6, 0),
+		Size = UDim2.new(0.4, 0, 1, 0), TextXAlignment = Enum.TextXAlignment.Right, TextWrapped = false })
+end
+do
+	local p = statCard("PROGRESSION", 3)
+	statRow(p, "points", "Points", 1)
+	statRow(p, "rebirths", "Rebirths", 2)
+	statRow(p, "kills", "Total Kills", 3)
+	statRow(p, "cp", "Checkpoint Quest", 4)
+	statRow(p, "killq", "Kill Quest", 5)
+	statRow(p, "playtime", "Playtime", 6)
+	local s = statCard("STREAK", 4)
+	statRow(s, "streak", "Current Streak", 1)
+	statRow(s, "best", "Best Streak", 2)
+	local l = statCard("RIGHT NOW", 5)
+	statRow(l, "mult", "Points per second", 1)
+	statRow(l, "friends", "Friends in game", 2)
+end
+
+-- 🎽 UGC REDEEMED — tes UGC récupérés, EN PREMIER dans la page « PROFILE » des Settings.
+--    Comme dans les fiches profil : les 4 derniers UGC + une carte « See all (N) ».
+--    See all → tous les UGC dans la page (qui défile), dernière carte « Show less ».
+--    Rechargée à l'ouverture de la page (au plus toutes les 30 s).
+local MY_UGC_PREVIEW = 4
+local MY_UGC_ICON = nil   -- 🖼️ "rbxassetid://ID" pour une icône devant le texte (nil = pas d'icône)
+local myUGCCard = statCard("UGC REDEEMED", 2)
+local myUGCHead = new("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = 1 }, myUGCCard)
+local myUGCIconX = 0
+if MY_UGC_ICON then
+	new("ImageLabel", { BackgroundTransparency = 1, Image = MY_UGC_ICON, ScaleType = Enum.ScaleType.Fit,
+		Size = UDim2.fromOffset(20, 20), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0) }, myUGCHead)
+	myUGCIconX = 26
+end
+local myUGCNote = text(myUGCHead, { Text = "Loading…", TextSize = 15, TextColor3 = T.Sub, TextWrapped = false,
+	Size = UDim2.new(1, -myUGCIconX, 1, 0), Position = UDim2.fromOffset(myUGCIconX, 0) })
+local myUGCGrid = new("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
+	AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2 }, myUGCCard)
+local myUGCLayout = new("UIGridLayout", { CellSize = UDim2.new(0.2, -5, 0, 90), CellPadding = UDim2.fromOffset(6, 6),
+	SortOrder = Enum.SortOrder.LayoutOrder }, myUGCGrid)
+local function fitMyUGC()
+	local w = myUGCGrid.AbsoluteSize.X
+	if w > 0 then myUGCLayout.CellSize = UDim2.new(0.2, -5, 0, math.floor((w - 24) / 5 * 1.3)) end
+end
+myUGCGrid:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitMyUGC)
+
+local myUGCToken, myUGCAt = 0, -math.huge
+local function loadMyUGCs()
+	if os.clock() - myUGCAt < 30 then return end
+	myUGCAt = os.clock()
+	myUGCToken += 1
+	local my = myUGCToken
+	task.spawn(function()
+		local fn = ReplicatedStorage:WaitForChild("GetPublicUGCs", 10)
+		local res
+		if fn then
+			for _ = 1, 6 do
+				local ok, r = pcall(fn.InvokeServer, fn, player.UserId)
+				if ok and not (type(r) == "table" and r.throttled) then res = r break end
+				task.wait(0.5)
+			end
+		end
+		if my ~= myUGCToken then return end
+		for _, c in ipairs(myUGCGrid:GetChildren()) do
+			if c:IsA("GuiObject") then c:Destroy() end
+		end
+		if type(res) ~= "table" or not res.ok then
+			myUGCNote.Text = (type(res) == "table" and res.disabled) and "UGC list is disabled."
+				or "UGC list unavailable right now."
+			myUGCAt = -math.huge   -- on réessaiera à la prochaine ouverture
+			return
+		end
+		local list = res.list or {}
+		local total = math.max(tonumber(res.total) or 0, #list)
+		if total == 0 then
+			myUGCNote.Text = "No UGC redeemed yet. Get your first one in the shop!"
+			return
+		end
+		myUGCNote.Text = total == 1 and "1 UGC redeemed" or (total .. " UGCs redeemed")
+		local first = total - #list + 1
+		local expanded = false
+		local function card(k, i)
+			local item = list[i]
+			local c = new("Frame", { BackgroundColor3 = Color3.fromRGB(20, 24, 34), BackgroundTransparency = 0.15,
+				LayoutOrder = k }, myUGCGrid)
+			corner(c, 10)
+			new("ImageLabel", { BackgroundTransparency = 1, Image = item.img or "", ScaleType = Enum.ScaleType.Fit,
+				Size = UDim2.fromScale(0.82, 0.62), AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.05) }, c)
+			text(c, { Text = "#" .. (first + i - 1), FontFace = F.Heavy, TextSize = 12, TextColor3 = T.Sub,
+				TextWrapped = false, Size = UDim2.fromScale(0.5, 0.14), Position = UDim2.fromScale(0.05, 0.02) })
+			text(c, { Text = item.n or "UGC", FontFace = F.Bold, TextSize = 13,
+				TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd,
+				Size = UDim2.fromScale(0.92, 0.26), Position = UDim2.fromScale(0.04, 0.7) })
+		end
+		local render
+		local function toggleCard(label)
+			local b = new("TextButton", { BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.9,
+				AutoButtonColor = true, Text = "", LayoutOrder = 100000 }, myUGCGrid)
+			corner(b, 10)
+			new("UIStroke", { Color = Color3.new(1, 1, 1), Transparency = 0.75, Thickness = 1,
+				ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, b)
+			local l = text(b, { Text = label, FontFace = F.Heavy, TextSize = 16, TextScaled = true,
+				TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(0.9, 0.6),
+				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5) })
+			new("UITextSizeConstraint", { MaxTextSize = 16, MinTextSize = 8 }, l)
+			b.Activated:Connect(function()
+				expanded = not expanded
+				render()
+			end)
+		end
+		render = function()
+			for _, c in ipairs(myUGCGrid:GetChildren()) do
+				if c:IsA("GuiObject") then c:Destroy() end
+			end
+			local n = expanded and #list or math.min(MY_UGC_PREVIEW, #list)
+			for k = 1, n do card(k, #list - k + 1) end          -- plus récent en premier
+			if #list > MY_UGC_PREVIEW then
+				toggleCard(expanded and "Show less" or ("See all\n(%d)"):format(total))
+			end
+			task.defer(fitMyUGC)
+		end
+		render()
+	end)
+end
+local function fmtNum(n)
+	n = tonumber(n) or 0
+	if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
+	if n >= 1e6 then return string.format("%.2fM", n / 1e6) end
+	if n >= 1e3 then return string.format("%.1fK", n / 1e3) end
+	return tostring(math.floor(n))
+end
+local function fmtTime(sec)
+	sec = tonumber(sec) or 0
+	local d, h, m = math.floor(sec / 86400), math.floor(sec % 86400 / 3600), math.floor(sec % 3600 / 60)
+	if d > 0 then return string.format("%dd %dh %dm", d, h, m) end
+	if h > 0 then return string.format("%dh %dm", h, m) end
+	return string.format("%dm", m)
+end
+local function refreshStats()
+	local ls = player:FindFirstChild("leaderstats")
+	local pts = ls and ls:FindFirstChild("Points")
+	local reb = ls and ls:FindFirstChild("Rebirths")
+	SV.points.Text   = fmtNum(pts and pts.Value or player:GetAttribute("Points") or 0)
+	SV.rebirths.Text = tostring(reb and reb.Value or player:GetAttribute("RebirthCount") or 0)
+	SV.kills.Text    = fmtNum(player:GetAttribute("TotalKills") or 0)
+	SV.cp.Text       = math.min(statCp, C.CheckpointGoal) .. " / " .. C.CheckpointGoal
+	SV.killq.Text    = math.min(statKq, C.KillGoal) .. " / " .. C.KillGoal
+	SV.playtime.Text = fmtTime(playtimeBase + (os.time() - playtimeStart))
+	local streak = player:GetAttribute("FlameStreak") or 0
+	SV.streak.Text   = streak .. (streak == 1 and " day" or " days")
+	local best = player:GetAttribute("FlameHighScore") or 0
+	SV.best.Text     = best .. (best == 1 and " day" or " days")
+	SV.mult.Text     = string.format("x%.2f", tonumber(player:GetAttribute("PointsMultiplier")) or 1)
+	SV.friends.Text  = tostring(player:GetAttribute("FriendCount") or 0)
+end
+
+---------------------------------------------------------------------
+-- 💬 FEEDBACK
+---------------------------------------------------------------------
+local fbScroll = makeSubPage("feedback")
+local fbRefresh = function() end
+
+-- 🆕 Feedback via le système OFFICIEL de Roblox (SocialService:PromptFeedbackSubmissionAsync)
+--    Même style que l'ancien onglet. On explique quoi écrire, puis un gros bouton
+--    ouvre la fenêtre Roblox. Le feedback arrive dans le Creator Dashboard
+--    (Audience ▸ Feedback). La quête « Send Feedback » se débloque à l'ouverture.
+task.spawn(function()
+	local SocialService = game:GetService("SocialService")
+	local promptedEv = ReplicatedStorage:WaitForChild("FeedbackPrompted", 30)
+
+	local S = IS_TOUCH
+	local function fs(m, d) return S and m or d end
+	local FONT        = Enum.Font.FredokaOne
+	local ACCENT      = Color3.fromRGB(96, 165, 250)
+	local ACCENT_DEEP = Color3.fromRGB(59, 130, 246)
+	local ACCENT_SOFT = Color3.fromRGB(147, 197, 253)
+	local C_CARD      = Color3.fromRGB(27, 29, 37)
+	local C_TEXT      = Color3.fromRGB(238, 240, 245)
+	local C_SUB       = Color3.fromRGB(148, 152, 162)
+	local C_LINE      = Color3.fromRGB(46, 49, 58)
+	local C_TRACK_OFF = Color3.fromRGB(56, 59, 68)
+	local CARD_T      = 0.15
+	local function oCorner(inst, r)
+		local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r); c.Parent = inst; return c
+	end
+	local function oStroke(inst, col, th, tr)
+		local st = Instance.new("UIStroke"); st.Color = col; st.Thickness = th or 1
+		st.Transparency = tr or 0; st.Parent = inst; return st
+	end
+	local function oPad(inst, v)
+		local p = Instance.new("UIPadding")
+		p.PaddingTop, p.PaddingBottom = UDim.new(0, v), UDim.new(0, v)
+		p.PaddingLeft, p.PaddingRight = UDim.new(0, v), UDim.new(0, v)
+		p.Parent = inst
+		return p
+	end
+	local ord = 0
+	local function nextOrder() ord += 1; return ord end
+	local function label(parent, txt, size, color, order)
+		local l = Instance.new("TextLabel")
+		l.Size                   = UDim2.new(1, -6, 0, 0)
+		l.AutomaticSize          = Enum.AutomaticSize.Y
+		l.BackgroundTransparency = 1
+		l.Text                   = txt
+		l.Font                   = FONT
+		l.TextSize               = size
+		l.TextColor3             = color
+		l.TextWrapped            = true
+		l.TextXAlignment         = Enum.TextXAlignment.Left
+		l.LayoutOrder            = order or nextOrder()
+		l.Parent                 = parent
+		return l
+	end
+	local function sectionHeader(parent, txt)
+		return label(parent, txt, S and 11 or 13, ACCENT_SOFT)
+	end
+
+	local root = fbScroll
+	do
+		local lay = fbScroll:FindFirstChildOfClass("UIListLayout")
+		lay.Padding = UDim.new(0, S and 8 or 10)
+		lay.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	end
+
+	sectionHeader(root, "💬  HELP US MAKE THE GAME BETTER")
+
+	-- 📝 Carte « quoi écrire »
+	local card = Instance.new("Frame")
+	card.Size                   = UDim2.new(1, -6, 0, 0)
+	card.AutomaticSize          = Enum.AutomaticSize.Y
+	card.BackgroundColor3       = C_CARD
+	card.BackgroundTransparency = CARD_T
+	card.BorderSizePixel        = 0
+	card.LayoutOrder            = nextOrder()
+	card.Parent                 = root
+	oCorner(card, 12)
+	oStroke(card, C_LINE, 1)
+	oPad(card, S and 10 or 14)
+	local cl = Instance.new("UIListLayout")
+	cl.Padding   = UDim.new(0, S and 6 or 8)
+	cl.SortOrder = Enum.SortOrder.LayoutOrder
+	cl.Parent    = card
+
+	label(card, "What to write:", fs(14, 17), C_TEXT, 1)
+	local TIPS = {
+		"🐛  A bug: what happened, where, and on which device (phone, PC…)",
+		"💡  An idea: a feature, a game mode, a quest you'd love",
+		"🎽  A UGC you want to see in the shop",
+		"⚖️  Something too hard, too slow, or unfair",
+		"❤️  What you love about the game",
+	}
+	for i, t in ipairs(TIPS) do label(card, t, fs(12, 14), C_SUB, 1 + i) end
+	label(card, "✨ Be specific: one clear sentence helps us more than \"good game\".", fs(12, 14), ACCENT_SOFT, 20)
+
+	-- 🔵 Le gros bouton
+	local sendBtn = Instance.new("TextButton")
+	sendBtn.Size             = UDim2.new(1, -6, 0, fs(46, 54))
+	sendBtn.BackgroundColor3 = ACCENT_DEEP
+	sendBtn.BorderSizePixel  = 0
+	sendBtn.AutoButtonColor  = false
+	sendBtn.Text             = "📝  WRITE MY FEEDBACK"
+	sendBtn.Font             = FONT
+	sendBtn.TextSize         = fs(15, 18)
+	sendBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+	sendBtn.LayoutOrder      = nextOrder()
+	sendBtn.Parent           = root
+	oCorner(sendBtn, 10)
+	local sendStroke = oStroke(sendBtn, ACCENT, 1.5)
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90
+	grad.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 210, 230))
+	grad.Parent = sendBtn
+
+	local status = label(root, "", fs(13, 16), C_SUB)
+	status.TextXAlignment = Enum.TextXAlignment.Center
+
+	label(root, "🔒 Sent through Roblox, straight to the developers. You can send 1 feedback per day.",
+		fs(10, 12), Color3.fromRGB(120, 124, 134))
+
+	local busyUntil = 0
+	local function setReady(ready)
+		sendBtn.BackgroundColor3 = ready and ACCENT_DEEP or C_TRACK_OFF
+		sendBtn.TextColor3       = ready and Color3.fromRGB(255, 255, 255) or C_SUB
+		sendStroke.Color         = ready and ACCENT or C_LINE
+	end
+
+	sendBtn.MouseButton1Click:Connect(function()
+		if tick() < busyUntil then return end
+		busyUntil = tick() + 4
+		setReady(false)
+		status.Text = ""
+		-- débloque la quête (le serveur vérifie et ne paie qu'une fois)
+		if promptedEv then pcall(function() promptedEv:FireServer() end) end
+		task.spawn(function()
+			local ok, err = pcall(function() SocialService:PromptFeedbackSubmissionAsync() end)
+			if ok then
+				status.Text       = "💙 Thanks! If you sent something, we'll read it."
+				status.TextColor3 = Color3.fromRGB(120, 235, 150)
+			else
+				warn("[Feedback] PromptFeedbackSubmissionAsync : " .. tostring(err))
+				status.Text       = "⚠️ Roblox feedback isn't available right now. Try again later."
+				status.TextColor3 = Color3.fromRGB(255, 170, 120)
+			end
+			task.wait(math.max(0, busyUntil - tick()))
+			setReady(true)
+		end)
+	end)
+
+	fbRefresh = function() end
+end)
+
+---------------------------------------------------------------------
+-- ⚠️ FENÊTRE « UNSAVED CHANGES »
+---------------------------------------------------------------------
+local dlg = new("TextButton", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35,
+	Text = "", AutoButtonColor = false, Selectable = false, Visible = false, ZIndex = 30,
+}, root)
+corner(dlg, 14)
+local dCard = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	Size = UDim2.new(1, -24, 0, 340), BackgroundColor3 = T.Dark, Active = true }, dlg)
+corner(dCard, 12)
+title(dCard, { Text = "UNSAVED CHANGES", TextSize = 22, Position = UDim2.fromOffset(16, 12), Size = UDim2.new(1, -32, 0, 28) })
+local dSub = text(dCard, { TextSize = 14, TextColor3 = T.Sub, Position = UDim2.fromOffset(16, 42),
+	Size = UDim2.new(1, -32, 0, 20), TextWrapped = false })
+local dList = new("ScrollingFrame", {
+	Position = UDim2.fromOffset(16, 70), Size = UDim2.new(1, -32, 1, -148), BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.95, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y, Selectable = false,
+}, dCard)
+corner(dList, 10); pad(dList, 6, 6, 10, 10)
+new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, dList)
+local dRow = new("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14),
+	Size = UDim2.new(1, -32, 0, 52), BackgroundTransparency = 1 }, dCard)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
+	SortOrder = Enum.SortOrder.LayoutOrder }, dRow)
+local dSave    = button3D(dRow, "SAVE",    COL.green, UDim2.new(1 / 3, -6, 1, 0), 16, 1)
+local dDiscard = button3D(dRow, "DISCARD", COL.red,   UDim2.new(1 / 3, -6, 1, 0), 16, 2)
+local dStay    = button3D(dRow, "STAY",    COL.grey,  UDim2.new(1 / 3, -6, 1, 0), 16, 3)
+
+local function fmtVal(key, v)
+	local d = defs[key]
+	if d and d.type == "choice" then
+		if d.preset and v == 3 then return "Custom" end
+		for _, o in ipairs(d.options) do if o.value == v then return o.name end end
+	end
+	if v == nil and d then v = d.default end
+	if type(v) == "boolean" then return v and "On" or "Off" end
+	if type(v) == "number" then return tostring(v) .. ((d and d.suffix) or "") end
+	return tostring(v)
+end
+
+local function diffList()
+	local out = {}
+	for key, box in pairs(held) do
+		local d = defs[key]
+		local before, now = snapshot[key], box[1]
+		if before == nil and d then before = d.default end
+		if d and before ~= now then table.insert(out, { key, before, now }) end
+	end
+	table.sort(out, function(a, b) return defs[a[1]].label < defs[b[1]].label end)
+	return out
+end
+
+local function refreshDirty()
+	local n = #diffList()
+	if n > 0 then saveLbl.Text = "SAVE (" .. n .. ")" end
+	if saveBar.Visible ~= (n > 0) then
+		saveBar.Visible = n > 0
+		layout()
+	end
+end
+
+local function save()
+	for key, box in pairs(held) do
+		if pending[key] == nil then pendingCount += 1 end
+		pending[key] = box
+	end
+	held = {}
+	for key in pairs(snapshot) do snapshot[key] = player:GetAttribute(key) end
+	refreshDirty()
+end
+
+local function discard()
+	local keys = {}
+	for key in pairs(held) do table.insert(keys, key) end
+	held = {}
+	for _, key in ipairs(keys) do
+		if player:GetAttribute(key) ~= snapshot[key] then player:SetAttribute(key, snapshot[key]) end
+	end
+	refreshDirty()
+end
+
+---------------------------------------------------------------------
+-- 🚪 OUVERTURE · FERMETURE · PAGES · MANETTE
+---------------------------------------------------------------------
+local currentSub = nil
+local function openSub(id)
+	currentSub = id
+	sub.Visible = true
+	for pid, sf in pairs(subPages) do sf.Visible = pid == id end
+	subTitle.Text = string.upper(C.Info[id].title)
+	layout()
+	if id == "stats" then
+		refreshStats()
+		loadMyUGCs()
+		if reqCp then pcall(function() reqCp:FireServer() end) end
+		if reqKill then pcall(function() reqKill:FireServer() end) end
+	else
+		fbRefresh()
+	end
+	if gamepadActive() then GuiService.SelectedObject = backBtn end
+end
+local function closeSub()
+	currentSub = nil
+	sub.Visible = false
+	layout()
+	if gamepadActive() then GuiService.SelectedObject = tabs[sectionOrder[1]].btn end
+end
+statsBtn.Activated:Connect(function() openSub("stats") end)
+feedbackBtn.Activated:Connect(function() openSub("feedback") end)
+backBtn.Activated:Connect(closeSub)
+
+local function hideDialog()
+	dlg.Visible = false
+	if gamepadActive() then GuiService.SelectedObject = closeBtn end
+end
+
+local requestClose
+local function cycle(dir)
+	if sub.Visible then return end
+	local cur = (os.clock() < lockUntil and lockTab) or visibleSection()
+	local idx = table.find(sectionOrder, cur) or 1
+	idx = math.clamp(idx + dir, 1, #sectionOrder)
+	scrollTo(sectionOrder[idx])
+end
+local function bindGamepadNav()
+	ContextActionService:BindActionAtPriority("SettingsUINav", function(_, state, input)
+		if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+		local k = input.KeyCode
+		if k == Enum.KeyCode.ButtonB then
+			if dlg.Visible then hideDialog()
+			elseif sub.Visible then closeSub()
+			else requestClose() end
+		elseif k == Enum.KeyCode.ButtonL1 then
+			cycle(-1)
+		elseif k == Enum.KeyCode.ButtonR1 then
+			cycle(1)
+		end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value,
+	Enum.KeyCode.ButtonB, Enum.KeyCode.ButtonL1, Enum.KeyCode.ButtonR1)
+end
+
+local closing = false
+local function open(subId)
+	if panelOpen then
+		if subId then openSub(subId) end
+		return
+	end
+	panelOpen, closing = true, false
+	held = {}
+	snapshot = {}
+	for key in pairs(defs) do snapshot[key] = player:GetAttribute(key) end
+	for key in pairs(EXTRA) do snapshot[key] = player:GetAttribute(key) end
+	dlg.Visible = false
+	saveBar.Visible = false
+	if subId then openSub(subId) elseif sub.Visible then closeSub() else layout() end
+	gui.Enabled = true
+	fit()
+	root.Position = openPos(false)
+	tween(root, 0.3, { Position = openPos(true) }, Enum.EasingStyle.Back)
+	dim.BackgroundTransparency = 1
+	tween(dim, 0.2, { BackgroundTransparency = 0.5 })
+	task.defer(updateSpacer)
+	bindGamepadNav()
+	if gamepadActive() and not subId then GuiService.SelectedObject = tabs[sectionOrder[1]].btn end
+end
+
+local function reallyClose()
+	panelOpen = false
+	closing = true
+	held = {}
+	HOLD += 1
+	dlg.Visible = false
+	ContextActionService:UnbindAction("SettingsUINav")
+	local sel = GuiService.SelectedObject
+	if sel and sel:IsDescendantOf(gui) then GuiService.SelectedObject = nil end
+	tween(root, 0.22, { Position = openPos(false) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	tween(dim, 0.2, { BackgroundTransparency = 1 })
+	task.delay(0.22, function()
+		if closing then gui.Enabled = false end
+	end)
+end
+
+local function openDialog()
+	for _, ch in ipairs(dList:GetChildren()) do
+		if ch:IsA("Frame") then ch:Destroy() end
+	end
+	local rows = diffList()
+	dSub.Text = (#rows == 1) and "1 setting changed. Save it?" or (#rows .. " settings changed. Save them?")
+	for i, r in ipairs(rows) do
+		local row = new("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = i }, dList)
+		text(row, { Text = defs[r[1]].label, TextSize = 14, Size = UDim2.new(0.55, 0, 1, 0),
+			TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd })
+		text(row, { Text = fmtVal(r[1], r[2]) .. " → " .. fmtVal(r[1], r[3]), FontFace = F.Bold, TextSize = 14,
+			TextColor3 = GOOD, Position = UDim2.fromScale(0.55, 0), Size = UDim2.new(0.45, 0, 1, 0),
+			TextXAlignment = Enum.TextXAlignment.Right, TextWrapped = false })
+	end
+	dlg.Visible = true
+	if gamepadActive() then GuiService.SelectedObject = dSave end
+end
+
+requestClose = function()
+	if not panelOpen then return end
+	if #diffList() > 0 then openDialog() return end
+	reallyClose()
+end
+
+closeBtn.Activated:Connect(function() requestClose() end)
+dim.Activated:Connect(function() requestClose() end)
+saveBtn.Activated:Connect(save)
+cancelBtn.Activated:Connect(discard)
+dSave.Activated:Connect(function() save(); reallyClose() end)
+dDiscard.Activated:Connect(function() discard(); reallyClose() end)
+dStay.Activated:Connect(hideDialog)
+dlg.Activated:Connect(hideDialog)
+
+-- Un doigt / clic relâché n'importe où arrête les appuis maintenus
+UserInputService.InputEnded:Connect(function(input)
+	if isPointer(input) then HOLD += 1 end
+end)
+
+ContextActionService:BindAction("SettingsUIToggle", function(_, state)
+	if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+	if panelOpen then requestClose() else open() end
+	return Enum.ContextActionResult.Sink
+end, false, C.GamepadToggleKey)
+
+---------------------------------------------------------------------
+-- 🌓 DAY / NIGHT (sauvegardé maintenant)
+---------------------------------------------------------------------
+local dayObjects, nightObjects = {}, {}
+for _, obj in ipairs(Lighting:GetChildren()) do
+	local n = obj.Name:lower()
+	if n == "day" then table.insert(dayObjects, obj)
+	elseif n == "night" then table.insert(nightObjects, obj) end
+end
+local envStorage = new("Folder", { Name = "_EnvStorage" }, playerGui)
+appliers.SettingNight = function(isNight)
+	local env = (isNight == true) and "night" or "day"
+	for _, pair in ipairs({ { dayObjects, "day" }, { nightObjects, "night" } }) do
+		for _, obj in ipairs(pair[1]) do
+			local active = env == pair[2]
+			if obj:IsA("Sky") or obj:IsA("Atmosphere") then
+				obj.Parent = active and Lighting or envStorage
+			else
+				pcall(function() obj.Enabled = active end)
+			end
+		end
+	end
+end
+appliers.SettingNight(get("SettingNight"))
+
+---------------------------------------------------------------------
+-- ⚡ GRAPHISMES
+--    Règle absolue : rien n'est lu ni modifié tant qu'un réglage reste
+--    sur sa valeur par défaut. Revenir au défaut restaure l'original.
+---------------------------------------------------------------------
+local P = { fx = {}, mat = {}, sa = {}, post = {}, atmo = {}, hid = {},
+	noFX = false, lowTex = false, scanning = false, dirty = false,
+	qOrig = nil, shadowOrig = nil, tOrig = nil, stash = nil }
+local UGS = UserSettings():GetService("UserGameSettings")
+local terrain = workspace:FindFirstChildOfClass("Terrain")
+local FX_CLASS = { ParticleEmitter = true, Trail = true, Beam = true, Smoke = true, Fire = true, Sparkles = true }
+local POST_CLASS = { BloomEffect = true, BlurEffect = true, DepthOfFieldEffect = true, SunRaysEffect = true }
+local T_LOW = { Decoration = false, WaterWaveSize = 0, WaterWaveSpeed = 0, WaterReflectance = 0 }
+
+appliers.SettingPerfQuality = function(v)
+	v = tonumber(v) or 0
+	if v <= 0 then
+		if P.qOrig == nil then return end
+		local q = P.qOrig
+		P.qOrig = nil
+		pcall(function() UGS.SavedQualityLevel = q end)
+		return
+	end
+	if P.qOrig == nil then
+		local ok, cur = pcall(function() return UGS.SavedQualityLevel end)
+		P.qOrig = ok and cur or Enum.SavedQualitySetting.Automatic
+	end
+	pcall(function()
+		local lvl = math.clamp(math.floor(v / 10 + 0.5), 1, 10)
+		UGS.SavedQualityLevel = Enum.SavedQualitySetting["QualityLevel" .. lvl]
+	end)
+end
+
+appliers.SettingPerfShadows = function(on)
+	if on == false then
+		if P.shadowOrig == nil then
+			local ok, v = pcall(function() return Lighting.GlobalShadows end)
+			if not ok then return end
+			P.shadowOrig = v
+		end
+		pcall(function() Lighting.GlobalShadows = false end)
+	elseif P.shadowOrig ~= nil then
+		local v = P.shadowOrig
+		P.shadowOrig = nil
+		pcall(function() Lighting.GlobalShadows = v end)
+	end
+end
+
+appliers.SettingPerfPostFX = function(on)
+	if on ~= false then
+		for d, was in pairs(P.post) do if d.Parent then pcall(function() d.Enabled = was end) end end
+		P.post = {}
+		for d, o in pairs(P.atmo) do
+			if d.Parent then pcall(function() d.Density, d.Glare, d.Haze = o[1], o[2], o[3] end) end
+		end
+		P.atmo = {}
+		return
+	end
+	for _, d in ipairs(Lighting:GetDescendants()) do
+		if POST_CLASS[d.ClassName] then
+			if P.post[d] == nil then P.post[d] = d.Enabled end
+			pcall(function() d.Enabled = false end)
+		elseif d:IsA("Atmosphere") then
+			if P.atmo[d] == nil then P.atmo[d] = { d.Density, d.Glare, d.Haze } end
+			pcall(function() d.Density, d.Glare, d.Haze = 0, 0, 0 end)
+		end
+	end
+end
+
+appliers.SettingPerfParticles = function(on)
+	P.noFX = (on == false)
+	if not P.noFX then
+		for d, was in pairs(P.fx) do if d.Parent then pcall(function() d.Enabled = was end) end end
+		P.fx = {}
+		return
+	end
+	task.spawn(function()
+		local n = 0
+		for _, d in ipairs(workspace:GetDescendants()) do
+			if FX_CLASS[d.ClassName] and P.fx[d] == nil then
+				P.fx[d] = d.Enabled
+				pcall(function() d.Enabled = false end)
+			end
+			n += 1
+			if n % 900 == 0 then task.wait() end
+		end
+	end)
+end
+
+appliers.SettingPerfTerrain = function(on)
+	if not terrain then return end
+	if on == false then
+		if P.tOrig == nil then
+			P.tOrig = {}
+			for prop in pairs(T_LOW) do
+				local ok, v = pcall(function() return terrain[prop] end)
+				if ok and v ~= nil then P.tOrig[prop] = v end
+			end
+		end
+		for prop in pairs(P.tOrig) do pcall(function() terrain[prop] = T_LOW[prop] end) end
+	elseif P.tOrig ~= nil then
+		local o = P.tOrig
+		P.tOrig = nil
+		for prop, v in pairs(o) do pcall(function() terrain[prop] = v end) end
+	end
+end
+
+-- Jamais de modification sur les personnages, accessoires et outils
+local function isChar(d)
+	local m, hops = d.Parent, 0
+	while m and m ~= workspace and hops < 8 do
+		if m:IsA("Accessory") or m:IsA("Tool") then return true end
+		if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then return true end
+		m = m.Parent
+		hops += 1
+	end
+	return false
+end
+local function flatten(d)
+	if isChar(d) then return end
+	if d:IsA("BasePart") then
+		if P.mat[d] == nil then
+			P.mat[d] = { d.Material, d.Reflectance }
+			pcall(function() d.Material = Enum.Material.Plastic; d.Reflectance = 0 end)
+		end
+	elseif d:IsA("SurfaceAppearance") then
+		if P.sa[d] == nil then
+			P.sa[d] = d.Parent
+			if not P.stash then P.stash = new("Folder", { Name = "_PerfStash" }, playerGui) end
+			pcall(function() d.Parent = P.stash end)
+		end
+	end
+end
+appliers.SettingPerfLowTex = function(on)
+	P.lowTex = (on == true)
+	if P.lowTex then
+		if P.scanning then return end
+		P.scanning = true
+		task.spawn(function()
+			local n = 0
+			for _, d in ipairs(workspace:GetDescendants()) do
+				flatten(d)
+				n += 1
+				if n % 700 == 0 then task.wait() end
+			end
+			P.scanning = false
+		end)
+		return
+	end
+	for d, o in pairs(P.mat) do
+		if d.Parent then pcall(function() d.Material = o[1]; d.Reflectance = o[2] end) end
+	end
+	P.mat = {}
+	for d, par in pairs(P.sa) do
+		if par and par.Parent then pcall(function() d.Parent = par end) end
+	end
+	P.sa = {}
+end
+
+local function applyPlayers()
+	local pct = tonumber(get("SettingRenderDistance")) or 100
+	local acc = get("SettingHideAccessories") == true
+	if pct >= 100 and not acc then
+		if not P.dirty then return end
+		for d in pairs(P.hid) do if d.Parent then pcall(function() d.LocalTransparencyModifier = 0 end) end end
+		P.hid = {}
+		P.dirty = false
+		return
+	end
+	local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	local limit = (pct >= 100) and math.huge or (60 + pct * 4)
+	for _, o in ipairs(Players:GetPlayers()) do
+		local ch = (o ~= player) and o.Character or nil
+		if ch then
+			local r = ch:FindFirstChild("HumanoidRootPart")
+			local far = myRoot and r and limit < math.huge and (r.Position - myRoot.Position).Magnitude > limit
+			for _, d in ipairs(ch:GetDescendants()) do
+				if d:IsA("BasePart") then
+					local hide = far or (acc and d.Parent and d.Parent:IsA("Accessory"))
+					if hide then
+						d.LocalTransparencyModifier = 1
+						P.hid[d] = true
+					elseif P.hid[d] then
+						d.LocalTransparencyModifier = 0
+						P.hid[d] = nil
+					end
+				end
+			end
+		end
+	end
+	P.dirty = true
+end
+appliers.SettingRenderDistance = function() applyPlayers() end
+appliers.SettingHideAccessories = function() applyPlayers() end
+task.spawn(function()
+	while true do
+		task.wait(0.4)
+		pcall(applyPlayers)
+	end
+end)
+
+workspace.DescendantAdded:Connect(function(d)
+	if P.noFX and FX_CLASS[d.ClassName] and P.fx[d] == nil then
+		P.fx[d] = d.Enabled
+		pcall(function() d.Enabled = false end)
+	end
+	if P.lowTex then task.defer(flatten, d) end
+end)
+Lighting.DescendantAdded:Connect(function()
+	if get("SettingPerfPostFX") == false then
+		task.defer(appliers.SettingPerfPostFX, false)
+	end
+end)
+
+-- FPS / Ping : sans fond (FPS · PING · icône perf)
+local hud = new("ScreenGui", { Name = "PerfHud", ResetOnSpawn = false, IgnoreGuiInset = true,
+	DisplayOrder = 90, Enabled = false }, playerGui)
+local hudRow = new("Frame", {
+	AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -8), Size = UDim2.fromOffset(0, 26),
+	AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1,
+}, hud)
+new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder,
+	VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8) }, hudRow)
+local function hudText(order, txt)
+	return new("TextLabel", {
+		LayoutOrder = order, Size = UDim2.fromOffset(0, 26), AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 1, Font = Enum.Font.FredokaOne, TextSize = 16, TextColor3 = T.White,
+		TextTransparency = 0.35, TextStrokeTransparency = 0.7, TextStrokeColor3 = Color3.new(0, 0, 0), Text = txt,
+	}, hudRow)
+end
+local hudLbl = hudText(1, "FPS --")
+new("ImageLabel", { LayoutOrder = 3, Size = UDim2.fromOffset(30, 30), BackgroundTransparency = 1,
+	Image = "rbxassetid://127390072755648", ScaleType = Enum.ScaleType.Fit, ImageTransparency = 0.35 }, hudRow)
+local hudPing = hudText(2, "PING -- ms")
+appliers.SettingPerfStats = function(v) hud.Enabled = (v == true) end
+
+local function toast(head, body)
+	local g = new("ScreenGui", { Name = "SettingsToast", ResetOnSpawn = false, IgnoreGuiInset = true,
+		DisplayOrder = 50 }, playerGui)
+	local f = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 70),
+		Size = UDim2.fromOffset(400, 72), BackgroundColor3 = T.Dark, BackgroundTransparency = T.PanelT }, g)
+	corner(f, 10)
+	title(f, { Text = head, TextSize = 18, Position = UDim2.fromOffset(16, 8), Size = UDim2.new(1, -32, 0, 24) })
+	text(f, { Text = body, TextSize = 14, TextColor3 = T.Sub, Position = UDim2.fromOffset(16, 34),
+		Size = UDim2.new(1, -32, 0, 30) })
+	task.delay(4.5, function() g:Destroy() end)
+end
+
+-- Ping réel côté joueur (l'ancien compteur "Data Ping" n'existe que côté serveur → toujours 0)
+--   GetNetworkPing() renvoie déjà l'aller-retour (en secondes) → ×1000 pour des ms
+--   (avant on faisait ×2000 → ping affiché exactement doublé)
+local function readPing()
+	local ok, v = pcall(function() return player:GetNetworkPing() end)
+	if ok and type(v) == "number" and v > 0 then return math.floor(v * 1000 + 0.5) end
+	local ok2, v2 = pcall(function() return StatsService.PerformanceStats.Ping:GetValue() end)
+	if ok2 and type(v2) == "number" then return math.floor(v2 + 0.5) end
+	return 0
+end
+
+local frames, lowCount, autoDone, born = 0, 0, false, os.clock()
+RunService.RenderStepped:Connect(function() frames += 1 end)
+task.spawn(function()
+	while true do
+		task.wait(1)
+		local fps = frames
+		frames = 0
+		if hud.Enabled then
+			local ping = readPing()
+			hudLbl.Text = string.format("FPS %d", fps)
+			hudPing.Text = string.format("PING %d ms", ping)
+		end
+		if loaded and not autoDone and get("SettingAutoPerf") == true
+			and os.clock() - born > 30 and get("SettingPerfPreset") ~= 2 then
+			lowCount = (fps > 0 and fps < 22) and (lowCount + 1) or 0
+			if lowCount >= 8 then
+				autoDone = true
+				applyPreset(2)
+				toast("PERFORMANCE SET TO LOW", "Low FPS detected. Change it in Settings > Performance.")
+			end
+		end
+		if panelOpen and currentSub == "stats" then refreshStats() end
+		if panelOpen and currentSub == "feedback" then fbRefresh() end
+	end
+end)
+
+---------------------------------------------------------------------
+-- 🔔 RÉACTIONS AUX CHANGEMENTS (serveur, Cancel, autres scripts)
+---------------------------------------------------------------------
+player.AttributeChanged:Connect(function(key)
+	local lst = watchers[key]
+	if lst then for _, fn in ipairs(lst) do pcall(fn) end end
+	local ap = appliers[key]
+	if ap then pcall(ap, get(key)) end
+	if panelOpen then refreshDirty() end
+end)
+
+---------------------------------------------------------------------
+-- ⏳ CHARGEMENT : on attend que le serveur ait appliqué ta sauvegarde
+---------------------------------------------------------------------
+task.spawn(function()
+	local t0 = os.clock()
+	while player:GetAttribute(C.LoadedAttribute) ~= true and os.clock() - t0 < 25 do
+		task.wait(0.25)
+	end
+	if player:GetAttribute(C.LoadedAttribute) ~= true then
+		warn("[SettingsUI] '" .. C.LoadedAttribute .. "' jamais reçu : vérifie le patch serveur. Réglages débloqués quand même.")
+	end
+	loaded = true
+	for key, fn in pairs(appliers) do pcall(fn, get(key)) end
+
+	-- Corrections envoyées directement (jamais retenues par Save / Cancel)
+	local wasOpen = panelOpen
+	panelOpen = false
+	local hip = tonumber(get("SettingHipSensitivity")) or 50
+	local rel = tonumber(get("SettingAimSensRel")) or 100
+	local derived = math.clamp(math.floor(hip * rel / 100 + 0.5), 1, 100)
+	if get("SettingAimSensitivity") ~= derived then setValue("SettingAimSensitivity", derived) end
+	local m = matchPreset()
+	if get("SettingPerfPreset") ~= m then setValue("SettingPerfPreset", m) end
+	panelOpen = wasOpen
+
+	for _, lst in pairs(watchers) do for _, fn in ipairs(lst) do pcall(fn) end end
+	cover.Visible = false
+end)
+
+---------------------------------------------------------------------
+-- 🌐 API
+---------------------------------------------------------------------
+_G.ToggleSettings = function()
+	if panelOpen then requestClose() else open() end
+end
+_G.OpenSettings = function() open() end
+_G.OpenSettingsFeedback = function() open("feedback") end
+
+print("✅ SettingsUI prêt")
