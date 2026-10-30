@@ -17,11 +17,17 @@ Ce qui ne change pas :
 2. **StarterGui ▸ UIFocusSystem ▸ UI_FOCUS_CONFIG** ← `UI_FOCUS_CONFIG_COMPLET.lua`
 
 ## Interfaces du jeu vérifiées
-J'ai vérifié toutes les ScreenGui du jeu : StarterGui, celles créées par les scripts client (134 trouvées) et celles créées côté serveur.
+J'ai vérifié toutes les ScreenGui du jeu :
+- celles de StarterGui ;
+- celles créées par les scripts client (134 trouvées, chaque nom vérifié sur la variable qui la crée) ;
+- celles créées ou clonées par le serveur dans le PlayerGui ;
+- les notifications ajoutées comme frames DANS une autre interface (ex. les bannières de la quête de Jack).
+
+Les BillboardGui et SurfaceGui (au-dessus des têtes, sur les murs) ne sont pas concernés : le focus ne touche qu'aux ScreenGui.
 
 **Gardées (notifications) :**
 - **Achats et shop :** UGCNotification, UGCVerifyingGui, UGCSalesFrozenGui, CoilToast, GamepassNotificationGui, DevProductNotificationGui, ErrorNotificationGui, BuyCancelNotificationGui, BoxBuyConfirm.
-- **Halloween et events :** HalloweenEventToast, AdminAbuseGui.
+- **Halloween et events :** HalloweenEventToast, **JackQuestClient** (bannières de la quête de Jack : « ALL PAGES FOUND! », indices), AdminAbuseGui.
 - **Quêtes :** toutes les notifs de quêtes (Quest…Notif, HuntQuestNotif, EggToast, NoDeathNotif, LikeGamePopupGui, DiscordQuestNotifGui…).
 - **Récompenses :** PointsNotificationGui, PlaytimeNotifGui, DailyRewardNotification, StreakClaimNotif, AdRewardNotificationGui, ReferralRewardGui, ReferralNotifGui, CoinRewardGui.
 - **Messages divers :** CodeResultGui, RebirthCooldownGui, AlreadyCollectedPopup, CheckpointNotifications, GroupMessageGui, DonationNotification(Gui), UGCRestrictedGui, AntiFlyTPGui, WarningNotificationGui, SettingsToast, LeavePopupGui.

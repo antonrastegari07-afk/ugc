@@ -25,6 +25,7 @@ C.AlwaysKeepScreenGuis = { "CoinRewardGui", "RobuxPromptFX", "LoadingScreen" }
 C.NotificationScreenGuis = {
 	"CoinRewardGui", "ReferralRewardGui", "AdminAbuseGui", "RebirthCooldownGui",
 	"AntiFlyTPGui", "ServerBrowserOverlay", "DamagePopupContainer",
+	"JackQuestClient",   -- bannières de la quête Halloween de Jack (« ALL PAGES FOUND! », indices…)
 }
 -- 2) Mots-clés : une interface dont le nom CONTIENT un de ces mots (majuscules
 --    ignorées) est une notification. Couvre aussi les futures notifs.
