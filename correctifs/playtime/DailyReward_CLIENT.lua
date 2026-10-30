@@ -6,6 +6,7 @@
 --   • + ExclamationPoint2 sur bouton DailyReward + sur chaque ButtonFrame
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local SoundService = game:GetService("SoundService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -48,10 +49,12 @@ local BAND_TRANSPARENCY = 0.35      -- bande noire : 0 = noir plein, 1 = invisib
 local TILE_BACKGROUND   = true      -- false = pas de fond dessiné (si tes images ont encore leur fond)
 local TOASTS            = true      -- petites notifications quand on clique sur une récompense pas disponible
 local TOAST_TIME        = 2.2       -- secondes à l'écran
-local TAP_HAND_IMAGE    = ""        -- main qui tape sur une récompense prête : "rbxassetid://78515108577271" pour la remettre
+local TAP_HAND_IMAGE    = "rbxassetid://78515108577271"   -- main ("" = jamais)
+local TAP_HAND_DELAY    = 3         -- la main apparaît après X s sans clic, menu ouvert, sur UNE carte prête
 local TAP_HAND_ROTATION = -18       -- inclinaison vers la gauche (degrés)
 local HOVER_TIME        = 1.1       -- « CLAIM! » : secondes pour monter (puis autant pour redescendre)
 local HOVER_HEIGHT      = 0.05      -- hauteur du flottement (en part de la carte)
+local HOVER_GROW        = 0.15      -- « CLAIM! » grossit de 15 % en montant, revient à sa taille en redescendant
 local TILE_SCALE        = 1         -- taille du fond par rapport au bouton image (1 = exactement le bouton)
 -- jour → image (carrée, SANS fond) et style du fond ("blue" ou "gold")
 local DAY_LOOK = {
@@ -362,57 +365,108 @@ local function rewardToast(title, sub)
 end
 
 -- ============================================================
--- 👆 RÉCOMPENSE PRÊTE : « CLAIM! » qui flotte doucement (+ main qui tape si TAP_HAND_IMAGE)
+-- 👆 RÉCOMPENSE PRÊTE : « CLAIM! » qui flotte + main si le joueur ne réagit pas
 -- ============================================================
 local hoverTweens = {}
+local readySet = {}            -- [bouton] = true : récompenses prêtes en ce moment
+local tapHand                  -- la main (une seule, sur une seule carte)
+local lastInput = os.clock()   -- dernier clic / toucher du joueur
+local shownAt = os.clock()     -- ouverture du menu
+
+-- « CLAIM! » : monte en grossissant un peu, redescend à sa taille, et recommence
 local function setReadyFx(btn, label, on)
 	if not NEW_LOOK then return end
-	local hand = btn:FindFirstChild("TapHand")
-	local pulse = label and label:GetAttribute("Hover") and label
-	if on then
-		if not hand and TAP_HAND_IMAGE ~= "" then
-			hand = Instance.new("ImageLabel")
-			hand.Name = "TapHand"
-			hand.BackgroundTransparency = 1
-			hand.Image = TAP_HAND_IMAGE
-			hand.ScaleType = Enum.ScaleType.Fit
-			hand.AnchorPoint = Vector2.new(0.25, 0.1)          -- le bout du doigt
-			hand.Position = UDim2.fromScale(0.66, 0.42)
-			hand.Size = UDim2.fromScale(0.42, 0.42)
-			hand.Rotation = TAP_HAND_ROTATION
-			hand.ZIndex = 4
-			local a = Instance.new("UIAspectRatioConstraint")
-			a.AspectRatio = 1
-			a.Parent = hand
-			hand.Parent = btn
-			-- tape : le doigt avance un peu vers le centre puis revient
-			hand:SetAttribute("Tween", true)
-			TweenService:Create(hand, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-				{ Position = UDim2.fromScale(0.62, 0.36), Size = UDim2.fromScale(0.38, 0.38),
-				  Rotation = TAP_HAND_ROTATION - 6 }):Play()
-		end
-		if hand then hand.Visible = true end
-		-- flotte doucement de haut en bas (un UIScale ne marchait pas : la taille du texte
-		-- est plafonnée par son UITextSizeConstraint, le texte ne grossissait donc pas)
-		if label and not pulse then
-			label:SetAttribute("Hover", true)
-			label:SetAttribute("BaseY", label.Position.Y.Scale)
-			local base = label.Position
-			local tw = TweenService:Create(label, TweenInfo.new(HOVER_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-				{ Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale - HOVER_HEIGHT, base.Y.Offset) })
-			hoverTweens[label] = tw
-			tw:Play()
-		end
-	else
-		if hand then hand:Destroy() end          -- détruit = son animation s'arrête aussi
-		if pulse then
-			local tw = hoverTweens[label]
-			if tw then tw:Cancel() hoverTweens[label] = nil end
-			local by = label:GetAttribute("BaseY")
-			if by then label.Position = UDim2.new(label.Position.X.Scale, label.Position.X.Offset, by, label.Position.Y.Offset) end
-			label:SetAttribute("Hover", nil)
+	readySet[btn] = on and true or nil
+	local active = label and label:GetAttribute("Hover")
+	if on and label and not active then
+		label:SetAttribute("Hover", true)
+		local basePos, baseSize = label.Position, label.Size
+		local cap = label:FindFirstChildOfClass("UITextSizeConstraint")
+		local baseMax = cap and cap.MaxTextSize or 20
+		local alpha = Instance.new("NumberValue")
+		alpha.Name = "HoverAlpha"
+		alpha.Parent = label
+		alpha.Changed:Connect(function(a)
+			label.Position = UDim2.new(basePos.X.Scale, basePos.X.Offset, basePos.Y.Scale - HOVER_HEIGHT * a, basePos.Y.Offset)
+			label.Size = UDim2.new(baseSize.X.Scale * (1 + HOVER_GROW * a), baseSize.X.Offset,
+				baseSize.Y.Scale * (1 + HOVER_GROW * a), baseSize.Y.Offset)
+			-- la taille du texte est plafonnée : on relève le plafond en même temps
+			if cap then cap.MaxTextSize = math.floor(baseMax * (1 + HOVER_GROW * a) + 0.5) end
+		end)
+		local tw = TweenService:Create(alpha, TweenInfo.new(HOVER_TIME, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Value = 1 })
+		hoverTweens[label] = { tw = tw, alpha = alpha, pos = basePos, size = baseSize, cap = cap, max = baseMax }
+		tw:Play()
+	elseif not on and active then
+		local h = hoverTweens[label]
+		hoverTweens[label] = nil
+		label:SetAttribute("Hover", nil)
+		if h then
+			h.tw:Cancel()
+			h.alpha:Destroy()
+			label.Position, label.Size = h.pos, h.size
+			if h.cap then h.cap.MaxTextSize = h.max end
 		end
 	end
+end
+
+-- 👆 La main n'apparaît que si le joueur ne réagit pas : une récompense est prête,
+--    le menu est ouvert depuis TAP_HAND_DELAY s sans aucun clic → elle tape sur UNE
+--    seule carte (la première prête). Au moindre clic, elle disparaît.
+local function hideHand()
+	if tapHand then tapHand:Destroy() tapHand = nil end
+end
+UserInputService.InputBegan:Connect(function(input)
+	local t = input.UserInputType
+	if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch
+		or t == Enum.UserInputType.Gamepad1 then
+		lastInput = os.clock()
+		hideHand()
+	end
+end)
+local function onScreen(obj)
+	local o = obj
+	while o and not o:IsA("ScreenGui") do
+		if o:IsA("GuiObject") and not o.Visible then return false end
+		o = o.Parent
+	end
+	return o ~= nil and o.Enabled
+end
+local wasShown = false
+local function updateHand()
+	if not NEW_LOOK or TAP_HAND_IMAGE == "" then hideHand() return end
+	local shown = onScreen(mainFrame)
+	if shown and not wasShown then shownAt = os.clock() end
+	wasShown = shown
+	-- la première carte prête (en haut à gauche d'abord)
+	local target
+	for b in pairs(readySet) do
+		if b.Parent and (not target or b.AbsolutePosition.Y < target.AbsolutePosition.Y - 2
+			or (math.abs(b.AbsolutePosition.Y - target.AbsolutePosition.Y) <= 2 and b.AbsolutePosition.X < target.AbsolutePosition.X)) then
+			target = b
+		end
+	end
+	local idle = os.clock() - math.max(lastInput, shownAt)
+	if not shown or not target or idle < TAP_HAND_DELAY then hideHand() return end
+	if tapHand and tapHand.Parent == target then return end
+	hideHand()
+	local hand = Instance.new("ImageLabel")
+	hand.Name = "TapHand"
+	hand.BackgroundTransparency = 1
+	hand.Image = TAP_HAND_IMAGE
+	hand.ScaleType = Enum.ScaleType.Fit
+	hand.AnchorPoint = Vector2.new(0.25, 0.1)          -- le bout du doigt
+	hand.Position = UDim2.fromScale(0.66, 0.42)
+	hand.Size = UDim2.fromScale(0.42, 0.42)
+	hand.Rotation = TAP_HAND_ROTATION
+	hand.ZIndex = 4
+	local a = Instance.new("UIAspectRatioConstraint")
+	a.AspectRatio = 1
+	a.Parent = hand
+	hand.Parent = target
+	TweenService:Create(hand, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{ Position = UDim2.fromScale(0.62, 0.36), Size = UDim2.fromScale(0.38, 0.38), Rotation = TAP_HAND_ROTATION - 6 }):Play()
+	tapHand = hand
 end
 
 local function createConfetti(button)
@@ -705,6 +759,7 @@ local function updateCountdown()
 		end
 	end
 	updateGlobalExclamationIcons()
+	updateHand()
 end
 -- ========================================
 -- CLAIM
