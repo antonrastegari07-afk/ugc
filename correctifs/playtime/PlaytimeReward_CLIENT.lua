@@ -343,8 +343,8 @@ local function updateHand()
 	hand.ScaleType = Enum.ScaleType.Fit
 	hand.AnchorPoint = Vector2.new(0.25, 0.1)          -- le bout du doigt
 	-- coin en bas à droite, le doigt juste à droite du « CLAIM! »
-	hand.Position = UDim2.fromScale(0.8, 0.8)
-	hand.Size = UDim2.fromScale(0.36, 0.36)
+	hand.Position = UDim2.fromScale(0.86, 0.88)
+	hand.Size = UDim2.fromScale(0.46, 0.46)
 	hand.Rotation = TAP_HAND_ROTATION
 	hand.ZIndex = 4
 	local a = Instance.new("UIAspectRatioConstraint")
@@ -352,7 +352,7 @@ local function updateHand()
 	a.Parent = hand
 	hand.Parent = target
 	TweenService:Create(hand, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-		{ Position = UDim2.fromScale(0.76, 0.76), Size = UDim2.fromScale(0.33, 0.33), Rotation = TAP_HAND_ROTATION - 6 }):Play()
+		{ Position = UDim2.fromScale(0.82, 0.84), Size = UDim2.fromScale(0.42, 0.42), Rotation = TAP_HAND_ROTATION - 6 }):Play()
 	tapHand = hand
 end
 
