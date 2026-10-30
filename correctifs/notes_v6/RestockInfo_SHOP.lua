@@ -28,9 +28,8 @@ local stroke = Instance.new("UIStroke")
 stroke.Thickness = 2
 stroke.Color = Color3.new(0, 0, 0)
 stroke.Parent = label
-local maxText = Instance.new("UITextSizeConstraint")
-maxText.MaxTextSize = 30
-maxText.Parent = label
+-- (pas de UITextSizeConstraint : ton shop a un UIScale, une taille max en pixels
+--  rendait le texte minuscule. La taille vient uniquement de la case ci-dessous.)
 label.Parent = frame
 
 -- Centre X de la carte du milieu de la 1re rangée (sinon : centre de la liste)
@@ -59,7 +58,7 @@ local function place()
 	local gapTop = scroll.AbsolutePosition.Y - fp.Y            -- du haut du cadre au haut de la liste
 	if gapTop < 4 then gapTop = fs.Y * 0.08 end
 	local cx = middleColumnX() - fp.X
-	local h = math.max(gapTop * 0.55, 12)
+	local h = math.max(gapTop * 0.6, 12)
 	local w = math.min(fs.X * 0.4, h * 9)
 	label.Position = UDim2.fromScale(cx / fs.X, (gapTop / 2) / fs.Y)
 	label.Size = UDim2.fromScale(w / fs.X, h / fs.Y)
