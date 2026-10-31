@@ -226,7 +226,8 @@
 			local row = 10
 			for _, s in ipairs(list) do
 				row += 1
-				statRow(r1, row, s.src, string.format("%s / %s (%s) · %s R$", sep(s.by), sep(s.pr), pct(s.by, s.pr), sep(s.rb)),
+				statRow(r1, row, s.src, string.format("%s achat%s sur %s fenêtre%s (%s) · %s R$",
+					sep(s.by), s.by == 1 and "" or "s", sep(s.pr), s.pr == 1 and "" or "s", pct(s.by, s.pr), sep(s.rb)),
 					s.by > 0 and GREEN or C.TEXT_WHITE)
 				local items = {}
 				for key, it in pairs(s.items) do table.insert(items, { key = key, pr = it.pr, by = it.by }) end
@@ -235,7 +236,8 @@
 					local it = items[i]
 					row += 1
 					statRow(r1, row, "      ↳ " .. itemName(it.key),
-						string.format("%s / %s (%s)", sep(it.by), sep(it.pr), pct(it.by, it.pr)), C.TEXT_GREY)
+						string.format("%s achat%s sur %s fenêtre%s", sep(it.by), it.by == 1 and "" or "s",
+							sep(it.pr), it.pr == 1 and "" or "s"), C.TEXT_GREY)
 				end
 			end
 			if #list == 0 then statRow(r1, 11, "Aucune fenêtre d'achat sur cette période", "—", C.TEXT_DIM) end

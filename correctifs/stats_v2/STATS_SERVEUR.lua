@@ -281,7 +281,12 @@ MPS.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
 	-- 2 s d'attente : le client envoie le bouton cliqué au moment où la fenêtre se ferme
 	task.delay(2, function()
 		countPrompt(player.UserId, "gp", passId)
-		if purchased == true then countBuy(player.UserId, "gp", passId) end
+		-- achat compté seulement si Roblox confirme que le joueur possède le pass
+		-- (ce signal peut être envoyé par un client tricheur : on ne le croit pas sur parole)
+		if purchased == true then
+			local ok, owns = pcall(function() return MPS:UserOwnsGamePassAsync(player.UserId, passId) end)
+			if ok and owns then countBuy(player.UserId, "gp", passId) end
+		end
 	end)
 end)
 pcall(function()
