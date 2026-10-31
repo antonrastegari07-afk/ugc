@@ -24,6 +24,7 @@ local REMINDER_TIME = 6        -- secondes à l'écran
 local reminderGui
 local function showReminder()
 	if reminderGui then reminderGui:Destroy() end
+	if not GuiService.MenuIsOpen then return end   -- menu Roblox déjà refermé : rien à afficher
 	local g = Instance.new("ScreenGui")
 	g.Name = "LeaveReminderGui"
 	g.ResetOnSpawn = false
@@ -69,6 +70,11 @@ local function showReminder()
 		task.delay(0.45, function() if g.Parent then g:Destroy() end end)
 	end)
 end
+
+-- le joueur quitte le menu Roblox → le rappel disparaît immédiatement
+GuiService.MenuClosed:Connect(function()
+	if reminderGui then reminderGui:Destroy() reminderGui = nil end
+end)
 
 showLeavePopup.OnClientEvent:Connect(function(kind)
 	if kind == "reminder" then showReminder() else openOverlay() end
