@@ -71,18 +71,21 @@ local function stateFromText(t)
 	return "progress"
 end
 
+-- module chargé au 1er clic seulement : le script (et le tri) démarre tout de suite
 local RewardToast = nil
-if QUEST_TOASTS then
-	local m = game:GetService("ReplicatedStorage"):WaitForChild("RewardToast", 10)
+local function getToast()
+	if RewardToast or not QUEST_TOASTS then return RewardToast end
+	local m = game:GetService("ReplicatedStorage"):FindFirstChild("RewardToast")
 	if m then
 		local ok, r = pcall(require, m)
 		if ok then RewardToast = r end
 	end
+	return RewardToast
 end
 
 -- texte affiché quand le joueur clique sur une quête qu'il ne peut pas récupérer
 local function questToast(R)
-	if not RewardToast then return end
+	if not getToast() then return end
 	local t = R.button.Text
 	local bar = R.bar and R.bar:FindFirstChild("ProgressLabel")
 	local prog = bar and bar:IsA("TextLabel") and bar.Text or ""
@@ -402,7 +405,7 @@ local function start(questGui)
 		local R = { row = row, button = button, base = row.LayoutOrder % 1000, state = nil }
 		R.bar = button:FindFirstChild("CompleteQuestFrame") or row:FindFirstChild("CompleteQuestFrame")
 		rows[row] = R
-		button.Activated:Connect(function() questToast(R) end)
+		button.Activated:Connect(function() pcall(questToast, R) end)
 		local function upd() refresh(R) end
 		for _, p in ipairs({ "Text", "TextColor3", "BackgroundColor3" }) do
 			button:GetPropertyChangedSignal(p):Connect(upd)
