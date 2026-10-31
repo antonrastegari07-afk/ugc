@@ -212,7 +212,9 @@ function Engine:_maskBranches(candidate, mask)
 		local parent = branch.Parent
 		if not parent then break end
 		for _, sibling in ipairs(parent:GetChildren()) do
-			if sibling ~= branch then
+			-- 🔔 une notification posée À CÔTÉ de la fenêtre dans la même ScreenGui (indice des
+			--    œufs « HintOverlay », popup de confirmation…) n'est jamais cachée
+			if sibling ~= branch and not self:_isNotifName(sibling) then
 				-- Les Folder ne sont pas visuels : chercher leurs racines GUI.
 				self:_maskTree(sibling, mask)
 			end

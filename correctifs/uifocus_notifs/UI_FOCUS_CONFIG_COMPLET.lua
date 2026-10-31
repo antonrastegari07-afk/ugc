@@ -38,6 +38,7 @@ C.NotificationNamePatterns = {
 	"message", "alert", "banner", "announce", "verifying", "frozen", "restricted",
 	"collected", "countdown", "intermission", "vote", "subtitle", "flash", "fade",
 	"tutorial", "dialog", "deathcam", "killfx", "headshot", "hitdirection", "killfeed",
+	"hint",   -- indices (ex. « HintOverlay » des chasses aux œufs, dans le menu Quêtes)
 }
 
 C.Blur = {
