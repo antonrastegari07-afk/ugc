@@ -24,25 +24,34 @@ local RunService       = game:GetService("RunService")
 local CARRY_WINDOW   = 900    -- s : le joueur doit revenir dans les 15 min après le reset
 local RESTORE_DELAY  = 8      -- s après l'apparition : les autres systèmes donnent d'abord leurs outils
 local SNAPSHOT_EVERY = 20     -- s : photo régulière des outils (filet si le joueur est retiré avant la fermeture)
--- outils jamais copiés (ils ont leur propre système)
-local SKIP_ATTRIBUTES = { "JackScythe" }
+-- outils jamais copiés :
+--   JackScythe   → la faux a son propre système (numéro de série)
+--   AAEventTool  → armes de l'event Admin Abuse : liées à l'event en cours sur CE serveur
+local SKIP_ATTRIBUTES = { "JackScythe", "AAEventTool" }
+-- dossiers de ServerStorage dont les outils ne sont jamais recopiés
+local SKIP_FOLDERS = { AdminAbuseTools = true, JackScythe = true }
 
 local STORE = DataStoreService:GetDataStore("SessionToolCarry_v1")
 local READ_ONLY = RunService:IsStudio()
 
 -- index des outils de ServerStorage (dossiers compris, pas les outils rangés dans un outil)
+--   1) d'abord les outils posés directement dans ServerStorage (ex. « Jetpack » normal,
+--      et pas celui de l'Admin Abuse qui porte le même nom), 2) puis ceux des dossiers.
 local toolIndex, indexAt = {}, -math.huge
 local function findTemplate(name)
 	if os.clock() - indexAt > 30 then
 		toolIndex, indexAt = {}, os.clock()
+		for _, d in ipairs(ServerStorage:GetChildren()) do
+			if d:IsA("Tool") and not toolIndex[d.Name] then toolIndex[d.Name] = d end
+		end
 		for _, d in ipairs(ServerStorage:GetDescendants()) do
 			if d:IsA("Tool") and not toolIndex[d.Name] then
-				local p, nested = d.Parent, false
+				local p, ok = d.Parent, true
 				while p and p ~= ServerStorage do
-					if p:IsA("Tool") then nested = true break end
+					if p:IsA("Tool") or (p.Parent == ServerStorage and SKIP_FOLDERS[p.Name]) then ok = false break end
 					p = p.Parent
 				end
-				if not nested then toolIndex[d.Name] = d end
+				if ok then toolIndex[d.Name] = d end
 			end
 		end
 	end
@@ -92,6 +101,11 @@ local function snapshot(player)
 			end
 		end
 	end
+	-- pendant le tutoriel, ses outils sont mis de côté par le script du tutoriel
+	local tuto = type(_G.GetTutorialSavedTools) == "function" and _G.GetTutorialSavedTools(player)
+	for _, t in ipairs(type(tuto) == "table" and tuto or {}) do
+		if typeof(t) == "Instance" and t:IsA("Tool") and not gearNames[t.Name] then add(t, "bp") end
+	end
 	return out
 end
 
@@ -110,7 +124,14 @@ local function take(p)
 			if not seen[e.k .. "|" .. e.n] then table.insert(s, e) end
 		end
 	end
-	last[p.UserId] = { tools = s, t = os.time() }
+	-- un outil « session » (StarterGear) n'est pas aussi noté « sac » : il garderait le mauvais type
+	local gearN = {}
+	for _, e in ipairs(s) do if e.k == "gear" then gearN[e.n] = true end end
+	local clean = {}
+	for _, e in ipairs(s) do
+		if e.k == "gear" or not gearN[e.n] then table.insert(clean, e) end
+	end
+	last[p.UserId] = { tools = clean, t = os.time() }
 end
 task.spawn(function()
 	while true do
@@ -188,13 +209,22 @@ local function restore(player)
 	pcall(function() STORE:RemoveAsync("u_" .. uid) end)
 	if os.time() - (tonumber(data.t) or 0) > CARRY_WINDOW then return end
 
-	if not player.Character then player.CharacterAdded:Wait() end
+	-- attend que le joueur soit apparu (sans bloquer s'il repart)
+	local t0 = os.clock()
+	while player.Parent and not player.Character and os.clock() - t0 < 120 do task.wait(0.5) end
 	task.wait(RESTORE_DELAY)
-	if not player.Parent then return end
+	-- pas d'outils de l'obby en pleine arène : on attend qu'il en sorte (10 min max)
+	t0 = os.clock()
+	while player.Parent and player:GetAttribute("InArena") == true and os.clock() - t0 < 600 do task.wait(2) end
+	if not player.Parent or player:GetAttribute("InArena") == true then return end
 	local gear = player:FindFirstChild("StarterGear")
 	local bp = player:FindFirstChildOfClass("Backpack")
 	local given = {}
-	for _, e in ipairs(data.tools) do
+	-- les outils « session » d'abord : c'est leur type qui compte si un nom apparaît 2 fois
+	local ordered = {}
+	for _, e in ipairs(data.tools) do if type(e) == "table" and e.k == "gear" then table.insert(ordered, e) end end
+	for _, e in ipairs(data.tools) do if type(e) == "table" and e.k ~= "gear" then table.insert(ordered, e) end end
+	for _, e in ipairs(ordered) do
 		local name, kind, exp = e.n, e.k, tonumber(e.x)
 		if type(name) == "string" and not given[name] and not (exp and exp <= os.time()) and not has(player, name) then
 			local tpl = findTemplate(name)
