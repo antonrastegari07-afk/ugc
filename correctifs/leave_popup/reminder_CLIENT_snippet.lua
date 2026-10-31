@@ -57,9 +57,10 @@ local function showReminder()
 	TweenService:Create(sc, inInfo, { Scale = 1 }):Play()
 	TweenService:Create(t, inInfo, { TextTransparency = 0 }):Play()
 	TweenService:Create(st, inInfo, { Transparency = 0 }):Play()
-	-- petit battement pour attirer l'œil
-	TweenService:Create(sc, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 3, true, 0.4),
-		{ Scale = 1.06 }):Play()
+	-- puis reste stable et pivote lentement de gauche à droite
+	t.Rotation = -2
+	TweenService:Create(t, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{ Rotation = 2 }):Play()
 	task.delay(REMINDER_TIME, function()
 		if reminderGui ~= g then return end
 		local out = TweenInfo.new(0.4)
