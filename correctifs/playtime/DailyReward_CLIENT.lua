@@ -437,7 +437,7 @@ local function startHeartbeat(imageButton)
 	local originalSize = originalSizes[imageButton]
 	local tween = TweenService:Create(imageButton,
 		TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {
-			Size = UDim2.new(originalSize.X.Scale * 1.1, 0, originalSize.Y.Scale * 1.1, 0)
+			Size = UDim2.new(originalSize.X.Scale * 1.04, 0, originalSize.Y.Scale * 1.04, 0)   -- même battement doux que le Playtime
 		})
 	heartbeatTweens[imageButton] = tween
 	tween:Play()
