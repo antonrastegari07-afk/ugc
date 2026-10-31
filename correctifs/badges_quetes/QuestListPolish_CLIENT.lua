@@ -406,7 +406,16 @@ local function start(questGui)
 		local R = { row = row, button = button, base = row.LayoutOrder % 1000, state = nil }
 		R.bar = button:FindFirstChild("CompleteQuestFrame") or row:FindFirstChild("CompleteQuestFrame")
 		rows[row] = R
-		button.Activated:Connect(function() pcall(questToast, R) end)
+		-- clic / toucher capté directement : le bouton d'une quête « In Progress » est inactif
+		-- (Active = false) et ne déclenche alors pas Activated
+		local lastTap = 0
+		button.InputBegan:Connect(function(input)
+			local t = input.UserInputType
+			if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
+			if os.clock() - lastTap < 0.3 then return end
+			lastTap = os.clock()
+			pcall(questToast, R)
+		end)
 		local function upd() refresh(R) end
 		for _, p in ipairs({ "Text", "TextColor3", "BackgroundColor3" }) do
 			button:GetPropertyChangedSignal(p):Connect(upd)
