@@ -382,7 +382,8 @@ local function start(questGui)
 			playClaim(R)                    -- le joueur vient de la récupérer
 		else
 			showFilm(R, s == "done", false)
-			if not isOpen() then sortNow() end
+			-- 1er état connu de la quête (chargement) : on trie tout de suite, même menu ouvert
+			if prev == nil or not isOpen() then sortNow() end
 		end
 	end
 
