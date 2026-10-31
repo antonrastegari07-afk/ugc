@@ -90,6 +90,7 @@ local SOURCES = {
 	{ "PlayerProfile",        "👤 Fiche profil" },
 	{ "Settings",             "⚙️ Settings" },
 	{ "leave",                "🚪 Popup de départ" },
+	{ "=time",                "🎽 Pack proposé (points manquants pour une UGC)" },   -- « = » : nom exact
 }
 -- objet proposé SANS clic ni script connu (offres lancées par le serveur)
 local AUTO_BY_ITEM = {
@@ -115,9 +116,18 @@ local function labelOf(raw)
 	local clean = raw:gsub("^Players%.[^%.]+%.PlayerGui%.", ""):gsub("^Players%.[^%.]+%.PlayerScripts%.", "")
 		:gsub("^Players%.[^%.]+%.Backpack%.", ""):gsub("^StarterPlayer%.StarterPlayerScripts%.", "")
 		:gsub("^ServerScriptService%.", ""):gsub("^ReplicatedStorage%.", "")
+	-- comparaison sans majuscules, et « _ » = espace : les scripts s'appellent « offers on screen »,
+	-- pas « offers_on_screen » (avant, ces achats finissaient en « ❔ »)
+	local function norm(x) return (string.lower(x):gsub("_", " ")) end
+	local nclean = norm(clean)
 	local out
 	for _, s in ipairs(SOURCES) do
-		if string.find(clean, s[1], 1, true) then out = s[2] break end
+		local pat = s[1]
+		if pat:sub(1, 1) == "=" then
+			if nclean == norm(pat:sub(2)) then out = s[2] break end
+		elseif string.find(nclean, norm(pat), 1, true) then
+			out = s[2] break
+		end
 	end
 	if not out then
 		local a, b = clean:match("^([^%.]+)%.?([^%.]*)")
