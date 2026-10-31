@@ -20,10 +20,11 @@ local function reminderText()
 	end
 	return options[math.random(1, #options)]
 end
-local REMINDER_DIM  = 0.55     -- assombrissement du fond (0 = noir, 1 = rien)
+local REMINDER_DIM  = 0.5      -- assombrissement du fond (0 = noir, 1 = rien)
 local REMINDER_BLUR = 10       -- flou du fond (0 = aucun)
-local reminderGui, reminderBlur
+local reminderGui, reminderBlur, reminderWatch
 local function hideReminder()
+	if reminderWatch then reminderWatch:Disconnect() reminderWatch = nil end
 	if reminderGui then reminderGui:Destroy() reminderGui = nil end
 	if reminderBlur then reminderBlur:Destroy() reminderBlur = nil end
 end
@@ -37,6 +38,11 @@ local function showReminder()
 	g.DisplayOrder = 999
 	g.Parent = playerGui
 	reminderGui = g
+	-- 👀 vérifié à CHAQUE image : dès que le menu Roblox n'est plus ouvert, tout part
+	--    (sans attendre la fin de l'animation de fermeture du menu)
+	reminderWatch = game:GetService("RunService").RenderStepped:Connect(function()
+		if not GuiService.MenuIsOpen then hideReminder() end
+	end)
 	-- fond assombri
 	local dark = Instance.new("Frame")
 	dark.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -53,7 +59,7 @@ local function showReminder()
 		reminderBlur = b
 		TweenService:Create(b, TweenInfo.new(0.3), { Size = REMINDER_BLUR }):Play()
 	end
-	TweenService:Create(dark, TweenInfo.new(0.3), { BackgroundTransparency = REMINDER_DIM }):Play()
+	dark.BackgroundTransparency = REMINDER_DIM      -- assombri tout de suite
 	local t = Instance.new("TextLabel")
 	t.BackgroundTransparency = 1
 	t.AnchorPoint = Vector2.new(0.5, 0)
