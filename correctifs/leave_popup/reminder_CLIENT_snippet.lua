@@ -1,11 +1,25 @@
 -- ============================================================
 -- 🔴 RAPPEL (quand le Fusion Coil a déjà été proposé) : texte rouge en haut de l'écran
 -- ============================================================
-local REMINDER_TEXTS = {
-	"Come back tomorrow, your next reward is waiting! 🎁",
-	"Don't lose your streak! See you tomorrow 🔥",
-	"Tomorrow = new free rewards. Don't miss out! 👀",
+-- 🎁 la vraie prochaine récompense Daily du joueur (le script Daily donne le jour à PlayerGui)
+local DAILY_REWARDS = {
+	[1] = "a Speed Coil", [2] = "5,000 points", [3] = "a Gravity Coil", [4] = "a Fusion Coil",
+	[5] = "5,000 points", [6] = "a Speed Coil", [7] = "a Jetpack",
 }
+local function reminderText()
+	local day = playerGui:GetAttribute("DailyDay")
+	local reward = type(day) == "number" and DAILY_REWARDS[day]
+	if reward and playerGui:GetAttribute("DailyReadyNow") == true then
+		-- la récompense du jour n'est pas encore prise : on le lui rappelle tout de suite
+		return ("Don't leave yet! Your Day %d reward is ready: %s 🎁"):format(day, reward)
+	end
+	local options = { "Don't lose your streak! See you tomorrow 🔥" }
+	if reward then
+		table.insert(options, ("Come back tomorrow for Day %d: %s! 🎁"):format(day, reward))
+		table.insert(options, ("Don't lose your streak! Day %d brings %s tomorrow 🔥"):format(day, reward))
+	end
+	return options[math.random(1, #options)]
+end
 local REMINDER_TIME = 6        -- secondes à l'écran
 local reminderGui
 local function showReminder()
@@ -23,7 +37,7 @@ local function showReminder()
 	t.Position = UDim2.fromScale(0.5, 0.07)
 	t.Size = UDim2.fromScale(IS_MOBILE and 0.9 or 0.7, IS_MOBILE and 0.09 or 0.07)
 	t.Font = Enum.Font.FredokaOne
-	t.Text = REMINDER_TEXTS[math.random(1, #REMINDER_TEXTS)]
+	t.Text = reminderText()
 	t.TextColor3 = Color3.fromRGB(255, 60, 60)
 	t.TextScaled = true
 	t.TextTransparency = 1

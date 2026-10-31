@@ -578,6 +578,10 @@ local function updateGlobalExclamationIcons()
 	end
 	if exclamationIcon then exclamationIcon.Visible = isRewardAvailable end
 	if dailyRewardExclamation then dailyRewardExclamation.Visible = isRewardAvailable end
+	-- 🚪 pour le rappel du popup de départ : la prochaine récompense du joueur
+	--    (rien pendant l'attente de la toute 1re récompense : ce n'est pas « demain »)
+	playerGui:SetAttribute("DailyDay", (not firstJoinData.active) and playerData.currentDay or nil)
+	playerGui:SetAttribute("DailyReadyNow", isRewardAvailable)
 end
 local function getFirstJoinClientRemaining()
 	if not firstJoinData.active then return 0 end
