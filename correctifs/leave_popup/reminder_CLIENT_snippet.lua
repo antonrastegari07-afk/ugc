@@ -39,7 +39,6 @@ local function showReminder()
 	sc.Scale = 0.6
 	sc.Parent = t
 	t.Parent = g
-	playSound()
 	local inInfo = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 	TweenService:Create(sc, inInfo, { Scale = 1 }):Play()
 	TweenService:Create(t, inInfo, { TextTransparency = 0 }):Play()
