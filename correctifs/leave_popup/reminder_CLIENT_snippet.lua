@@ -20,10 +20,15 @@ local function reminderText()
 	end
 	return options[math.random(1, #options)]
 end
-local REMINDER_TIME = 6        -- secondes à l'écran
-local reminderGui
+local REMINDER_DIM  = 0.55     -- assombrissement du fond (0 = noir, 1 = rien)
+local REMINDER_BLUR = 10       -- flou du fond (0 = aucun)
+local reminderGui, reminderBlur
+local function hideReminder()
+	if reminderGui then reminderGui:Destroy() reminderGui = nil end
+	if reminderBlur then reminderBlur:Destroy() reminderBlur = nil end
+end
 local function showReminder()
-	if reminderGui then reminderGui:Destroy() end
+	hideReminder()
 	if not GuiService.MenuIsOpen then return end   -- menu Roblox déjà refermé : rien à afficher
 	local g = Instance.new("ScreenGui")
 	g.Name = "LeaveReminderGui"
@@ -32,6 +37,23 @@ local function showReminder()
 	g.DisplayOrder = 999
 	g.Parent = playerGui
 	reminderGui = g
+	-- fond assombri
+	local dark = Instance.new("Frame")
+	dark.BackgroundColor3 = Color3.new(0, 0, 0)
+	dark.BackgroundTransparency = 1
+	dark.BorderSizePixel = 0
+	dark.Size = UDim2.fromScale(1, 1)
+	dark.Parent = g
+	-- fond flou
+	if REMINDER_BLUR > 0 then
+		local b = Instance.new("BlurEffect")
+		b.Name = "LeaveReminderBlur"
+		b.Size = 0
+		b.Parent = Lighting
+		reminderBlur = b
+		TweenService:Create(b, TweenInfo.new(0.3), { Size = REMINDER_BLUR }):Play()
+	end
+	TweenService:Create(dark, TweenInfo.new(0.3), { BackgroundTransparency = REMINDER_DIM }):Play()
 	local t = Instance.new("TextLabel")
 	t.BackgroundTransparency = 1
 	t.AnchorPoint = Vector2.new(0.5, 0)
@@ -42,6 +64,7 @@ local function showReminder()
 	t.TextColor3 = Color3.fromRGB(255, 60, 60)
 	t.TextScaled = true
 	t.TextTransparency = 1
+	t.ZIndex = 2
 	local c = Instance.new("UITextSizeConstraint")
 	c.MaxTextSize = 46
 	c.Parent = t
@@ -58,23 +81,14 @@ local function showReminder()
 	TweenService:Create(sc, inInfo, { Scale = 1 }):Play()
 	TweenService:Create(t, inInfo, { TextTransparency = 0 }):Play()
 	TweenService:Create(st, inInfo, { Transparency = 0 }):Play()
-	-- puis reste stable et pivote lentement de gauche à droite
+	-- puis reste stable et pivote lentement de gauche à droite (tant que le menu Roblox est ouvert)
 	t.Rotation = -2
 	TweenService:Create(t, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
 		{ Rotation = 2 }):Play()
-	task.delay(REMINDER_TIME, function()
-		if reminderGui ~= g then return end
-		local out = TweenInfo.new(0.4)
-		TweenService:Create(t, out, { TextTransparency = 1 }):Play()
-		TweenService:Create(st, out, { Transparency = 1 }):Play()
-		task.delay(0.45, function() if g.Parent then g:Destroy() end end)
-	end)
 end
 
 -- le joueur quitte le menu Roblox → le rappel disparaît immédiatement
-GuiService.MenuClosed:Connect(function()
-	if reminderGui then reminderGui:Destroy() reminderGui = nil end
-end)
+GuiService.MenuClosed:Connect(hideReminder)
 
 showLeavePopup.OnClientEvent:Connect(function(kind)
 	if kind == "reminder" then showReminder() else openOverlay() end
