@@ -272,96 +272,20 @@ end
 
 -- ============================================================
 -- 🔔 PETITE NOTIFICATION (bande noire en fondu, descend du haut)
---    Même interface pour Playtime et Daily ("RewardToastGui"). Le mot « Toast »
---    dans son nom la garde visible au-dessus du menu ouvert (UIFocus).
---    S'adapte à tous les écrans : largeur en % de l'écran, bornée en pixels.
+--    → ModuleScript ReplicatedStorage ▸ RewardToast (commun Playtime / Daily / Quêtes,
+--      plus petit et collé en haut sur mobile)
 -- ============================================================
+local RewardToast = nil
+do
+	local m = ReplicatedStorage:WaitForChild("RewardToast", 10)
+	if m then
+		local ok, r = pcall(require, m)
+		if ok then RewardToast = r else warn("[Rewards] RewardToast : " .. tostring(r)) end
+	end
+end
 local function rewardToast(title, sub)
-	if not TOASTS then return end
-	local gui = playerGui:FindFirstChild("RewardToastGui")
-	if not gui then
-		gui = Instance.new("ScreenGui")
-		gui.Name = "RewardToastGui"
-		gui.ResetOnSpawn = false
-		gui.IgnoreGuiInset = false
-		gui.DisplayOrder = 50
-		gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-		gui.Parent = playerGui
-	end
-	-- une seule à la fois : la précédente remonte et disparaît
-	for _, old in ipairs(gui:GetChildren()) do
-		if old:IsA("Frame") and old.Name == "Toast" then
-			old.Name = "ToastOut"
-			TweenService:Create(old, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-				{ Position = UDim2.new(0.5, 0, 0, -10), BackgroundTransparency = 1 }):Play()
-			for _, d in ipairs(old:GetDescendants()) do
-				if d:IsA("TextLabel") then
-					TweenService:Create(d, TweenInfo.new(0.2), { TextTransparency = 1 }):Play()
-				elseif d:IsA("UIStroke") then
-					TweenService:Create(d, TweenInfo.new(0.2), { Transparency = 1 }):Play()
-				end
-			end
-			task.delay(0.22, function() old:Destroy() end)
-		end
-	end
-	local hasSub = sub ~= nil and sub ~= ""
-	local f = Instance.new("Frame")
-	f.Name = "Toast"
-	f.AnchorPoint = Vector2.new(0.5, 1)
-	f.Position = UDim2.new(0.5, 0, 0, -10)
-	f.Size = UDim2.new(0.6, 0, 0, hasSub and 62 or 44)
-	f.BackgroundColor3 = Color3.new(0, 0, 0)
-	f.BackgroundTransparency = 0
-	f.BorderSizePixel = 0
-	f.Active = false
-	local sc = Instance.new("UISizeConstraint")
-	sc.MinSize = Vector2.new(260, 0)
-	sc.MaxSize = Vector2.new(620, 200)
-	sc.Parent = f
-	local g = Instance.new("UIGradient")
-	g.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.2, 0.3),
-		NumberSequenceKeypoint.new(0.8, 0.3),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	g.Parent = f
-	local function line(text, y, h, size, color)
-		local t = Instance.new("TextLabel")
-		t.BackgroundTransparency = 1
-		t.AnchorPoint = Vector2.new(0.5, 0.5)
-		t.Position = UDim2.fromScale(0.5, y)
-		t.Size = UDim2.fromScale(0.7, h)
-		t.Font = Enum.Font.FredokaOne
-		t.Text = text
-		t.TextScaled = true
-		t.TextColor3 = color
-		local c = Instance.new("UITextSizeConstraint")
-		c.MaxTextSize = size
-		c.Parent = t
-		local st = Instance.new("UIStroke")
-		st.Thickness = 1.5
-		st.Parent = t
-		t.Parent = f
-	end
-	if hasSub then
-		line(title, 0.33, 0.48, 26, Color3.fromRGB(255, 255, 255))
-		line(sub, 0.75, 0.34, 19, Color3.fromRGB(255, 220, 90))
-	else
-		line(title, 0.5, 0.7, 26, Color3.fromRGB(255, 255, 255))
-	end
-	f.Parent = gui
-	-- descend du haut, petit rebond
-	TweenService:Create(f, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14) }):Play()
-	task.delay(TOAST_TIME, function()
-		if f.Parent and f.Name == "Toast" then
-			f.Name = "ToastOut"
-			local info = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			TweenService:Create(f, info, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -10) }):Play()
-			task.delay(0.32, function() f:Destroy() end)
-		end
-	end)
+	if not TOASTS or not RewardToast then return end
+	RewardToast.Show(title, sub, TOAST_TIME)
 end
 
 -- ============================================================

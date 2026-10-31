@@ -38,6 +38,9 @@ local WAIT_BEFORE_FILM = 1.0     -- s : le joueur voit « Claimed » avant le vo
 local FILM_FADE        = 0.5     -- s : apparition du voile
 local WAIT_BEFORE_MOVE = 0.5     -- s : pause avant de glisser
 local MOVE_TIME        = 0.9     -- s : durée du glissement (lent et doux)
+-- 🔔 petite notification quand on clique une quête qu'on ne peut pas récupérer
+--    (« In Progress », cooldown, déjà récupérée). Module ReplicatedStorage ▸ RewardToast.
+local QUEST_TOASTS     = true
 
 -- look « Claimed » (celui de la quête Like the game)
 local GREY      = Color3.fromRGB(128, 128, 128)
@@ -66,6 +69,35 @@ local function stateFromText(t)
 	if t == "Claimed" or t:sub(-#"✓") == "✓" then return "done" end
 	if t == "Cooldown" or t:match("^%d+:%d%d:%d%d$") then return "cooldown" end
 	return "progress"
+end
+
+local RewardToast = nil
+if QUEST_TOASTS then
+	local m = game:GetService("ReplicatedStorage"):WaitForChild("RewardToast", 10)
+	if m then
+		local ok, r = pcall(require, m)
+		if ok then RewardToast = r end
+	end
+end
+
+-- texte affiché quand le joueur clique sur une quête qu'il ne peut pas récupérer
+local function questToast(R)
+	if not RewardToast then return end
+	local t = R.button.Text
+	local bar = R.bar and R.bar:FindFirstChild("ProgressLabel")
+	local prog = bar and bar:IsA("TextLabel") and bar.Text or ""
+	if prog == "Loading..." or prog == "Cooldown" or prog == DONE_TEXT then prog = "" end
+	if t == "In Progress" then
+		RewardToast.Show("Not finished yet!", prog ~= "" and ("Progress: " .. prog) or "Finish the quest to claim it")
+	elseif t == "Cooldown" then
+		RewardToast.Show("Come back later!", "This quest is on cooldown")
+	elseif t:match("^%d+:%d%d:%d%d$") then
+		RewardToast.Show("Come back later!", "Available again in " .. t)
+	elseif t == "Claimed" or t:sub(-#"✓") == "✓" then
+		RewardToast.Show("Already claimed!", "You finished this quest")
+	elseif t == "Loading..." then
+		RewardToast.Show("Loading...", "Try again in a second")
+	end
 end
 
 local function ease(a) return a < 0.5 and 4 * a * a * a or 1 - (-2 * a + 2) ^ 3 / 2 end   -- cubic in-out
@@ -370,6 +402,7 @@ local function start(questGui)
 		local R = { row = row, button = button, base = row.LayoutOrder % 1000, state = nil }
 		R.bar = button:FindFirstChild("CompleteQuestFrame") or row:FindFirstChild("CompleteQuestFrame")
 		rows[row] = R
+		button.Activated:Connect(function() questToast(R) end)
 		local function upd() refresh(R) end
 		for _, p in ipairs({ "Text", "TextColor3", "BackgroundColor3" }) do
 			button:GetPropertyChangedSignal(p):Connect(upd)
