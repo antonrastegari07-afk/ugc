@@ -113,11 +113,12 @@ def uvsphere(radius,ns,nr,rct,part,inward):
             elif i==nr-1: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j]],[uv[0],uv[1],uv[3]],[ax[0],ax[1],ax[3]]
             else: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j1],sv[i+1][j]],uv,ax
             addf(vs,u_,part,x_,flip=not inward)
-RH,RS=0.205,0.29
+K=0.82   # overall black hole scale
+RH,RS=0.155*K,0.25*K
 uvsphere(RH,14,8,(0.8,0.8,1.0,1.0),'hole',inward=False)          # event horizon: solid ball, as black as possible
 uvsphere(RS,16,10,(0.0,0.0,0.8,0.2),'halo',inward=True)          # lensing shell: inverted, only its far inner wall shows behind the ball
 # accretion disk
-R0,R1,TH=0.245,0.56,0.008; ND=40; RADS=[R0,0.36,R1]
+R0,R1,TH=0.20*K,0.52*K,0.008; ND=40; RADS=[R0,0.31*K,R1]
 def ring(r,z): return [bm.verts.new(P(r*math.cos(2*math.pi*j/ND),r*math.sin(2*math.pi*j/ND),z)) for j in range(ND)]
 top=[ring(r,TH/2) for r in RADS]; bot=[ring(r,-TH/2) for r in RADS]
 RT,RB,RE=(0.8,0.6,1.0,0.8),(0.8,0.4,1.0,0.6),(0.8,0.2,1.0,0.4)
