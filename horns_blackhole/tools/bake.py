@@ -27,14 +27,14 @@ m=k==0
 th=A[m][:,0]; lx=B[m][:,0]; lz=B[m][:,1]
 chain=(th<0.022)&(lz<0.33)&(lx>0.16)&(lx<0.37)
 pend=chain&(lz<0.095)
-tip=np.maximum(ss(0.52,0.83,lz)**1.3, ss(0.028,0.010,th)*(lz<0.52))*(~chain)   # same progressive black->mauve fade on both horn tips (height-based) + thin spike tips
+tip=np.maximum(ss(0.52,0.83,lz)**1.3, ss(0.055,0.018,th)**0.8)*(~chain)   # same progressive black->mauve fade on both horn tips (height-based) + thin spike tips
 ridges=0.5+0.5*np.sin(lz*90+low[m]*4)               # growth rings along the horn
 black=np.array([0.010,0.010,0.012])*(0.85+0.25*low[m][:,None]+0.12*mid[m][:,None])*(0.85+0.3*ridges[:,None])
 ivory=np.array([0.80,0.70,1.0])*(0.92+0.1*fine[m][:,None])
 c=black*(1-tip[:,None])+ivory*tip[:,None]
 r=(0.88+0.06*mid[m])*(1-tip)+0.45*tip       # matte black body, lavender tips keep a soft sheen
 mt=(1-tip)*1.0                              # black metal body: no reflections
-c[chain]=np.array([0.78,0.72,0.95])*(0.9+0.15*fine[m][chain][:,None]); mt[chain]=1.0; r[chain]=0.22
+c[chain]=np.array([0.66,0.50,0.98])*(0.9+0.15*fine[m][chain][:,None]); mt[chain]=0.55; r[chain]=0.25
 c[pend]=np.array([0.84,0.76,1.0]); mt[pend]=0; r[pend]=0.05
 e=0.30*ss(0.012,0.004,th)*(~chain)                  # faint glow on the very tips
 e[pend]=0.75
@@ -67,10 +67,11 @@ col[m]=np.where(inner[:,None],white,mauve*0.45); em[m]=np.where(inner,0.95,0.05)
 if NOEM:
     mH=k==0; th=A[mH][:,0]; lx=B[mH][:,0]; lz=B[mH][:,1]
     chain=(th<0.022)&(lz<0.33)&(lx>0.16)&(lx<0.37); pend=chain&(lz<0.095)
-    tip=np.maximum(ss(0.52,0.83,lz)**1.3, ss(0.028,0.010,th)*(lz<0.52))*(~chain)
+    tip=np.maximum(ss(0.52,0.83,lz)**1.3, ss(0.055,0.018,th)**0.8)*(~chain)
     c=col[mH]; lav=np.array([0.80,0.70,1.0])*(0.9+0.12*fine[mH][:,None])
     c=c*(1-tip[:,None])+lav*tip[:,None]
-    c[pend]=np.array([0.86,0.78,1.0]); c[chain&~pend]=np.array([0.78,0.72,0.95]); col[mH]=c
+    c[pend]=np.array([0.80,0.68,1.0]); c[chain&~pend]=np.array([0.66,0.50,0.98]); col[mH]=c
+    mm0=met[mH]; mm0[chain&~pend]=0.55; met[mH]=mm0
     r=rgh[mH]; r=r*(1-tip)+0.30*tip; r[pend]=0.06; rgh[mH]=r
     mm=met[mH]; mm[pend]=0.0; met[mH]=mm
     for nm_ in ('disk_top','disk_bot'):
