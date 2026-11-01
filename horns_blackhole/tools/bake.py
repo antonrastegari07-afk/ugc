@@ -78,14 +78,14 @@ if NOEM:
         rings=0.5+0.5*np.sin(rr*110+fbm(p[m]*22,3,8)*5); gaps=0.7+0.3*np.sin(rr*23+1.3)
         doppler=0.80+0.20*np.cos(ang-np.pi)
         v=np.clip((0.45+0.55*rings)*gaps*doppler*(1-0.45*rr),0,1)
-        col[m]=tint(v,p[m],7)*(0.35+0.65*v)[:,None]*ss(1.03,0.92,rr)[:,None]+np.array([0.02,0.02,0.03])
-        rgh[m]=0.28+0.15*(1-rings); met[m]=0.0
+        col[m]=np.clip(tint(v,p[m],7)*(0.78+0.30*v)[:,None]*(0.85+0.15*ss(1.03,0.92,rr))[:,None],0,1)
+        rgh[m]=0.35+0.12*(1-rings); met[m]=0.0
     m=k==PARTS.index('halo'); lat=A[m][:,1]
     streak=0.6+0.4*np.sin(lat*95+fbm(p[m]*30,2,21)*3); eqb=np.exp(-((lat-0.5)/0.12)**2)
     v=np.clip((0.55+0.45*eqb)*streak,0,1)
-    col[m]=tint(v,p[m],9)*(0.45+0.55*v)[:,None]; rgh[m]=0.3; met[m]=0.0
+    col[m]=np.clip(tint(v,p[m],9)*(0.80+0.25*v)[:,None],0,1); rgh[m]=0.35; met[m]=0.0
     m=k==PARTS.index('disk_edge'); inner=A[m][:,0]<0.5
-    col[m]=np.where(inner[:,None],np.array([0.95,0.93,1.0]),mauve*0.5); rgh[m]=0.25
+    col[m]=np.where(inner[:,None],np.array([0.97,0.95,1.0]),mauve*0.85); rgh[m]=0.3
     em[:]=0.0
 def img(vals,ch):
     im=np.zeros((S,S,ch)); im[idx]=vals.reshape(n,ch); return im
