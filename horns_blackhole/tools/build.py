@@ -7,7 +7,7 @@ bpy.ops.import_scene.fbx(filepath=D+'/in/horns.fbx')
 src=[x for x in bpy.data.objects if x.type=='MESH'][0]
 sc=bpy.context.scene
 PARTS=['horn','hole','disk_top','disk_bot','disk_edge','halo']
-SCALE=1.55; SHIFT=0.25; DZ=1.88; DEC=0.80
+SCALE=1.55; SHIFT=0.0; DZ=1.88; DEC=1.0   # original horns: no decimation, original spacing
 # ---------- horns: clean debris, decimate, measure thickness, place on the head ----------
 bm=bmesh.new(); bm.from_mesh(src.data); bm.verts.ensure_lookup_table()
 seen=set(); comps=[]
@@ -57,8 +57,9 @@ for f in cf:
     for lp,ol in zip(nf.loops,f.loops): lp[keep_uv].uv=ol[uvl0].uv
 bmesh.ops.delete(bm,geom=cf,context='FACES')
 bm.to_mesh(src.data); bm.free()
-mod=src.modifiers.new('dec','DECIMATE'); mod.ratio=DEC; mod.use_collapse_triangulate=True
-bpy.context.view_layer.objects.active=src; bpy.ops.object.modifier_apply(modifier='dec')
+if DEC<1.0:
+    mod=src.modifiers.new('dec','DECIMATE'); mod.ratio=DEC; mod.use_collapse_triangulate=True
+    bpy.context.view_layer.objects.active=src; bpy.ops.object.modifier_apply(modifier='dec')
 kme=bpy.data.meshes.new('keep'); keep.to_mesh(kme); keep.free()
 _b=bmesh.new(); _b.from_mesh(src.data); _b.from_mesh(kme); _b.to_mesh(src.data); _b.free()
 print('chains kept',len(cf),'faces')
@@ -93,7 +94,7 @@ for v in bm.verts:
     side=1 if v.co.x>0 else -1
     v.co=Vector((v.co.x*SCALE+side*SHIFT, v.co.y*SCALE, v.co.z*SCALE+DZ))
 # ---------- black hole (Gargantua style) ----------
-BH=Vector((0,0.0,2.2+0.62)); TILT=Matrix.Rotation(math.radians(12),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')
+BH=Vector((0,0.0,DZ+0.62*SCALE)); TILT=Matrix.Rotation(math.radians(12),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')
 def rect(r,u,v): return (r[0]+(r[2]-r[0])*u, r[1]+(r[3]-r[1])*v)
 def addf(vs,uvs,part,aux=None,flip=False):
     if flip: vs=vs[::-1]; uvs=uvs[::-1]; aux=aux[::-1] if aux else None
@@ -113,12 +114,12 @@ def uvsphere(radius,ns,nr,rct,part,inward):
             elif i==nr-1: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j]],[uv[0],uv[1],uv[3]],[ax[0],ax[1],ax[3]]
             else: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j1],sv[i+1][j]],uv,ax
             addf(vs,u_,part,x_,flip=not inward)
-K=0.82   # overall black hole scale
+K=0.75   # overall black hole scale (fits the gap between the original horns)
 RH,RS=0.155*K,0.25*K
-uvsphere(RH,14,8,(0.8,0.8,1.0,1.0),'hole',inward=False)          # event horizon: solid ball, as black as possible
-uvsphere(RS,16,10,(0.0,0.0,0.8,0.2),'halo',inward=True)          # lensing shell: inverted, only its far inner wall shows behind the ball
+uvsphere(RH,10,6,(0.8,0.8,1.0,1.0),'hole',inward=False)          # event horizon: solid ball, as black as possible
+uvsphere(RS,12,8,(0.0,0.0,0.8,0.2),'halo',inward=True)          # lensing shell: inverted, only its far inner wall shows behind the ball
 # accretion disk
-R0,R1,TH=0.20*K,0.52*K,0.008; ND=40; RADS=[R0,0.31*K,R1]
+R0,R1,TH=0.20*K,0.52*K,0.008; ND=28; RADS=[R0,0.31*K,R1]
 def ring(r,z): return [bm.verts.new(P(r*math.cos(2*math.pi*j/ND),r*math.sin(2*math.pi*j/ND),z)) for j in range(ND)]
 top=[ring(r,TH/2) for r in RADS]; bot=[ring(r,-TH/2) for r in RADS]
 RT,RB,RE=(0.8,0.6,1.0,0.8),(0.8,0.4,1.0,0.6),(0.8,0.2,1.0,0.4)
@@ -129,7 +130,7 @@ for k in range(len(RADS)-1):
         aux=[((r0-R0)/(R1-R0),j/ND),((r0-R0)/(R1-R0),(j+1)/ND),((r1-R0)/(R1-R0),(j+1)/ND),((r1-R0)/(R1-R0),j/ND)]
         addf([top[k][j],top[k][j1],top[k+1][j1],top[k+1][j]],[pol(RT,r0,j),pol(RT,r0,j+1),pol(RT,r1,j+1),pol(RT,r1,j)],'disk_top',aux,flip=True)
         addf([bot[k][j],bot[k][j1],bot[k+1][j1],bot[k+1][j]],[pol(RB,r0,j),pol(RB,r0,j+1),pol(RB,r1,j+1),pol(RB,r1,j)],'disk_bot',aux)
-for (A,B,lo) in ((top[0],bot[0],0.0),(top[-1],bot[-1],0.5)):
+for (A,B,lo) in ((top[0],bot[0],0.0),):
     for j in range(ND):
         j1=(j+1)%ND
         uvs=[rect(RE,j/ND,lo),rect(RE,(j+1)/ND,lo),rect(RE,(j+1)/ND,lo+0.5),rect(RE,j/ND,lo+0.5)]

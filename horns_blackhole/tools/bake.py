@@ -30,12 +30,12 @@ pend=chain&(lz<0.095)
 tip=ss(0.075,0.012,th)**0.8*(~chain)                     # thin parts -> spikes and the horn tip turn white
 ridges=0.5+0.5*np.sin(lz*90+low[m]*4)               # growth rings along the horn
 black=np.array([0.010,0.010,0.012])*(0.85+0.25*low[m][:,None]+0.12*mid[m][:,None])*(0.85+0.3*ridges[:,None])
-ivory=np.array([0.80,0.76,0.98])*(0.92+0.1*fine[m][:,None])
+ivory=np.array([0.80,0.70,1.0])*(0.92+0.1*fine[m][:,None])
 c=black*(1-tip[:,None])+ivory*tip[:,None]
 r=(0.88+0.06*mid[m])*(1-tip)+0.45*tip       # matte black body, lavender tips keep a soft sheen
 mt=(1-tip)*1.0                              # black metal body: no reflections
-c[chain]=np.array([0.80,0.81,0.84])*(0.9+0.15*fine[m][chain][:,None]); mt[chain]=1.0; r[chain]=0.22
-c[pend]=np.array([0.86,0.82,1.0]); mt[pend]=0; r[pend]=0.05
+c[chain]=np.array([0.78,0.72,0.95])*(0.9+0.15*fine[m][chain][:,None]); mt[chain]=1.0; r[chain]=0.22
+c[pend]=np.array([0.84,0.76,1.0]); mt[pend]=0; r[pend]=0.05
 e=0.30*ss(0.012,0.004,th)*(~chain)                  # faint glow on the very tips
 e[pend]=0.75
 col[m]=c; met[m]=mt; rgh[m]=np.clip(r,0.05,0.9); em[m]=e; h[m]=0.35*ridges+0.1*mid[m]
@@ -68,9 +68,9 @@ if NOEM:
     mH=k==0; th=A[mH][:,0]; lx=B[mH][:,0]; lz=B[mH][:,1]
     chain=(th<0.022)&(lz<0.33)&(lx>0.16)&(lx<0.37); pend=chain&(lz<0.095)
     tip=ss(0.075,0.012,th)**0.8*(~chain)
-    c=col[mH]; lav=np.array([0.84,0.76,1.0])*(0.9+0.12*fine[mH][:,None])
+    c=col[mH]; lav=np.array([0.80,0.70,1.0])*(0.9+0.12*fine[mH][:,None])
     c=c*(1-tip[:,None])+lav*tip[:,None]
-    c[pend]=np.array([0.93,0.90,1.0]); col[mH]=c
+    c[pend]=np.array([0.86,0.78,1.0]); c[chain&~pend]=np.array([0.78,0.72,0.95]); col[mH]=c
     r=rgh[mH]; r=r*(1-tip)+0.30*tip; r[pend]=0.06; rgh[mH]=r
     mm=met[mH]; mm[pend]=0.0; met[mH]=mm
     for nm_ in ('disk_top','disk_bot'):
