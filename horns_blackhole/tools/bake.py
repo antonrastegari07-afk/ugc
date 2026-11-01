@@ -40,9 +40,9 @@ e=0.30*ss(0.012,0.004,th)*(~chain)                  # faint glow on the very tip
 e[pend]=0.75
 col[m]=c; met[m]=mt; rgh[m]=np.clip(r,0.05,0.9); em[m]=e; h[m]=0.35*ridges+0.1*mid[m]
 # ---------- black hole ----------
-white=np.array([0.97,0.96,1.0]); mauve=np.array([0.76,0.62,1.0]); deep=np.array([0.62,0.50,0.95])
+white=np.array([0.97,0.97,1.0]); mauve=np.array([0.80,0.78,1.0])   # cool pale lavender, not pink; deep=np.array([0.62,0.50,0.95])
 def tint(v,seedp,sc_):
-    w=np.clip(0.55+1.1*fbm(seedp*sc_,3,17),0,1)[:,None]          # patches between white and light mauve
+    w=np.clip(0.45+1.0*fbm(seedp*sc_,3,17),0,1)[:,None]          # patches between white and light mauve
     return white*(1-w)+mauve*w
 m=k==PARTS.index('hole')                       # event horizon: absolute black, matte, no glow
 col[m]=0.0; met[m]=1.0; rgh[m]=1.0; em[m]=0.0; h[m]=0.0   # black metal: F0 = 0 -> reflects (almost) no light
