@@ -26,11 +26,11 @@ chain=(th<0.022)&(lz<0.33)&(lx>0.16)&(lx<0.37)
 pend=chain&(lz<0.095)
 tip=ss(0.075,0.012,th)**0.8*(~chain)                     # thin parts -> spikes and the horn tip turn white
 ridges=0.5+0.5*np.sin(lz*90+low[m]*4)               # growth rings along the horn
-black=np.array([0.028,0.028,0.032])*(0.85+0.25*low[m][:,None]+0.12*mid[m][:,None])*(0.85+0.3*ridges[:,None])
+black=np.array([0.010,0.010,0.012])*(0.85+0.25*low[m][:,None]+0.12*mid[m][:,None])*(0.85+0.3*ridges[:,None])
 ivory=np.array([0.80,0.76,0.98])*(0.92+0.1*fine[m][:,None])
 c=black*(1-tip[:,None])+ivory*tip[:,None]
-r=0.32+0.08*mid[m]-0.06*ridges+0.14*tip
-mt=np.zeros(m.sum())
+r=(0.88+0.06*mid[m])*(1-tip)+0.45*tip       # matte black body, lavender tips keep a soft sheen
+mt=(1-tip)*1.0                              # black metal body: no reflections
 c[chain]=np.array([0.80,0.81,0.84])*(0.9+0.15*fine[m][chain][:,None]); mt[chain]=1.0; r[chain]=0.22
 c[pend]=np.array([0.86,0.82,1.0]); mt[pend]=0; r[pend]=0.05
 e=0.30*ss(0.012,0.004,th)*(~chain)                  # faint glow on the very tips
@@ -42,7 +42,7 @@ def tint(v,seedp,sc_):
     w=np.clip(0.55+1.1*fbm(seedp*sc_,3,17),0,1)[:,None]          # patches between white and light mauve
     return white*(1-w)+mauve*w
 m=k==PARTS.index('hole')                       # event horizon: absolute black, matte, no glow
-col[m]=0.0; met[m]=0.0; rgh[m]=1.0; em[m]=0.0
+col[m]=0.0; met[m]=1.0; rgh[m]=1.0; em[m]=0.0; h[m]=0.0   # black metal: F0 = 0 -> reflects (almost) no light
 m=k==PARTS.index('halo')                       # inverted lensing shell: its far inner wall is the glowing ring around the ball
 lon=A[m][:,0]*2*np.pi; lat=A[m][:,1]          # lat 0 = top pole, 0.5 = disk plane
 eq=np.exp(-((lat-0.5)/0.10)**2)                # bright where the disk plane is

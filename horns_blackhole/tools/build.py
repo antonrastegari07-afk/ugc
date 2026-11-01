@@ -7,7 +7,7 @@ bpy.ops.import_scene.fbx(filepath=D+'/in/horns.fbx')
 src=[x for x in bpy.data.objects if x.type=='MESH'][0]
 sc=bpy.context.scene
 PARTS=['horn','hole','disk_top','disk_bot','disk_edge','halo']
-SCALE=1.55; SHIFT=0.25; DZ=1.88
+SCALE=1.55; SHIFT=0.25; DZ=1.88; DEC=0.80
 # ---------- horns: clean debris, decimate, measure thickness, place on the head ----------
 bm=bmesh.new(); bm.from_mesh(src.data); bm.verts.ensure_lookup_table()
 seen=set(); comps=[]
@@ -21,11 +21,62 @@ for v in bm.verts:
     comps.append(c)
 junk=[v for c in comps if len(c)<50 for v in c]
 bmesh.ops.delete(bm,geom=junk,context='VERTS')
+# ---- replace the broken right pendant by a mirrored copy of the good left one
+ZC=0.105
+def in_pend(v,side): return side*v.co.x>0.15 and side*v.co.x<0.38 and v.co.z<ZC
+bm.verts.ensure_lookup_table(); bm.faces.ensure_lookup_table()
+uvl0=bm.loops.layers.uv['UVMap']
+bad=[f for f in bm.faces if all(in_pend(v,1) for v in f.verts)]
+good=[f for f in bm.faces if all(in_pend(v,-1) for v in f.verts)]
+def ends(side):   # centre of the chain just above the cut
+    vs=[v.co for v in bm.verts if side*v.co.x>0.15 and side*v.co.x<0.38 and ZC<=v.co.z<ZC+0.03]
+    return sum(vs,Vector())/len(vs)
+right_end=ends(1); left_end=ends(-1); mir_left_end=Vector((-left_end.x,left_end.y,left_end.z))
+delta=right_end-mir_left_end
+bmesh.ops.delete(bm,geom=bad,context='FACES')
+vmap={}
+for f in good:
+    nv=[]
+    for v in f.verts:
+        if v not in vmap: vmap[v]=bm.verts.new(Vector((-v.co.x,v.co.y,v.co.z))+delta)
+        nv.append(vmap[v])
+    nf=bm.faces.new(nv[::-1])
+    for lp,ol in zip(nf.loops,list(f.loops)[::-1]): lp[uvl0].uv=ol[uvl0].uv
+print('PENDANT: removed',len(bad),'faces, copied',len(good),'faces, offset',tuple(round(c,3) for c in delta))
+# keep chains + pendants at full resolution (decimation crushes their thin links): split them off before decimating
+keep=bmesh.new(); keep_uv=keep.loops.layers.uv.new('UVMap')
+cf=[f for f in bm.faces if all(0.15<abs(v.co.x)<0.38 and v.co.z<0.33 for v in f.verts)]
+vm={}
+for f in cf:
+    vs=[]
+    for v in f.verts:
+        if v not in vm: vm[v]=keep.verts.new(v.co)
+        vs.append(vm[v])
+    try: nf=keep.faces.new(vs)
+    except ValueError: continue
+    for lp,ol in zip(nf.loops,f.loops): lp[keep_uv].uv=ol[uvl0].uv
+bmesh.ops.delete(bm,geom=cf,context='FACES')
 bm.to_mesh(src.data); bm.free()
-mod=src.modifiers.new('dec','DECIMATE'); mod.ratio=0.86; mod.use_collapse_triangulate=True
+mod=src.modifiers.new('dec','DECIMATE'); mod.ratio=DEC; mod.use_collapse_triangulate=True
 bpy.context.view_layer.objects.active=src; bpy.ops.object.modifier_apply(modifier='dec')
+kme=bpy.data.meshes.new('keep'); keep.to_mesh(kme); keep.free()
+_b=bmesh.new(); _b.from_mesh(src.data); _b.from_mesh(kme); _b.to_mesh(src.data); _b.free()
+print('chains kept',len(cf),'faces')
 hm=src.data
-bm=bmesh.new(); bm.from_mesh(hm); bmesh.ops.triangulate(bm,faces=bm.faces[:]); bm.normal_update()
+bm=bmesh.new(); bm.from_mesh(hm); bmesh.ops.triangulate(bm,faces=bm.faces[:])
+# pendants are single-sided thin frames: give them a back side so they read from every angle (Roblox culls backfaces)
+_uv=bm.loops.layers.uv['UVMap']
+_pf=[f for f in bm.faces if all(0.15<abs(v.co.x)<0.38 and v.co.z<0.105 for v in f.verts)]
+bm.normal_update(); _dup={}
+for f in _pf:
+    vs=[]
+    for v in f.verts:
+        if v not in _dup: _dup[v]=bm.verts.new(v.co-f.normal*0.0006)
+        vs.append(_dup[v])
+    nf=bm.faces.new(vs[::-1])
+    for lp,ol in zip(nf.loops,list(f.loops)[::-1]): lp[_uv].uv=ol[_uv].uv
+print('PENDANT backfaces added',len(_pf))
+bm.normal_update()
 tree=BVHTree.FromBMesh(bm)
 thick={}
 for v in bm.verts:
@@ -62,11 +113,11 @@ def uvsphere(radius,ns,nr,rct,part,inward):
             elif i==nr-1: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j]],[uv[0],uv[1],uv[3]],[ax[0],ax[1],ax[3]]
             else: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j1],sv[i+1][j]],uv,ax
             addf(vs,u_,part,x_,flip=not inward)
-RH,RS=0.11,0.19
+RH,RS=0.155,0.25
 uvsphere(RH,14,8,(0.8,0.8,1.0,1.0),'hole',inward=False)          # event horizon: solid ball, as black as possible
 uvsphere(RS,16,10,(0.0,0.0,0.8,0.2),'halo',inward=True)          # lensing shell: inverted, only its far inner wall shows behind the ball
 # accretion disk
-R0,R1,TH=0.15,0.48,0.008; ND=40; RADS=[R0,0.25,R1]
+R0,R1,TH=0.20,0.52,0.008; ND=40; RADS=[R0,0.31,R1]
 def ring(r,z): return [bm.verts.new(P(r*math.cos(2*math.pi*j/ND),r*math.sin(2*math.pi*j/ND),z)) for j in range(ND)]
 top=[ring(r,TH/2) for r in RADS]; bot=[ring(r,-TH/2) for r in RADS]
 RT,RB,RE=(0.8,0.6,1.0,0.8),(0.8,0.4,1.0,0.6),(0.8,0.2,1.0,0.4)

@@ -1,6 +1,6 @@
 # Cornes + trou noir (UGC tête)
 
-- `HornsBlackHole_UGC.fbx` : à importer (s'importe à la bonne taille, ~2,0 × 1,0 × 1,3 studs — ne pas redimensionner). 3 893 triangles, 1 mesh, 1 matériau, origine centrée.
+- `HornsBlackHole_UGC.fbx` : à importer (s'importe à la bonne taille, ~2,0 × 1,0 × 1,3 studs — ne pas redimensionner). 3 968 triangles, 1 mesh, 1 matériau, origine centrée.
 - Textures 1024 (SurfaceAppearance) : `Horns_Color` → ColorMap, `Horns_Normal` → NormalMap, `Horns_Metalness`, `Horns_Roughness`, `Horns_Emissive` → EmissiveMaskContent.
 - Réglages : AlphaMode = Overlay, EmissiveTint = (220, 210, 255) (lavande), EmissiveStrength ≈ 3–5. Attachment : HatAttachment.
 
