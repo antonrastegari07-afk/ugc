@@ -6,8 +6,9 @@ ob=bpy.data.objects['HornsBlackHole_UGC']
 mat=bpy.data.materials.new('Horns_Mat'); mat.use_nodes=True; mat.use_backface_culling=True
 N=mat.node_tree.nodes; Lk=mat.node_tree.links
 for nd in list(N): N.remove(nd)
+PRE='HornsNoEmissive_' if '--noemis' in sys.argv else 'Horns_'
 def tex(nm,cs):
-    im=bpy.data.images.load(f'{OUT}/{nm}.png'); im.colorspace_settings.name=cs; t=N.new('ShaderNodeTexImage'); t.image=im; return t
+    nm=nm.replace('Horns_',PRE); im=bpy.data.images.load(f'{OUT}/{nm}.png'); im.colorspace_settings.name=cs; t=N.new('ShaderNodeTexImage'); t.image=im; return t
 tc=tex('Horns_Color','sRGB'); tn=tex('Horns_Normal','Non-Color'); tm=tex('Horns_Metalness','Non-Color'); tr=tex('Horns_Roughness','Non-Color'); te=tex('Horns_Emissive','Non-Color')
 bs=N.new('ShaderNodeBsdfPrincipled'); nm=N.new('ShaderNodeNormalMap')
 Lk.new(tc.outputs['Color'],bs.inputs['Base Color']); Lk.new(tm.outputs['Color'],bs.inputs['Metallic']); Lk.new(tr.outputs['Color'],bs.inputs['Roughness'])
@@ -42,6 +43,10 @@ if '--render' in sys.argv:
     shoot('back',180,20); shoot('back34',145,18); shoot('front',0,8); shoot('side',90,8)
     shoot('zoom',180,20,8,(0,0,2.82),220); shoot('zoomhorn',-40,8,8,(0.7,0,2.5),170)
     bs.inputs['Emission Strength'].default_value=0; shoot('noemis',150,20); shoot('noemis_zoom',180,20,8,(0,0,2.82),220); bs.inputs['Emission Strength'].default_value=4
+if '--nerender' in sys.argv:
+    bs.inputs['Emission Strength'].default_value=0
+    w.node_tree.nodes['Background'].inputs['Color'].default_value=(0.35,0.37,0.42,1)
+    shoot('ne_back',180,20); shoot('ne_back34',145,18); shoot('ne_front',0,8); shoot('ne_zoom',180,20,8,(0,0,2.82),220); shoot('ne_zoomhorn',-40,8,8,(0.7,0,2.5),170); shoot('ne_pend',0,5,6,(0.66,0,2.0),260)
 if '--pend' in sys.argv:
     for hd in [o for o in bpy.data.objects if o.name in ('Head','Torso')]: hd.hide_render=True
     shoot('pendR',0,5,6,(0.66,0,2.0),260); shoot('pendL',0,5,6,(-0.66,0,2.0),260)

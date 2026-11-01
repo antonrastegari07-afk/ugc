@@ -6,3 +6,6 @@
 
 Cornes : modèle Tripo nettoyé (débris supprimés, légèrement allégé), textures refaites (corne noire, pointes lavande, chaînes argent, pendentifs lumineux).
 Trou noir (style Gargantua) : boule noire mate (aucune lumière), coque sphérique aux normales inversées autour (on ne voit que sa paroi du fond, juste derrière la boule : c'est le halo qui englobe le trou sous tous les angles), disque d'accrétion fin à stries concentriques, un côté plus lumineux, touches blanc / mauve clair.
+
+## Version sans emissive (`no_emissive/`)
+Même mesh (`HornsBlackHole_UGC.fbx`). Textures `HornsNoEmissive_Color/Normal/Metalness/Roughness` pensées pour être belles sous l'éclairage normal : disque et halo blanc-mauve satinés à stries contrastées, pointes lavande, pendentifs cristal brillant, boule et cornes noir absolu. Pas d'EmissiveMask (laisser vide, EmissiveStrength = 0).

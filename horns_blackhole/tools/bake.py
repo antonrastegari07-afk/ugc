@@ -2,6 +2,9 @@ import numpy as np, os
 from PIL import Image, ImageFilter
 from noise import fbm
 S=1024
+import sys
+NOEM='--noemis' in sys.argv
+PRE='HornsNoEmissive_' if NOEM else 'Horns_'
 d=np.load('geo.npz'); P=d['P']; UV=d['UV']; A1=d['A1']; A2=d['A2']; NN=d['N']; PART=d['part']; PARTS=list(d['parts'])
 pos=np.zeros((S,S,3)); nrm=np.zeros((S,S,3)); a1=np.zeros((S,S,2)); a2=np.zeros((S,S,2)); pid=-np.ones((S,S),int)
 for f in range(len(P)):
@@ -61,6 +64,29 @@ for nm_ in ('disk_top','disk_bot'):
     col[m]=tint(v,p[m],7)*(0.42+0.58*np.clip(v*1.3,0,1))[:,None]*ss(1.02,0.9,rr)[:,None]+0.0; rgh[m]=0.45; em[m]=v; h[m]=0.15*rings
 m=k==PARTS.index('disk_edge'); inner=A[m][:,0]<0.5
 col[m]=np.where(inner[:,None],white,mauve*0.45); em[m]=np.where(inner,0.95,0.05)
+if NOEM:
+    mH=k==0; th=A[mH][:,0]; lx=B[mH][:,0]; lz=B[mH][:,1]
+    chain=(th<0.022)&(lz<0.33)&(lx>0.16)&(lx<0.37); pend=chain&(lz<0.095)
+    tip=ss(0.075,0.012,th)**0.8*(~chain)
+    c=col[mH]; lav=np.array([0.84,0.76,1.0])*(0.9+0.12*fine[mH][:,None])
+    c=c*(1-tip[:,None])+lav*tip[:,None]
+    c[pend]=np.array([0.93,0.90,1.0]); col[mH]=c
+    r=rgh[mH]; r=r*(1-tip)+0.30*tip; r[pend]=0.06; rgh[mH]=r
+    mm=met[mH]; mm[pend]=0.0; met[mH]=mm
+    for nm_ in ('disk_top','disk_bot'):
+        m=k==PARTS.index(nm_); rr=np.clip(A[m][:,0],0,1); ang=A[m][:,1]*2*np.pi
+        rings=0.5+0.5*np.sin(rr*110+fbm(p[m]*22,3,8)*5); gaps=0.7+0.3*np.sin(rr*23+1.3)
+        doppler=0.80+0.20*np.cos(ang-np.pi)
+        v=np.clip((0.45+0.55*rings)*gaps*doppler*(1-0.45*rr),0,1)
+        col[m]=tint(v,p[m],7)*(0.35+0.65*v)[:,None]*ss(1.03,0.92,rr)[:,None]+np.array([0.02,0.02,0.03])
+        rgh[m]=0.28+0.15*(1-rings); met[m]=0.0
+    m=k==PARTS.index('halo'); lat=A[m][:,1]
+    streak=0.6+0.4*np.sin(lat*95+fbm(p[m]*30,2,21)*3); eqb=np.exp(-((lat-0.5)/0.12)**2)
+    v=np.clip((0.55+0.45*eqb)*streak,0,1)
+    col[m]=tint(v,p[m],9)*(0.45+0.55*v)[:,None]; rgh[m]=0.3; met[m]=0.0
+    m=k==PARTS.index('disk_edge'); inner=A[m][:,0]<0.5
+    col[m]=np.where(inner[:,None],np.array([0.95,0.93,1.0]),mauve*0.5); rgh[m]=0.25
+    em[:]=0.0
 def img(vals,ch):
     im=np.zeros((S,S,ch)); im[idx]=vals.reshape(n,ch); return im
 def dilate(im,it=10):
@@ -74,12 +100,12 @@ def dilate(im,it=10):
 def save(nm,arr,mode):
     a=(np.clip(arr,0,1)*255+.5).astype(np.uint8); Image.fromarray(a if a.shape[-1]>1 else a[...,0],mode).save(f'out/{nm}.png')
 os.makedirs('out',exist_ok=True)
-save('Horns_Color',dilate(img(col,3)),'RGB'); save('Horns_Metalness',dilate(img(met,1)),'L')
-save('Horns_Roughness',dilate(img(rgh,1)),'L'); save('Horns_Emissive',dilate(img(em,1)),'L')
+save(PRE+'Color',dilate(img(col,3)),'RGB'); save(PRE+'Metalness',dilate(img(met,1)),'L')
+save(PRE+'Roughness',dilate(img(rgh,1)),'L'); save(PRE+'Emissive',dilate(img(em,1)),'L')
 Hh=dilate(img(h,1))[...,0]
 Hh=np.asarray(Image.fromarray((np.clip(Hh*0.5+0.5,0,1)*255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.7)),float)/255
 gx=(np.roll(Hh,-1,1)-np.roll(Hh,1,1))*0.5; gy=(np.roll(Hh,1,0)-np.roll(Hh,-1,0))*0.5
 nm=np.stack([-gx*4,-gy*4,np.ones_like(Hh)],-1); nm/=np.linalg.norm(nm,axis=-1,keepdims=True)
-save('Horns_Normal',nm*0.5+0.5,'RGB')
+save(PRE+'Normal',nm*0.5+0.5,'RGB')
 mh=k==0; th_all=A[mh][:,0]
 print('horn texels',mh.sum(),'chain share %.3f'%(((th_all<0.022)&(B[mh][:,1]<0.33)&(B[mh][:,0]>0.16)&(B[mh][:,0]<0.37)).mean()),'tip share %.3f'%((ss(0.045,0.006,th_all)>0.5).mean()))
