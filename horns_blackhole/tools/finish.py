@@ -39,7 +39,7 @@ def shoot(n,az,el,dist=8,t=(0,0,2.45),lens=75):
     cam.location=t+Vector((math.sin(a)*math.cos(e)*dist,-math.cos(a)*math.cos(e)*dist,math.sin(e)*dist))
     cam.rotation_euler=(cam.location-t).to_track_quat('Z','Y').to_euler(); sc.render.filepath=f'{D}/r_{n}.png'; bpy.ops.render.render(write_still=True)
 if '--render' in sys.argv:
-    shoot('back',180,20); shoot('back34',150,20); shoot('front',0,8); shoot('side',90,8)
+    shoot('back',180,20); shoot('back34',145,18); shoot('front',0,8); shoot('side',90,8)
     shoot('zoom',180,20,8,(0,0,2.82),220); shoot('zoomhorn',-40,8,8,(0.7,0,2.5),170)
     bs.inputs['Emission Strength'].default_value=0; shoot('noemis',150,20); bs.inputs['Emission Strength'].default_value=4
 if '--export' in sys.argv:

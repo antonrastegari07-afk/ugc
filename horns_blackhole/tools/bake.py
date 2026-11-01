@@ -37,20 +37,30 @@ e=0.30*ss(0.012,0.004,th)*(~chain)                  # faint glow on the very tip
 e[pend]=0.75
 col[m]=c; met[m]=mt; rgh[m]=np.clip(r,0.05,0.9); em[m]=e; h[m]=0.35*ridges+0.1*mid[m]
 # ---------- black hole ----------
-m=k==PARTS.index('hole')            # inverted sphere: we look at its far inner wall
-t=A[m][:,0]; band=np.exp(-((t-0.5)/0.03)**2)
-col[m]=0.0; rgh[m]=1.0; em[m]=0.0
+white=np.array([0.97,0.96,1.0]); mauve=np.array([0.76,0.62,1.0]); deep=np.array([0.62,0.50,0.95])
+def tint(v,seedp,sc_):
+    w=np.clip(0.55+1.1*fbm(seedp*sc_,3,17),0,1)[:,None]          # patches between white and light mauve
+    return white*(1-w)+mauve*w
+m=k==PARTS.index('hole')                       # event horizon: absolute black, matte, no glow
+col[m]=0.0; met[m]=0.0; rgh[m]=1.0; em[m]=0.0
+m=k==PARTS.index('halo')                       # inverted lensing shell: its far inner wall is the glowing ring around the ball
+lon=A[m][:,0]*2*np.pi; lat=A[m][:,1]          # lat 0 = top pole, 0.5 = disk plane
+eq=np.exp(-((lat-0.5)/0.10)**2)                # bright where the disk plane is
+arc=0.45+0.55*np.abs(np.cos((lat-0.5)*np.pi))  # whole shell glows (lensed light wraps around the hole)
+streak=0.65+0.35*np.sin(lat*95+fbm(p[m]*30,2,21)*3)
+v=np.clip((0.55*arc+0.65*eq)*streak,0,1)
+col[m]=tint(v,p[m],9)*v[:,None]; em[m]=0.8*v; rgh[m]=0.6
 for nm_ in ('disk_top','disk_bot'):
     m=k==PARTS.index(nm_)
     rr=np.clip(A[m][:,0],0,1); ang=A[m][:,1]*2*np.pi
-    spiral=0.5+0.5*np.sin(ang*3+np.log(rr*4+1)*9+fbm(p[m]*12,2,8)*3)
-    streak=0.5+0.5*np.sin(ang*1+rr*60+fbm(p[m]*25,2,8)*4)          # fine concentric streaks
-    v=np.clip((1-rr)**1.2*(0.55+0.45*streak)+0.5*np.exp(-(rr/0.06)**2),0,1)*ss(1.0,0.75,rr)
-    lav=np.array([0.86,0.82,1.0])
-    col[m]=lav*v[:,None]; rgh[m]=0.6; em[m]=np.clip(v*1.1,0,1); h[m]=0.15*streak
+    rings=0.55+0.45*np.sin(rr*110+fbm(p[m]*22,3,8)*5)            # fine concentric streaks (Gargantua)
+    gaps=0.75+0.25*np.sin(rr*23+1.3)
+    doppler=0.72+0.28*np.cos(ang-np.pi)                            # one side brighter
+    falloff=(1-rr)**0.9*ss(1.0,0.8,rr)
+    v=np.clip((falloff*rings*gaps*doppler)*1.25+0.35*np.exp(-(rr/0.07)**2),0,1)
+    col[m]=tint(v,p[m],7)*v[:,None]; rgh[m]=0.6; em[m]=v; h[m]=0.15*rings
 m=k==PARTS.index('disk_edge'); inner=A[m][:,0]<0.5
-col[m]=np.where(inner[:,None],np.array([0.9,0.87,1.0]),np.array([0.05,0.05,0.06])); em[m]=np.where(inner,1.0,0.08)
-m=k==PARTS.index('halo'); col[m]=np.array([0.90,0.87,1.0]); em[m]=0.85+0.15*fine[m]; rgh[m]=0.3
+col[m]=np.where(inner[:,None],white,np.array([0.06,0.05,0.08])); em[m]=np.where(inner,0.95,0.05)
 def img(vals,ch):
     im=np.zeros((S,S,ch)); im[idx]=vals.reshape(n,ch); return im
 def dilate(im,it=10):

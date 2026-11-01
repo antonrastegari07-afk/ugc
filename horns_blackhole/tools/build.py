@@ -41,29 +41,32 @@ for f in bm.faces:
 for v in bm.verts:
     side=1 if v.co.x>0 else -1
     v.co=Vector((v.co.x*SCALE+side*SHIFT, v.co.y*SCALE, v.co.z*SCALE+DZ))
-# ---------- black hole ----------
-BH=Vector((0,0.0,2.2+0.62)); TILT=Matrix.Rotation(math.radians(15),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')   # edge-on for the usual camera (behind, ~20 deg above)
+# ---------- black hole (Gargantua style) ----------
+BH=Vector((0,0.0,2.2+0.62)); TILT=Matrix.Rotation(math.radians(12),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')
 def rect(r,u,v): return (r[0]+(r[2]-r[0])*u, r[1]+(r[3]-r[1])*v)
 def addf(vs,uvs,part,aux=None,flip=False):
-    if flip: vs=vs[::-1]; uvs=uvs[::-1]
+    if flip: vs=vs[::-1]; uvs=uvs[::-1]; aux=aux[::-1] if aux else None
     f=bm.faces.new(vs); f[pl]=PARTS.index(part)
     for i,lp in enumerate(f.loops):
         lp[uvl].uv=uvs[i]; lp[a1].uv=(aux[i] if aux else (0,0)); lp[a2].uv=(0,0)
     return f
 def P(x,y,z): return BH+TILT@Vector((x,y,z))
-# event horizon: inverted sphere (normals pointing inward -> we see its far inner wall = a hole)
-RH=0.12; NS,NR=12,7
-R_HOLE=(0.8,0.8,1.0,1.0)
-sv=[[bm.verts.new(P(RH*math.sin(math.pi*i/NR)*math.cos(2*math.pi*j/NS),RH*math.sin(math.pi*i/NR)*math.sin(2*math.pi*j/NS),RH*math.cos(math.pi*i/NR))) for j in range(NS)] for i in range(NR+1)]
-for i in range(NR):
-    for j in range(NS):
-        j1=(j+1)%NS; uvs=[rect(R_HOLE,j/NS,i/NR),rect(R_HOLE,(j+1)/NS,i/NR),rect(R_HOLE,(j+1)/NS,(i+1)/NR),rect(R_HOLE,j/NS,(i+1)/NR)]
-        aux=[(i/NR,0),(i/NR,0),((i+1)/NR,0),((i+1)/NR,0)]
-        if i==0: addf([sv[0][j],sv[1][j1],sv[1][j]],[uvs[0],uvs[2],uvs[3]],'hole',[aux[0],aux[2],aux[3]])      # inward winding
-        elif i==NR-1: addf([sv[i][j],sv[i][j1],sv[i+1][j]],[uvs[0],uvs[1],uvs[3]],'hole',[aux[0],aux[1],aux[3]])
-        else: addf([sv[i][j],sv[i][j1],sv[i+1][j1],sv[i+1][j]],uvs,'hole',aux)
-# accretion disk (thin annulus, top + bottom + edges)
-R0,R1,TH=0.135,0.50,0.008; ND=36; RADS=[R0,0.20,0.32,R1]
+def uvsphere(radius,ns,nr,rct,part,inward):
+    sv=[[bm.verts.new(P(radius*math.sin(math.pi*i/nr)*math.cos(2*math.pi*j/ns),radius*math.sin(math.pi*i/nr)*math.sin(2*math.pi*j/ns),radius*math.cos(math.pi*i/nr))) for j in range(ns)] for i in range(nr+1)]
+    for i in range(nr):
+        for j in range(ns):
+            j1=(j+1)%ns
+            uv=[rect(rct,j/ns,1-i/nr),rect(rct,(j+1)/ns,1-i/nr),rect(rct,(j+1)/ns,1-(i+1)/nr),rect(rct,j/ns,1-(i+1)/nr)]
+            ax=[(j/ns,i/nr),((j+1)/ns,i/nr),((j+1)/ns,(i+1)/nr),(j/ns,(i+1)/nr)]
+            if i==0: vs,u_,x_=[sv[0][j],sv[1][j1],sv[1][j]],[uv[0],uv[2],uv[3]],[ax[0],ax[2],ax[3]]
+            elif i==nr-1: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j]],[uv[0],uv[1],uv[3]],[ax[0],ax[1],ax[3]]
+            else: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j1],sv[i+1][j]],uv,ax
+            addf(vs,u_,part,x_,flip=not inward)
+RH,RS=0.11,0.19
+uvsphere(RH,14,8,(0.8,0.8,1.0,1.0),'hole',inward=False)          # event horizon: solid ball, as black as possible
+uvsphere(RS,16,10,(0.0,0.0,0.8,0.2),'halo',inward=True)          # lensing shell: inverted, only its far inner wall shows behind the ball
+# accretion disk
+R0,R1,TH=0.15,0.48,0.008; ND=40; RADS=[R0,0.25,R1]
 def ring(r,z): return [bm.verts.new(P(r*math.cos(2*math.pi*j/ND),r*math.sin(2*math.pi*j/ND),z)) for j in range(ND)]
 top=[ring(r,TH/2) for r in RADS]; bot=[ring(r,-TH/2) for r in RADS]
 RT,RB,RE=(0.8,0.6,1.0,0.8),(0.8,0.4,1.0,0.6),(0.8,0.2,1.0,0.4)
@@ -79,15 +82,6 @@ for (A,B,lo) in ((top[0],bot[0],0.0),(top[-1],bot[-1],0.5)):
         j1=(j+1)%ND
         uvs=[rect(RE,j/ND,lo),rect(RE,(j+1)/ND,lo),rect(RE,(j+1)/ND,lo+0.5),rect(RE,j/ND,lo+0.5)]
         addf([A[j],A[j1],B[j1],B[j]],uvs,'disk_edge',[(0 if lo==0 else 1,j/ND)]*4,flip=(lo==0.5))
-# photon ring: thin vertical torus around the hole, facing the front
-RR,RT_=0.15,0.010; NA,NT=32,4
-RHALO=(0.0,0.0,0.8,0.2)
-def _tub(a): s_=math.sin(2*math.pi*a/NA); return RT_*(1+3.0*max(s_,0)**1.5)      # thicker on top
-tv=[[bm.verts.new(BH+Matrix.Rotation(math.radians(20),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')@Vector(((RR+_tub(a)*math.cos(2*math.pi*b/NT))*math.cos(2*math.pi*a/NA),_tub(a)*0.6*math.sin(2*math.pi*b/NT),(RR+_tub(a)*math.cos(2*math.pi*b/NT))*math.sin(2*math.pi*a/NA)))) for b in range(NT)] for a in range(NA)]
-for a in range(NA):
-    for b in range(NT):
-        a1_,b1=(a+1)%NA,(b+1)%NT
-        addf([tv[a][b1],tv[a1_][b1],tv[a1_][b],tv[a][b]],[rect(RHALO,a/NA,(b+1)/NT),rect(RHALO,(a+1)/NA,(b+1)/NT),rect(RHALO,(a+1)/NA,b/NT),rect(RHALO,a/NA,b/NT)],'halo',[(a/NA,b/NT)]*4)
 bmesh.ops.triangulate(bm,faces=bm.faces[:])
 me=bpy.data.meshes.new('HornsBlackHole_UGC'); bm.to_mesh(me); bm.free()
 ob=bpy.data.objects.new('HornsBlackHole_UGC',me); sc.collection.objects.link(ob)
