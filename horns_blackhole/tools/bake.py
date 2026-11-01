@@ -49,7 +49,7 @@ eq=np.exp(-((lat-0.5)/0.10)**2)                # bright where the disk plane is
 arc=0.45+0.55*np.abs(np.cos((lat-0.5)*np.pi))  # whole shell glows (lensed light wraps around the hole)
 streak=0.65+0.35*np.sin(lat*95+fbm(p[m]*30,2,21)*3)
 v=np.clip((0.55*arc+0.65*eq)*streak,0,1)
-col[m]=tint(v,p[m],9)*v[:,None]; em[m]=0.8*v; rgh[m]=0.6
+col[m]=tint(v,p[m],9)*(0.62+0.38*v)[:,None]; em[m]=0.8*v; rgh[m]=0.45
 for nm_ in ('disk_top','disk_bot'):
     m=k==PARTS.index(nm_)
     rr=np.clip(A[m][:,0],0,1); ang=A[m][:,1]*2*np.pi
@@ -58,9 +58,9 @@ for nm_ in ('disk_top','disk_bot'):
     doppler=0.72+0.28*np.cos(ang-np.pi)                            # one side brighter
     falloff=(1-rr)**0.9*ss(1.0,0.8,rr)
     v=np.clip((falloff*rings*gaps*doppler)*1.25+0.35*np.exp(-(rr/0.07)**2),0,1)
-    col[m]=tint(v,p[m],7)*v[:,None]; rgh[m]=0.6; em[m]=v; h[m]=0.15*rings
+    col[m]=tint(v,p[m],7)*(0.42+0.58*np.clip(v*1.3,0,1))[:,None]*ss(1.02,0.9,rr)[:,None]+0.0; rgh[m]=0.45; em[m]=v; h[m]=0.15*rings
 m=k==PARTS.index('disk_edge'); inner=A[m][:,0]<0.5
-col[m]=np.where(inner[:,None],white,np.array([0.06,0.05,0.08])); em[m]=np.where(inner,0.95,0.05)
+col[m]=np.where(inner[:,None],white,mauve*0.45); em[m]=np.where(inner,0.95,0.05)
 def img(vals,ch):
     im=np.zeros((S,S,ch)); im[idx]=vals.reshape(n,ch); return im
 def dilate(im,it=10):

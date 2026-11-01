@@ -41,7 +41,7 @@ def shoot(n,az,el,dist=8,t=(0,0,2.45),lens=75):
 if '--render' in sys.argv:
     shoot('back',180,20); shoot('back34',145,18); shoot('front',0,8); shoot('side',90,8)
     shoot('zoom',180,20,8,(0,0,2.82),220); shoot('zoomhorn',-40,8,8,(0.7,0,2.5),170)
-    bs.inputs['Emission Strength'].default_value=0; shoot('noemis',150,20); bs.inputs['Emission Strength'].default_value=4
+    bs.inputs['Emission Strength'].default_value=0; shoot('noemis',150,20); shoot('noemis_zoom',180,20,8,(0,0,2.82),220); bs.inputs['Emission Strength'].default_value=4
 if '--export' in sys.argv:
     vs=[v.co for v in ob.data.vertices]
     cen=Vector(tuple((min(v[i] for v in vs)+max(v[i] for v in vs))/2 for i in range(3)))
