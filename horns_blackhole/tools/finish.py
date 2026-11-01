@@ -9,7 +9,7 @@ for nd in list(N): N.remove(nd)
 PRE='HornsNoEmissive_' if '--noemis' in sys.argv else 'Horns_'
 def tex(nm,cs):
     nm=nm.replace('Horns_',PRE); im=bpy.data.images.load(f'{OUT}/{nm}.png'); im.colorspace_settings.name=cs; t=N.new('ShaderNodeTexImage'); t.image=im; return t
-tc=tex('Horns_Color','sRGB'); tn=tex('Horns_Normal','Non-Color'); tm=tex('Horns_Metalness','Non-Color'); tr=tex('Horns_Roughness','Non-Color'); te=tex('Horns_Emissive','Non-Color')
+tc=tex('Horns_Color','sRGB'); tn=tex('Horns_Normal','Non-Color'); tm=tex('Horns_Metalness','Non-Color'); tr=tex('Horns_Roughness','Non-Color'); te=tex('Horns_'+(sys.argv[sys.argv.index('--em')+1] if '--em' in sys.argv else 'Emissive'),'Non-Color')
 bs=N.new('ShaderNodeBsdfPrincipled'); nm=N.new('ShaderNodeNormalMap')
 Lk.new(tc.outputs['Color'],bs.inputs['Base Color']); Lk.new(tm.outputs['Color'],bs.inputs['Metallic']); Lk.new(tr.outputs['Color'],bs.inputs['Roughness'])
 Lk.new(tn.outputs['Color'],nm.inputs['Color']); Lk.new(nm.outputs['Normal'],bs.inputs['Normal'])
@@ -43,6 +43,9 @@ if '--render' in sys.argv:
     shoot('back',180,20); shoot('back34',145,18); shoot('front',0,8); shoot('side',90,8)
     shoot('zoom',180,20,8,(0,0,2.82),220); shoot('zoomhorn',-40,8,8,(0.7,0,2.5),170)
     bs.inputs['Emission Strength'].default_value=0; shoot('noemis',150,20); shoot('noemis_zoom',180,20,8,(0,0,2.82),220); bs.inputs['Emission Strength'].default_value=4
+if '--emrender' in sys.argv:
+    tg=sys.argv[sys.argv.index('--em')+1]
+    shoot('em_'+tg,180,20); shoot('emz_'+tg,-40,8,8,(0.7,0,2.5),170)
 if '--nerender' in sys.argv:
     bs.inputs['Emission Strength'].default_value=0
     w.node_tree.nodes['Background'].inputs['Color'].default_value=(0.35,0.37,0.42,1)

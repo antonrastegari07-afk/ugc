@@ -124,8 +124,13 @@ HORN_M=orm[...,2]*(1-blackness)+1.0*blackness          # black metal + high roug
 HORN_R=orm[...,1]*(1-blackness)+0.88*blackness
 HORN_M=HORN_M*(1-tipzone*fade)+0.05*tipzone*fade; HORN_R=HORN_R*(1-tipzone*fade)+0.40*tipzone*fade   # violet tip reads as colour, not grey reflection
 HORN_E=0.0 if NOEM else np.clip(0.35*np.maximum(white,fade)*ss(0.45,0.8,LZ),0,1)
+EM_BANDS=np.clip(np.maximum(0.75*white*(0.6+0.4*Lum), fade*tipzone),0,1)*MH      # violet bands + chains + spikes + tips
+EM_TIPS=np.clip(fade*tipzone,0,1)*MH                                              # only the horn tips
 _c=dilate(img(col,3)); _c[:HS,:HS]=HORN_C; save(PRE+'Color',_c,'RGB'); _m=dilate(img(met,1)); _m[:HS,:HS,0]=HORN_M; save(PRE+'Metalness',_m,'L')
 _r=dilate(img(rgh,1)); _r[:HS,:HS,0]=HORN_R; save(PRE+'Roughness',_r,'L'); _e=dilate(img(em,1)); _e[:HS,:HS,0]=HORN_E; _e[:HS,:HS,0]=np.maximum(_e[:HS,:HS,0],0); save(PRE+'Emissive',_e,'L')
+if not NOEM:
+    for nm_,arr in (('Emissive_BandsTips',EM_BANDS),('Emissive_TipsOnly',EM_TIPS)):
+        _x=_e.copy(); _x[:HS,:HS,0]=arr; save('Horns_'+nm_,_x,'L')
 Hh=dilate(img(h,1))[...,0]
 Hh=np.asarray(Image.fromarray((np.clip(Hh*0.5+0.5,0,1)*255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.7)),float)/255
 gx=(np.roll(Hh,-1,1)-np.roll(Hh,1,1))*0.5; gy=(np.roll(Hh,1,0)-np.roll(Hh,-1,0))*0.5
