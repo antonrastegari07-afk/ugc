@@ -27,7 +27,7 @@ m=k==0
 th=A[m][:,0]; lx=B[m][:,0]; lz=B[m][:,1]
 chain=(th<0.022)&(lz<0.33)&(lx>0.16)&(lx<0.37)
 pend=chain&(lz<0.095)
-tip=ss(0.075,0.012,th)**0.8*(~chain)                     # thin parts -> spikes and the horn tip turn white
+tip=np.maximum(ss(0.52,0.83,lz)**1.3, ss(0.028,0.010,th)*(lz<0.52))*(~chain)   # same progressive black->mauve fade on both horn tips (height-based) + thin spike tips
 ridges=0.5+0.5*np.sin(lz*90+low[m]*4)               # growth rings along the horn
 black=np.array([0.010,0.010,0.012])*(0.85+0.25*low[m][:,None]+0.12*mid[m][:,None])*(0.85+0.3*ridges[:,None])
 ivory=np.array([0.80,0.70,1.0])*(0.92+0.1*fine[m][:,None])
@@ -67,7 +67,7 @@ col[m]=np.where(inner[:,None],white,mauve*0.45); em[m]=np.where(inner,0.95,0.05)
 if NOEM:
     mH=k==0; th=A[mH][:,0]; lx=B[mH][:,0]; lz=B[mH][:,1]
     chain=(th<0.022)&(lz<0.33)&(lx>0.16)&(lx<0.37); pend=chain&(lz<0.095)
-    tip=ss(0.075,0.012,th)**0.8*(~chain)
+    tip=np.maximum(ss(0.52,0.83,lz)**1.3, ss(0.028,0.010,th)*(lz<0.52))*(~chain)
     c=col[mH]; lav=np.array([0.80,0.70,1.0])*(0.9+0.12*fine[mH][:,None])
     c=c*(1-tip[:,None])+lav*tip[:,None]
     c[pend]=np.array([0.86,0.78,1.0]); c[chain&~pend]=np.array([0.78,0.72,0.95]); col[mH]=c

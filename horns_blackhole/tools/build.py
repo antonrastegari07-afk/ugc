@@ -7,7 +7,7 @@ bpy.ops.import_scene.fbx(filepath=D+'/in/horns.fbx')
 src=[x for x in bpy.data.objects if x.type=='MESH'][0]
 sc=bpy.context.scene
 PARTS=['horn','hole','disk_top','disk_bot','disk_edge','halo']
-SCALE=1.55; SHIFT=0.0; DZ=1.88; DEC=1.0   # original horns: no decimation, original spacing
+SCALE=1.55; SHIFT=0.25; DZ=1.88; DEC=1.0   # original horns: no decimation, original spacing
 # ---------- horns: clean debris, decimate, measure thickness, place on the head ----------
 bm=bmesh.new(); bm.from_mesh(src.data); bm.verts.ensure_lookup_table()
 seen=set(); comps=[]
@@ -94,7 +94,7 @@ for v in bm.verts:
     side=1 if v.co.x>0 else -1
     v.co=Vector((v.co.x*SCALE+side*SHIFT, v.co.y*SCALE, v.co.z*SCALE+DZ))
 # ---------- black hole (Gargantua style) ----------
-BH=Vector((0,0.0,DZ+0.62*SCALE)); TILT=Matrix.Rotation(math.radians(12),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')
+BH=Vector((0,0.0,2.2+0.62)); TILT=Matrix.Rotation(math.radians(12),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')
 def rect(r,u,v): return (r[0]+(r[2]-r[0])*u, r[1]+(r[3]-r[1])*v)
 def addf(vs,uvs,part,aux=None,flip=False):
     if flip: vs=vs[::-1]; uvs=uvs[::-1]; aux=aux[::-1] if aux else None
@@ -114,7 +114,7 @@ def uvsphere(radius,ns,nr,rct,part,inward):
             elif i==nr-1: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j]],[uv[0],uv[1],uv[3]],[ax[0],ax[1],ax[3]]
             else: vs,u_,x_=[sv[i][j],sv[i][j1],sv[i+1][j1],sv[i+1][j]],uv,ax
             addf(vs,u_,part,x_,flip=not inward)
-K=0.75   # overall black hole scale (fits the gap between the original horns)
+K=0.82   # overall black hole scale
 RH,RS=0.155*K,0.25*K
 uvsphere(RH,10,6,(0.8,0.8,1.0,1.0),'hole',inward=False)          # event horizon: solid ball, as black as possible
 uvsphere(RS,12,8,(0.0,0.0,0.8,0.2),'halo',inward=True)          # lensing shell: inverted, only its far inner wall shows behind the ball
