@@ -4,7 +4,7 @@
 - Textures 1024 (SurfaceAppearance) : `Horns_Color` → ColorMap, `Horns_Normal` → NormalMap, `Horns_Metalness`, `Horns_Roughness`, `Horns_Emissive` → EmissiveMaskContent.
 - Réglages : AlphaMode = Overlay, EmissiveTint = (220, 210, 255) (lavande), EmissiveStrength ≈ 3–5. Attachment : HatAttachment.
 
-Cornes : modèle Tripo d’origine (forme et écartement inchangés, pas d’allègement ; seuls les petits débris flottants et le pendentif droit cassé ont été corrigés), textures refaites : corne noire, parties blanches passées en mauve pâle du trou noir.
+Cornes : modèle Tripo d’origine (pas d’allègement ; débris flottants retirés, pendentif droit cassé remplacé), écartées sur la tête. Textures = textures Tripo d’origine (.glb) : le blanc (rubans, pointes, chaînes) remplacé par le mauve pâle du trou noir, corps en noir profond PBR (métal noir + rugosité élevée, quasi aucun reflet), dégradé progressif noir → mauve au bout des deux cornes.
 Trou noir (style Gargantua) : boule noire mate (aucune lumière), coque sphérique aux normales inversées autour (on ne voit que sa paroi du fond, juste derrière la boule : c'est le halo qui englobe le trou sous tous les angles), disque d'accrétion fin à stries concentriques, un côté plus lumineux, touches blanc / mauve clair.
 
 ## Version sans emissive (`no_emissive/`)

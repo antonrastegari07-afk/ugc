@@ -101,12 +101,35 @@ def dilate(im,it=10):
 def save(nm,arr,mode):
     a=(np.clip(arr,0,1)*255+.5).astype(np.uint8); Image.fromarray(a if a.shape[-1]>1 else a[...,0],mode).save(f'out/{nm}.png')
 os.makedirs('out',exist_ok=True)
-save(PRE+'Color',dilate(img(col,3)),'RGB'); save(PRE+'Metalness',dilate(img(met,1)),'L')
-save(PRE+'Roughness',dilate(img(rgh,1)),'L'); save(PRE+'Emissive',dilate(img(em,1)),'L')
+# ---------------- ORIGINAL TRIPO TEXTURES on the horns (top-left 0.8 x 0.8 of the atlas = horn UVs scaled by 0.8)
+HS=int(round(S*0.8))
+def load(nm,mode='RGB'): return np.asarray(Image.open(f'in/tex_spiked_horns_3d_model_{nm}.png').convert(mode).resize((HS,HS),Image.LANCZOS),float)/255
+obc=load('basecolor'); onm=load('normal'); orm=load('rm')          # glTF: rm.G = roughness, rm.B = metallic
+Lum=obc@[0.299,0.587,0.114]; sat=obc.max(2)-obc.min(2)
+white=ss(0.30,0.62,Lum)*(1-ss(0.12,0.25,sat))                      # the white/grey parts (ribbons, spike tips, chains)
+VIO=np.array([0.80,0.68,1.0])
+vio=np.clip((0.35+0.75*Lum)[...,None]*VIO,0,1)                     # keep the original shading, in pale violet
+deep=obc*0.30                                                          # deep black body (light-absorbing)
+newc=deep*(1-white[...,None])+vio*white[...,None]
+# progressive black -> violet fade at the top of both horns (height based)
+LZ=dilate(img(B[:,1],1))[:HS,:HS,0]; MH=(pid[:HS,:HS]==0)
+fade=ss(0.58,0.86,LZ)**1.4*MH
+tipzone=ss(0.50,0.58,LZ)*MH                                          # top of the horn: one smooth black -> violet gradient
+grad=deep*(1-fade[...,None])+vio*fade[...,None]
+newc=newc*(1-tipzone[...,None])+grad*tipzone[...,None]
+newc=np.where(MH[...,None]|(LZ>0)[...,None],newc,newc)
+HORN_C=np.clip(newc,0,1); HORN_N=onm
+blackness=(1-white)*(1-tipzone*fade)
+HORN_M=orm[...,2]*(1-blackness)+1.0*blackness          # black metal + high roughness = almost no reflection
+HORN_R=orm[...,1]*(1-blackness)+0.88*blackness
+HORN_M=HORN_M*(1-tipzone*fade)+0.05*tipzone*fade; HORN_R=HORN_R*(1-tipzone*fade)+0.40*tipzone*fade   # violet tip reads as colour, not grey reflection
+HORN_E=0.0 if NOEM else np.clip(0.35*np.maximum(white,fade)*ss(0.45,0.8,LZ),0,1)
+_c=dilate(img(col,3)); _c[:HS,:HS]=HORN_C; save(PRE+'Color',_c,'RGB'); _m=dilate(img(met,1)); _m[:HS,:HS,0]=HORN_M; save(PRE+'Metalness',_m,'L')
+_r=dilate(img(rgh,1)); _r[:HS,:HS,0]=HORN_R; save(PRE+'Roughness',_r,'L'); _e=dilate(img(em,1)); _e[:HS,:HS,0]=HORN_E; _e[:HS,:HS,0]=np.maximum(_e[:HS,:HS,0],0); save(PRE+'Emissive',_e,'L')
 Hh=dilate(img(h,1))[...,0]
 Hh=np.asarray(Image.fromarray((np.clip(Hh*0.5+0.5,0,1)*255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(0.7)),float)/255
 gx=(np.roll(Hh,-1,1)-np.roll(Hh,1,1))*0.5; gy=(np.roll(Hh,1,0)-np.roll(Hh,-1,0))*0.5
 nm=np.stack([-gx*4,-gy*4,np.ones_like(Hh)],-1); nm/=np.linalg.norm(nm,axis=-1,keepdims=True)
-save(PRE+'Normal',nm*0.5+0.5,'RGB')
+_n=nm*0.5+0.5; _n[:HS,:HS]=HORN_N; save(PRE+'Normal',_n,'RGB')
 mh=k==0; th_all=A[mh][:,0]
 print('horn texels',mh.sum(),'chain share %.3f'%(((th_all<0.022)&(B[mh][:,1]<0.33)&(B[mh][:,0]>0.16)&(B[mh][:,0]<0.37)).mean()),'tip share %.3f'%((ss(0.045,0.006,th_all)>0.5).mean()))

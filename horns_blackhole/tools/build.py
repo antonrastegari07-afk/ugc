@@ -94,7 +94,7 @@ for v in bm.verts:
     side=1 if v.co.x>0 else -1
     v.co=Vector((v.co.x*SCALE+side*SHIFT, v.co.y*SCALE, v.co.z*SCALE+DZ))
 # ---------- black hole (Gargantua style) ----------
-BH=Vector((0,0.0,2.2+0.62)); TILT=Matrix.Rotation(math.radians(12),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')
+BH=Vector((0,0.0,2.2+0.62+0.18)); TILT=Matrix.Rotation(math.radians(12),3,'X')@Matrix.Rotation(math.radians(-8),3,'Y')
 def rect(r,u,v): return (r[0]+(r[2]-r[0])*u, r[1]+(r[3]-r[1])*v)
 def addf(vs,uvs,part,aux=None,flip=False):
     if flip: vs=vs[::-1]; uvs=uvs[::-1]; aux=aux[::-1] if aux else None
