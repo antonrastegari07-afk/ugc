@@ -7,7 +7,7 @@ HBASE=0.05      # socle (base band) height
 def top(th):
     # 8 points alternating tall/short, concave flanks and tips leaning sideways (swirl/flame look)
     k=(th/(2*math.pi))*NPT; f=k-math.floor(k); i=int(math.floor(k))%NPT
-    H=[0.33,0.17,0.27,0.17,0.27,0.17,0.27,0.17][i]
+    H=0.24
     p=0.62
     d=(p-f)/p if f<p else (f-p)/(1-p)
     return HB+H*(1-d)**1.9
