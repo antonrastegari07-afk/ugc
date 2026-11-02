@@ -2,14 +2,15 @@ import bpy, bmesh, math, sys, numpy as np
 from mathutils import Vector, Matrix
 D=sys.argv[-1]
 bpy.ops.wm.read_factory_settings(use_empty=True); sc=bpy.context.scene
-R0=0.40; T=0.035; HB=0.12; NPT=5; NA=60
-HBASE=0.075      # socle (base band) height
+R0=0.40; T=0.035; HB=0.11; NPT=8; NA=80
+HBASE=0.05      # socle (base band) height
 def top(th):
-    # 5 sharp points, heights 0.33 / 0.24 / 0.29 / 0.24 / 0.33 ... (front one the tallest), straight flanks
+    # 8 points alternating tall/short, concave flanks and tips leaning sideways (swirl/flame look)
     k=(th/(2*math.pi))*NPT; f=k-math.floor(k); i=int(math.floor(k))%NPT
-    H=[0.34,0.25,0.29,0.29,0.25][i]
-    d=abs(f-0.5)*2
-    return HB+H*(1-d)**1.15
+    H=[0.33,0.17,0.27,0.17,0.27,0.17,0.27,0.17][i]
+    p=0.62
+    d=(p-f)/p if f<p else (f-p)/(1-p)
+    return HB+H*(1-d)**1.9
 bm=bmesh.new(); uvl=bm.loops.layers.uv.new('UVMap'); pl=bm.faces.layers.int.new('part')
 GOLD=(0,0.25,1,1); GEM=(0,0,0.25,0.25); OUT=(0.5,0.0,0.6,0.1)
 def rect(r,u,v): return (r[0]+(r[2]-r[0])*u, r[1]+(r[3]-r[1])*v)
@@ -21,11 +22,11 @@ NZ=2
 cols=[]
 for j in range(NA):
     th=2*math.pi*j/NA; c,s=math.cos(th),math.sin(th); ht=top(th)
-    zs=[0.0,HBASE*0.5,HBASE,HBASE+0.0001]+[HBASE+0.0001+(ht-HBASE-0.0001)*k/NZ for k in range(1,NZ+1)]
+    zs=[0.0,HBASE,HBASE+0.0001]+[HBASE+0.0001+(ht-HBASE-0.0001)*k/NZ for k in range(1,NZ+1)]
     outer=[]; inner=[]
     for z in zs:
-        flare=0.06*max(z-HBASE,0)                      # walls open slightly outward
-        socle=0.05 if z<=HBASE+1e-6 else 0.0           # thick base band
+        flare=0.05*max(z-HBASE,0)+0.25*max(z-HBASE-0.18,0)**2*4                      # walls open slightly outward
+        socle=0.022 if z<=HBASE+1e-6 else 0.0           # thick base band
         ro=R0+flare+socle; ri=R0-T+flare
         outer.append(bm.verts.new((ro*s,-ro*c,z))); inner.append(bm.verts.new((ri*s,-ri*c,z)))
     cols.append((outer,inner,ht))

@@ -10,11 +10,11 @@ band=np.zeros((len(rows),3))
 zz=(v-0.25)/0.75                                    # height in studs on the outer wall
 t=np.clip(zz/0.45,0,1)
 c=gold_bot*(1-t)+gold_top*t
-socle=(zz<0.075).astype(float)
+socle=(zz<0.05).astype(float)
 c=c*(1-socle)+np.array([1.0,0.80,0.16])*socle
-line=np.exp(-((zz-0.077)/0.006)**2)*0.9                 # dark separation line above the socle
+line=np.exp(-((zz-0.052)/0.005)**2)*0.9                 # dark separation line above the socle
 c=c*(1-line)+np.array([0.10,0.06,0.02])*line
-hl=np.exp(-((zz-0.045)/0.008)**2)*0.75+np.exp(-((zz-0.20)/0.03)**2)*0.35   # socle shine line + soft band highlight
+hl=np.exp(-((zz-0.028)/0.007)**2)*0.75+np.exp(-((zz-0.20)/0.03)**2)*0.35   # socle shine line + soft band highlight
 c=c*(1-hl)+np.array([1.0,0.98,0.85])*hl
 inner=(v>=0.625)&(v<0.925)&False; c=np.where(inner,np.array([0.85,0.60,0.04]),c)
 edge=(v>=0.925); c=np.where(edge,np.array([1.0,0.90,0.50]),c)
