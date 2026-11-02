@@ -1,0 +1,497 @@
+--[[
+	🎃 JackScythe_Client — la faux de Jack côté joueur
+	📍 StarterPlayer ▸ StarterPlayerScripts ▸ JackScythe_Client   (LocalScript, placé par l'installeur)
+
+	• TA faux : animation de sortie (moulinet), garde à deux mains, dash (clic / tap / gâchette / Q / ButtonX).
+	• Les faux des AUTRES joueurs : mêmes effets, créés chez toi (rien n'est répliqué par le serveur),
+	  posés une fois toutes leurs pièces reçues, et seulement quand elles sont proches.
+	• La recharge se lit sur la lame : elle s'éteint après un dash et se rallume quand c'est prêt.
+--]]
+
+local Players               = game:GetService("Players")
+local ReplicatedStorage     = game:GetService("ReplicatedStorage")
+local RunService            = game:GetService("RunService")
+local ContextActionService  = game:GetService("ContextActionService")
+local TweenService          = game:GetService("TweenService")
+local KeyframeSequenceProvider = game:GetService("KeyframeSequenceProvider")
+
+local RS = ReplicatedStorage:WaitForChild("JackScythe")
+local Config = require(RS:WaitForChild("SCYTHE_CONFIG"))
+local FX = require(RS:WaitForChild("ScytheFX"))
+local remote = RS:WaitForChild("ScytheEvent")
+local player = Players.LocalPlayer
+local D = Config.Dash or {}
+
+local function isScythe(t) return t and t:IsA("Tool") and t:GetAttribute("JackScythe") == true end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🎬 animations (IDs de la config, sinon KeyframeSequences en Studio)
+-- ════════════════════════════════════════════════════════════════
+local temp = {}
+local function animId(key)
+	local id = Config.Animations and Config.Animations[key]
+	if type(id) == "number" then id = tostring(id) end
+	if type(id) == "string" and id ~= "" then return id:find("rbxassetid://") and id or ("rbxassetid://" .. id) end
+	if not RunService:IsStudio() then return nil end
+	if temp[key] ~= nil then return temp[key] or nil end
+	local f = ReplicatedStorage:FindFirstChild("NpcAnimations")
+	f = f and f:FindFirstChild("JackScythe")
+	local kfs = f and f:FindFirstChild("Scythe_" .. key)
+	local ok, res = false, nil
+	if kfs then ok, res = pcall(function() return KeyframeSequenceProvider:RegisterKeyframeSequence(kfs) end) end
+	temp[key] = ok and res or false
+	if not ok then warn("🎬 [Scythe] animation « " .. key .. " » introuvable (colle son ID dans SCYTHE_CONFIG ▸ Animations)") end
+	return ok and res or nil
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 🧍 MA FAUX
+-- ════════════════════════════════════════════════════════════════
+local cur = { tool = nil, tracks = {}, conns = {}, grip = nil }
+local lastDash = -99
+local airLeft = D.AirDashes or 1
+local dashing = false
+
+local function humanoidOf(c) return c and c:FindFirstChildOfClass("Humanoid") end
+
+local function loadTracks(char)
+	local hum = humanoidOf(char)
+	local an = hum and (hum:FindFirstChildOfClass("Animator") or hum:WaitForChild("Animator", 3))
+	if not an then return {} end
+	local out = {}
+	for _, k in ipairs({ "Hold", "Equip", "Dash" }) do
+		local id = animId(k)
+		if id then
+			local a = Instance.new("Animation")
+			a.AnimationId = id
+			local ok, tr = pcall(function() return an:LoadAnimation(a) end)
+			if ok and tr then
+				tr.Priority = ({ Hold = Enum.AnimationPriority.Action, Equip = Enum.AnimationPriority.Action2,
+					Dash = Enum.AnimationPriority.Action4 })[k]
+				tr.Looped = (k == "Hold")
+				out[k] = tr
+			end
+		end
+	end
+	return out
+end
+
+-- animations chargées UNE fois par personnage (préchargées à l'apparition) : la sortie joue tout de suite
+local trackCache = setmetatable({}, { __mode = "k" })
+local function tracksFor(char)
+	local t = trackCache[char]
+	if t and next(t) then return t end
+	t = loadTracks(char)
+	trackCache[char] = t
+	return t
+end
+
+-- ⚡ PRISE INSTANTANÉE : la poignée animable est créée ICI, chez moi, dès que je sors la faux.
+--    Avant, on attendait celle du serveur (aller-retour réseau) → faux figée un moment, puis l'animation.
+--    Celle du serveur (« ScytheGrip ») et la soudure par défaut (RightGrip) sont coupées CHEZ MOI seulement :
+--    les autres joueurs voient toujours celle du serveur, rien ne change pour eux ni pour le serveur.
+local function localGrip(tool, char)
+	local torso = char:FindFirstChild("Torso")
+	local handle = tool:FindFirstChild("Handle")
+	if not (torso and handle) then return nil end
+	local g = { conns = {} }
+	local function mute(j)
+		if j:IsA("JointInstance") and j ~= g.motor and (j.Name == "RightGrip" or j.Name == "ScytheGrip")
+			and (j.Part1 == handle or j.Part0 == handle) then
+			pcall(function() j.Enabled = false end)
+		end
+	end
+	local arm = char:FindFirstChild("Right Arm")
+	for _, holder in ipairs({ arm, torso }) do
+		if holder then
+			for _, j in ipairs(holder:GetChildren()) do mute(j) end
+			table.insert(g.conns, holder.ChildAdded:Connect(mute))
+		end
+	end
+	local m = Instance.new("Motor6D")
+	m.Name = "ScytheGripLocal"
+	m.C0 = tool:GetAttribute("GripC0") or CFrame.new()
+	m.C1 = tool:GetAttribute("GripC1") or CFrame.new()
+	m.Part0 = torso
+	m.Part1 = handle
+	m.Parent = torso
+	g.motor = m
+	return g
+end
+local function dropGrip()
+	local g = cur.grip
+	cur.grip = nil
+	if not g then return end
+	for _, c in ipairs(g.conns) do c:Disconnect() end
+	if g.motor then g.motor:Destroy() end
+end
+
+local function dirFromCamera(hrp)
+	local cam = workspace.CurrentCamera
+	local look = cam and cam.CFrame.LookVector or hrp.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.05 then flat = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z) end
+	flat = flat.Unit
+	local pitch = math.deg(math.asin(math.clamp(look.Y, -1, 1)))
+	local hum = humanoidOf(player.Character)
+	local grounded = hum and hum.FloorMaterial ~= Enum.Material.Air
+	-- MaxUpAngle 85 = presque tout droit vers le haut (SCYTHE_CONFIG ▸ Dash peut le changer)
+	pitch = math.clamp(pitch, grounded and 0 or -(D.MaxDownAngle or 18), D.MaxUpAngle or 85)
+	local r = math.rad(pitch)
+	return (flat * math.cos(r) + Vector3.new(0, math.sin(r), 0)).Unit, flat
+end
+
+-- 🎥 FOV du dash : le FOV « normal » est mémorisé UNE fois par coup de FOV, jamais pendant
+--    qu'un coup est en cours (sinon un dash pendant le retour gardait 78° comme « normal »).
+--    Si un autre script change le FOV pendant le coup (dialogue, cinématique), on ne l'écrase pas.
+local fovKick = { id = 0, base = nil, peak = nil }
+local function kickCamera()
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	if (D.FovKick or 0) > 0 then
+		fovKick.id += 1
+		local id = fovKick.id
+		-- le FOV normal publié par UIFocusSystem (jamais une valeur en plein zoom de menu)
+		if not fovKick.base then fovKick.base = cam:GetAttribute("UIFocusNormalFOV") or cam.FieldOfView end
+		local base = fovKick.base
+		fovKick.peak = base + D.FovKick
+		TweenService:Create(cam, TweenInfo.new(0.1, Enum.EasingStyle.Quad), { FieldOfView = fovKick.peak }):Play()
+		task.delay(0.12 + (D.Duration or 0.2), function()
+			if fovKick.id ~= id then return end
+			-- quelqu'un d'autre a pris la main sur le FOV : on le laisse faire
+			if math.abs(cam.FieldOfView - fovKick.peak) > 1 then fovKick.base = nil return end
+			local tw = TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad), { FieldOfView = base })
+			tw.Completed:Connect(function()
+				if fovKick.id == id then fovKick.base = nil end
+			end)
+			tw:Play()
+		end)
+	end
+	if (D.Shake or 0) > 0 then
+		local t0 = os.clock()
+		RunService:BindToRenderStep("JackScytheShake", Enum.RenderPriority.Camera.Value + 1, function()
+			local t = os.clock() - t0
+			local a = D.Shake * math.exp(-t * 9)
+			if t > 0.4 then RunService:UnbindFromRenderStep("JackScytheShake") return end
+			cam.CFrame = cam.CFrame * CFrame.Angles(math.noise(t * 30, 1) * a * 0.02, math.noise(t * 30, 5) * a * 0.02, 0)
+		end)
+	end
+end
+
+local function canDash(char)
+	if Config.Enabled == false or not cur.tool or dashing then return false end
+	-- la faux doit être VRAIMENT en main, sur le personnage actuel (sinon bouton mobile resté à l'écran après une mort)
+	if not char or cur.tool.Parent ~= char then return false end
+	if os.clock() - lastDash < (D.Cooldown or 3) then return false end
+	local hum = humanoidOf(char)
+	if not hum or hum.Health <= 0 or hum.Sit or hum.PlatformStand then return false end
+	local st = hum:GetState()
+	if st == Enum.HumanoidStateType.Climbing or st == Enum.HumanoidStateType.Swimming
+		or st == Enum.HumanoidStateType.Seated or st == Enum.HumanoidStateType.Dead then return false end
+	for _, a in ipairs(D.BlockedAttributes or {}) do
+		if player:GetAttribute(a) == true or char:GetAttribute(a) == true then return false end
+	end
+	if hum.FloorMaterial == Enum.Material.Air and airLeft <= 0 then return false end
+	return true
+end
+
+local function tryDash()
+	local char = player.Character
+	if not canDash(char) then return end
+	local hum = humanoidOf(char)
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+	if hum.FloorMaterial == Enum.Material.Air then airLeft -= 1 end
+	local dir, flat = dirFromCamera(hrp)
+	lastDash = os.clock()
+	dashing = true
+	remote:FireServer("Dash", dir)
+	local tr = cur.tracks.Dash
+	if tr then tr:Play(0.05) end
+	FX.Dash(cur.tool, char, dir, true)
+	local launched = false
+	local function launch()
+		if launched then return end
+		launched = true
+		if not hrp.Parent then dashing = false return end
+		hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flat)
+		local speed = D.Speed or 92
+		local a = Instance.new("Attachment")
+		a.Name = "JackScytheDash"
+		a.Parent = hrp
+		local lv = Instance.new("LinearVelocity")
+		lv.Name = "JackScytheDash"
+		lv.Attachment0 = a
+		lv.RelativeTo = Enum.ActuatorRelativeTo.World
+		lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+		-- force FINIE (avant : math.huge → contre un mur, la physique éjectait le joueur très loin)
+		lv.MaxForce = hrp.AssemblyMass * 4000
+		lv.VectorVelocity = dir * speed
+		lv.Parent = hrp
+		kickCamera()
+		local finished = false
+		local watch
+		-- 🧱 fin du dash : en touchant un obstacle → arrêt net, sans élan ; sinon le petit élan normal
+		local function finish(blocked)
+			if finished then return end
+			finished = true
+			if watch then watch:Disconnect() end
+			lv:Destroy() ; a:Destroy()
+			if hrp.Parent then
+				if blocked then
+					hrp.AssemblyLinearVelocity = Vector3.new(0, math.min(hrp.AssemblyLinearVelocity.Y, 0), 0)
+				else
+					local v = dir * speed * (D.CarryOver or 0.35)
+					hrp.AssemblyLinearVelocity = Vector3.new(v.X, math.max(v.Y, hrp.AssemblyLinearVelocity.Y * 0.3), v.Z)
+				end
+				-- 🛡️ anti-rebond : pendant un court instant, aucune vitesse ne dépasse l'élan du dash
+				--    (bloqué par un obstacle : pas plus vite qu'en marchant → aucun rebond possible)
+				local cap = blocked and 16 or (speed * (D.CarryOver or 0.35) + 20)
+				local t1 = os.clock()
+				local guard
+				guard = RunService.Heartbeat:Connect(function()
+					if not hrp.Parent or os.clock() - t1 > 0.35 then guard:Disconnect() return end
+					-- seulement l'horizontal et la montée : une chute normale n'est jamais freinée
+					local v = hrp.AssemblyLinearVelocity
+					local h = Vector3.new(v.X, 0, v.Z)
+					local hx = h.Magnitude > cap and h.Unit * cap or h
+					local vy = math.min(v.Y, cap)
+					if hx ~= h or vy ~= v.Y then hrp.AssemblyLinearVelocity = Vector3.new(hx.X, vy, hx.Z) end
+				end)
+			end
+			dashing = false
+		end
+		-- 👀 à chaque image : le CORPS ENTIER (bras compris) est lancé devant toi ; obstacle juste devant
+		--    → arrêt AVANT de le percuter. Et si quand même freiné (coin, objet fin…) → arrêt immédiat.
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { char }
+		params.RespectCanCollide = true
+		local BOX = Vector3.new(3.6, 4.6, 1.4)          -- R6 : largeur bras compris, des pieds à la tête
+		local t0 = os.clock()
+		watch = RunService.Heartbeat:Connect(function(dt)
+			if not hrp.Parent then finish(true) return end
+			local reach = dir * (speed * math.max(dt, 1 / 60) * 2 + 0.4)
+			local box = CFrame.new(hrp.Position + Vector3.new(0, -0.4, 0)) * hrp.CFrame.Rotation
+			local hit = workspace:Blockcast(box, BOX, reach, params)
+			if hit and hit.Normal:Dot(dir) < -0.25 then finish(true) return end
+			-- freiné par quelque chose que le lancer n'a pas vu : on n'insiste pas (sinon la physique renvoie)
+			if os.clock() - t0 > 0.06 and hrp.AssemblyLinearVelocity:Dot(dir) < speed * 0.5 then finish(true) end
+		end)
+		task.delay(D.Duration or 0.2, function() finish(false) end)
+	end
+	if tr then
+		local c
+		c = tr:GetMarkerReachedSignal("Launch"):Connect(function() c:Disconnect() launch() end)
+	end
+	task.delay(D.WindUp or 0.13, launch)
+end
+
+local function onDashAction(_, state)
+	if state == Enum.UserInputState.Begin then tryDash() end
+	return Enum.ContextActionResult.Pass
+end
+
+local function unequip()
+	for _, c in ipairs(cur.conns) do c:Disconnect() end
+	cur.conns = {}
+	for _, tr in pairs(cur.tracks) do pcall(function() tr:Stop(0.15) end) end
+	cur.tracks = {}
+	cur.tool = nil
+	dropGrip()
+	pcall(function() ContextActionService:UnbindAction("JackScytheDash") end)
+end
+
+-- la faux ne touche jamais le décor : sa grande lame contre un mur repoussait le joueur (rebond du dash)
+local function ghostTool(tool)
+	for _, p in ipairs(tool:GetDescendants()) do
+		if p:IsA("BasePart") then
+			p.CanCollide = false
+			p.Massless = true
+		end
+	end
+end
+
+local function equip(tool, char)
+	unequip()
+	cur.tool = tool
+	ghostTool(tool)
+	-- ⚡ poignée locale tout de suite (plus d'attente du serveur)
+	cur.grip = localGrip(tool, char)
+	if not cur.grip then
+		-- secours (pas de Torso / Handle) : on attend le moteur du serveur, comme avant
+		local torso = char:FindFirstChild("Torso")
+		local t0 = os.clock()
+		while os.clock() - t0 < 1.5 and cur.tool == tool do
+			local m = torso and torso:FindFirstChild("ScytheGrip")
+			if m and m.Part1 == tool:FindFirstChild("Handle") then break end
+			task.wait()
+		end
+	end
+	if cur.tool ~= tool then return end
+	cur.tracks = tracksFor(char)
+	-- le chargement des animations peut prendre un instant : faux rangée entre-temps → on ne branche rien
+	if cur.tool ~= tool or tool.Parent ~= char then
+		if cur.tool == tool then unequip() end
+		return
+	end
+	if cur.tracks.Hold then cur.tracks.Hold:Play(0.1) end
+	if cur.tracks.Equip then cur.tracks.Equip:Play(0.05) end
+	FX.Equip(tool, true)
+	table.insert(cur.conns, tool.Activated:Connect(tryDash))
+	local keys = D.Keys or {}
+	if #keys > 0 or D.MobileButton then
+		ContextActionService:BindAction("JackScytheDash", onDashAction, D.MobileButton == true, table.unpack(keys))
+		pcall(function()
+			ContextActionService:SetTitle("JackScytheDash", "DASH")
+			ContextActionService:SetPosition("JackScytheDash", UDim2.new(1, -170, 1, -150))
+		end)
+	end
+end
+
+-- ════════════════════════════════════════════════════════════════
+-- 👀 TOUTES LES FAUX (effets chez moi pour chaque joueur)
+--    Faux des AUTRES : les effets sont posés quand
+--      • ses pièces sont TOUTES arrivées par le réseau (avant : posés trop tôt → abandon, aucun effet)
+--      • et qu'elle est PROCHE de ma caméra (retirés quand elle s'éloigne : aucun coût de loin)
+-- ════════════════════════════════════════════════════════════════
+local NEAR = Config.OthersFXDistance or 120          -- studs : effets visibles en dessous
+local FAR = NEAR * 1.2                               -- studs : effets retirés au-dessus (pas de clignotement)
+local others = {}                                    -- [tool] = { char, conns, lastAdd, addedAt, on, dirty }
+
+local function structural(d)
+	if d.Name:sub(1, 3) == "FX_" then return false end   -- nos propres effets ne comptent pas
+	return d:IsA("BasePart") or d:IsA("Attachment") or d:IsA("JointInstance")
+		or d:IsA("SurfaceAppearance") or d:IsA("SurfaceGui")
+end
+local function partsOk(t)
+	return t:FindFirstChild("Handle") and t:FindFirstChild("Head") and t:FindFirstChild("Blade") and true or false
+end
+
+local function forgetOther(t)
+	local o = others[t]
+	if not o then return end
+	others[t] = nil
+	for _, c in ipairs(o.conns) do c:Disconnect() end
+	if o.on then FX.Detach(t) end
+end
+
+local function trackOther(t, char)
+	if others[t] then return end
+	local now = os.clock()
+	local o = { char = char, conns = {}, lastAdd = now, addedAt = now, on = false, dirty = false }
+	others[t] = o
+	-- une pièce arrive en retard : on attend qu'il n'en arrive plus, puis on repose les effets
+	table.insert(o.conns, t.DescendantAdded:Connect(function(d)
+		if not structural(d) then return end
+		o.lastAdd = os.clock()
+		if o.on then o.dirty = true end
+	end))
+end
+
+local acc = 0
+RunService.Heartbeat:Connect(function(dt)
+	acc += dt
+	if acc < 0.25 then return end
+	acc = 0
+	local cam = workspace.CurrentCamera
+	local from = cam and cam.CFrame.Position
+	local now = os.clock()
+	for t, o in pairs(others) do
+		if t.Parent ~= o.char or not o.char.Parent then
+			forgetOther(t)
+		else
+			local handle = t:FindFirstChild("Handle")
+			local ok = partsOk(t)
+			local dist = (from and handle) and (handle.Position - from).Magnitude or math.huge
+			if o.on and (o.dirty or not ok or dist > FAR) then
+				FX.Detach(t)
+				o.on, o.dirty = false, false
+			end
+			if not o.on and ok and dist <= NEAR and now - o.lastAdd > 0.4 then
+				if FX.Attach(t, false) then
+					o.on = true
+					-- elle vient d'être sortie : petite apparition, comme avant
+					if now - o.addedAt < 2.5 then FX.Equip(t, false) end
+				end
+			end
+		end
+	end
+end)
+
+local function watchCharacter(plr, char)
+	local mine = (plr == player)
+	char.ChildAdded:Connect(function(t)
+		if not isScythe(t) then return end
+		if mine then
+			FX.Attach(t, true)
+			task.spawn(equip, t, char)
+		else
+			trackOther(t, char)
+		end
+	end)
+	char.ChildRemoved:Connect(function(t)
+		if not isScythe(t) then return end
+		if mine then
+			FX.Detach(t)
+			if cur.tool == t then unequip() end
+		else
+			forgetOther(t)
+		end
+	end)
+	for _, t in ipairs(char:GetChildren()) do
+		if isScythe(t) then
+			if mine then
+				FX.Attach(t, true)
+				task.spawn(equip, t, char)
+			else
+				trackOther(t, char)
+				others[t].addedAt = -99      -- déjà en main avant mon arrivée : pas d'animation de sortie
+			end
+		end
+	end
+	if mine then
+		-- nouveau personnage : l'ancienne faux (et le bouton DASH mobile) ne restent jamais branchés
+		if cur.tool and cur.tool.Parent ~= char then unequip() end
+		-- précharge les animations dès l'apparition (la 1re sortie est instantanée aussi)
+		task.spawn(function()
+			if char.Parent and not trackCache[char] then tracksFor(char) end
+		end)
+		local hum = char:WaitForChild("Humanoid", 10)
+		if hum then
+			-- mort : la faux tombe avec le personnage (Roblox ne signale pas toujours qu'elle a été rangée)
+			hum.Died:Connect(function()
+				if cur.tool and cur.tool:IsDescendantOf(char) then unequip() end
+			end)
+			hum.StateChanged:Connect(function(_, new)
+				if new == Enum.HumanoidStateType.Landed or new == Enum.HumanoidStateType.Running then airLeft = D.AirDashes or 1 end
+			end)
+		end
+	end
+end
+
+local function watchPlayer(plr)
+	plr.CharacterAdded:Connect(function(c) watchCharacter(plr, c) end)
+	if plr.Character then watchCharacter(plr, plr.Character) end
+end
+Players.PlayerAdded:Connect(watchPlayer)
+for _, p in ipairs(Players:GetPlayers()) do task.spawn(watchPlayer, p) end
+
+-- effets du dash des autres joueurs (le serveur relaie seulement un « il a dashé ») : seulement si elle est proche
+remote.OnClientEvent:Connect(function(kind, who, dir)
+	if kind == "FX" and typeof(who) == "Instance" and who:IsA("Player") and who ~= player then
+		local c = who.Character
+		if not c then return end
+		for _, t in ipairs(c:GetChildren()) do
+			if isScythe(t) then
+				if FX.Get(t) then FX.Dash(t, c, dir, false) end
+				break
+			end
+		end
+	end
+end)
+
+-- recharge lisible sur la lame
+RunService.Heartbeat:Connect(function()
+	if cur.tool then FX.SetCooldown(cur.tool, (os.clock() - lastDash) / (D.Cooldown or 3)) end
+end)
