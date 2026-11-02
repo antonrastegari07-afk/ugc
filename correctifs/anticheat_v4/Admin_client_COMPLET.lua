@@ -20793,7 +20793,11 @@ end)()
 		local shadow = d.shadow == true
 
 		note(body, 1,
-			"Chaque mode a sa fiche complète, et les trois vivent en même temps. "
+			"📄 Tous ces réglages sont aussi dans ServerScriptService ▸ ANTICHEAT_CONFIG "
+				.. "(fichier VERSION " .. tostring(d.fileVersion or "?") .. "). Ce que tu "
+				.. "enregistres ICI s'applique tout de suite et reste actif tant que tu ne "
+				.. "montes pas VERSION dans le fichier.\n\n"
+				.. "Chaque mode a sa fiche complète, et les trois vivent en même temps. "
 				.. "Tu peux régler le mode ban pendant que tu tournes en mode UGC : "
 				.. "seule la fiche du mode SÉLECTIONNÉ ci-dessous s'applique.\n\n"
 				.. "Le point ● marque ce qui est réellement en vigueur en ce moment.",

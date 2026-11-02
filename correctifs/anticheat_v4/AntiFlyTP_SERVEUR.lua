@@ -50,7 +50,10 @@ local ServerStorage      = game:GetService("ServerStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 
 --════════════════════════════════════════════════════════════════════════════
--- ⚙️⚙️⚙️ CONFIGURATION ⚙️⚙️⚙️
+-- ⚙️ CONFIGURATION
+--   ⚠️ NE RÈGLE RIEN ICI : tout se règle dans ServerScriptService ▸
+--      ANTICHEAT_CONFIG (sections ⑧ à ⑩). Les valeurs ci-dessous ne servent
+--      que de secours si ce fichier est absent.
 --════════════════════════════════════════════════════════════════════════════
 local CONFIG = {
 	-- ────────────────────────────────────────────────────────────────
@@ -479,6 +482,47 @@ local CONFIG = {
 		RealBanStore  = "AntiFlyTP_RealBan_v1",
 	},
 }
+
+--════════════════════════════════════════════════════════════════════════════
+-- 📄 LECTURE DE ANTICHEAT_CONFIG (ServerScriptService)
+--    Chaque clé écrite dans le fichier remplace la valeur de secours
+--    ci-dessus. La sévérité (Severite) s'applique ensuite, sauf "custom".
+--════════════════════════════════════════════════════════════════════════════
+do
+	local SSS = game:GetService("ServerScriptService")
+	local m = SSS:FindFirstChild("ANTICHEAT_CONFIG") or SSS:WaitForChild("ANTICHEAT_CONFIG", 10)
+	local F
+	if m and m:IsA("ModuleScript") then
+		local ok, r = pcall(require, m)
+		if ok and type(r) == "table" then F = r
+		else warn("🛡️ [AntiFlyTP] ANTICHEAT_CONFIG illisible : " .. tostring(r)) end
+	else
+		warn("🛡️ [AntiFlyTP] ANTICHEAT_CONFIG introuvable dans ServerScriptService → valeurs de secours")
+	end
+	if F then
+		local function copyInto(section, src)
+			if type(src) ~= "table" then return end
+			CONFIG[section] = CONFIG[section] or {}
+			for k, v in pairs(src) do CONFIG[section][k] = v end
+		end
+		local D = (type(F.Detection) == "table") and F.Detection or {}
+		local M = (type(F.MouvementsLegitimes) == "table") and F.MouvementsLegitimes or {}
+		if D.AnalyseActive ~= nil then CONFIG.Enabled = (D.AnalyseActive == true) end
+		if D.LogsDetailles ~= nil then CONFIG.VerboseLogs = (D.LogsDetailles == true) end
+		if type(D.Severite) == "string" then CONFIG.Preset = D.Severite end
+		for _, k in ipairs({ "Sampling", "Fly", "Teleport", "Speed", "Punishment", "Confidence" }) do
+			copyInto(k, D[k])
+		end
+		for _, k in ipairs({ "LegitTools", "LegitAttributes", "Launchers", "Ragdoll", "Arena",
+			"MovementBoost", "Grace", "Hooks", "ServerMoves", "Floor", "Zipline" }) do
+			copyInto(k, M[k])
+		end
+		if M.ScaleHoverWithGravity ~= nil then CONFIG.ScaleHoverWithGravity = (M.ScaleHoverWithGravity == true) end
+		if tonumber(M.GlobalToleranceTrail) then CONFIG.GlobalToleranceTrail = tonumber(M.GlobalToleranceTrail) end
+		if type(F.JamaisAnalyses) == "table" then CONFIG.Whitelist.UserIds = F.JamaisAnalyses end
+		print("🛡️ [AntiFlyTP] Réglages lus dans ANTICHEAT_CONFIG")
+	end
+end
 
 --════════════════════════════════════════════════════════════════════════════
 -- 🔌 LIEN AVEC LA CONFIG PARTAGÉE (mode + shadow)

@@ -37,7 +37,7 @@
 --      essaie d'acheter une UGC qu'il pourrait normalement se payer.
 --    • Fiche de sanction avec la RAISON EXACTE (en clair) et les derniers
 --      signaux ; les joueurs restreints sortent des classements anti-cheat.
---    • Ta config enregistrée est mise à jour UNE fois (migration v2).
+--    • TOUS les réglages sont dans ServerScriptService ▸ ANTICHEAT_CONFIG.
 --════════════════════════════════════════════════════════════════════════════
 
 local Players            = game:GetService("Players")
@@ -47,19 +47,28 @@ local ReplicatedStorage  = game:GetService("ReplicatedStorage")
 local ServerStorage      = game:GetService("ServerStorage")
 
 --════════════════════════════════════════════════════════════════════════════
--- ⚙️ RÉGLAGES PAR DÉFAUT
---    Ce sont les valeurs du tout premier démarrage. Ensuite, c'est ce que tu
---    règles dans le panel admin qui fait foi (persisté en DataStore).
+-- ⚙️ VALEURS DE SECOURS
+--   ⚠️ NE RÈGLE RIEN ICI : tout se règle dans ServerScriptService ▸
+--      ANTICHEAT_CONFIG (ou dans le panel). Les valeurs ci-dessous ne servent
+--      que si ce fichier est absent ; elles sont alors les plus douces
+--      possibles côté sanction tant que la config n'est pas lue.
 --════════════════════════════════════════════════════════════════════════════
---  🟢 À l'installation de la V4, l'anti-cheat est ACTIVÉ (shadow coupé,
---     mode privation d'UGC). Mets false si tu veux d'abord observer.
---     ⚠️ Ne joue qu'UNE fois (migration) : ensuite c'est le panel qui décide.
-local ACTIVATE_ON_INSTALL = true
-
-local CONFIG_VERSION = 2
+local ACFILE = nil
+do
+	local SSS = game:GetService("ServerScriptService")
+	local m = SSS:FindFirstChild("ANTICHEAT_CONFIG") or SSS:WaitForChild("ANTICHEAT_CONFIG", 10)
+	if m and m:IsA("ModuleScript") then
+		local ok, r = pcall(require, m)
+		if ok and type(r) == "table" then ACFILE = r
+		else warn("🚫 [UGCRestrict] ANTICHEAT_CONFIG illisible : " .. tostring(r)) end
+	else
+		warn("🚫 [UGCRestrict] ANTICHEAT_CONFIG introuvable dans ServerScriptService → valeurs de secours")
+	end
+end
+--  VERSION du fichier : quand elle change, le fichier écrase le panel.
+local FILE_VERSION = (ACFILE and tonumber(ACFILE.VERSION)) or 0
 
 local DEFAULTS = {
-	configVersion = CONFIG_VERSION,
 
 	--  🤫 DISCRÉTION — le joueur ne voit RIEN de ses détections ni de ses
 	--     warnings : aucune carte, aucun retour en arrière, aucun kick
@@ -296,6 +305,54 @@ local DEFAULTS = {
 }
 
 --════════════════════════════════════════════════════════════════════════════
+-- 📄 LES RÉGLAGES DE ANTICHEAT_CONFIG (sections ① à ⑦) DEVIENNENT LES DÉFAUTS
+--════════════════════════════════════════════════════════════════════════════
+if ACFILE then
+	local F = ACFILE
+	local function tbl(x) return (type(x) == "table") and x or {} end
+	local A, S, D, P, B, T = tbl(F.Activation), tbl(F.Sanction), tbl(F.Discretion),
+		tbl(F.Preuve), tbl(F.ModeBan), tbl(F.ModeTest)
+	local function set(t, k, v)
+		if v ~= nil and (t[k] == nil or type(v) == type(t[k])) then t[k] = v end
+	end
+	set(DEFAULTS, "mode", A.Mode)
+	set(DEFAULTS, "shadow", A.ModeTest)
+	set(DEFAULTS, "analyzeAdmins", A.AnalyserLesAdmins)
+	set(DEFAULTS, "warningsToRestrict", S.WarningsAvantSanction)
+	set(DEFAULTS, "notifyOnRestrict", S.MessageALaSanction)
+	set(DEFAULTS, "kickOnRestrict", S.KickALaSanction)
+	local u = DEFAULTS.modes.ugc
+	set(u, "warningsToPunish", S.WarningsAvantSanction)
+	set(u, "durationHours", S.DureeHeures)
+	set(u, "notifyOnPunish", S.MessageALaSanction)
+	set(u, "remindOnJoin", S.RappelAChaqueConnexion)
+	set(u, "kickOnPunish", S.KickALaSanction)
+	set(u, "blockGifts", S.BloquerDons)
+	set(u, "blockRebirth", S.BloquerRebirth)
+	set(u, "revealOnlyWhenAffordable", D.MontrerSanctionSeulementALAchat)
+	set(DEFAULTS, "silent", D.JoueurNeVoitRien)
+	set(DEFAULTS, "warningExpiryDays", D.WarningDisparaitApresJours)
+	set(DEFAULTS, "minConfidenceCount", P.CompterAPartirDe)
+	set(DEFAULTS, "minConfidenceWarn", P.AvertirAPartirDe)
+	set(DEFAULTS, "minConfidenceSanction", P.SanctionnerAPartirDe)
+	local b = DEFAULTS.modes.ban
+	set(b, "warningsToPunish", B.WarningsAvantBan)
+	set(b, "banDays", B.DureeJours)
+	set(b, "kickBeforeBan", B.KickAvantBan)
+	set(b, "alsoRestrictUGC", B.PriverAussiUGC)
+	set(b, "notifyBeforeKick", B.PanneauAvantKick)
+	set(b, "wipePoints", B.RemettrePointsAZero)
+	local t = DEFAULTS.modes.test
+	set(t, "correctPosition", T.CorrigerPosition)
+	set(t, "notifyPlayer", T.JoueurVoitCartes)
+	set(t, "logToConsole", T.LogConsole)
+	set(t, "separateStore", T.StockageSepare)
+	set(t, "suggestAfterDays", T.RappelApresJours)
+	set(DEFAULTS, "supportMessage", F.MessageSanction)
+	for k, v in pairs(tbl(F.Messages)) do set(DEFAULTS.messages, k, v) end
+end
+
+--════════════════════════════════════════════════════════════════════════════
 -- 💾 STORES
 --════════════════════════════════════════════════════════════════════════════
 local CONFIG_STORE  = DataStoreService:GetDataStore("AntiCheat_Config_v1")
@@ -317,6 +374,8 @@ local pendingTries = {}          -- [userId] = nb de tentatives d'achat non enco
 local CACHE_TTL    = 120         -- s : au-delà, on relit (un autre serveur a pu lever la sanction)
 
 for k, v in pairs(DEFAULTS) do cfg[k] = v end
+--  Tant que la config n'est pas lue (DataStore muet), personne n'est sanctionné.
+cfg.shadow = true
 
 --════════════════════════════════════════════════════════════════════════════
 -- 💬 RENDU DES GABARITS DE MESSAGE
@@ -454,9 +513,9 @@ end
 --    ici AUSSI, sinon le serveur refusera toutes ses actions (comportement
 --    voulu : le client ne décide jamais qui est admin).
 --════════════════════════════════════════════════════════════════════════════
-local ADMIN_IDS = {
-	3203521470, 11017023724, 8456613930, 8142402169, 10420404767,
-}
+local ADMIN_IDS = (ACFILE and type(ACFILE.Admins) == "table" and #ACFILE.Admins > 0)
+	and ACFILE.Admins
+	or { 3203521470, 11017023724, 8456613930, 8142402169, 10420404767 }
 local adminSet = {}
 for _, id in ipairs(ADMIN_IDS) do adminSet[id] = true end
 
@@ -585,28 +644,8 @@ local function sanitizeConfig(raw)
 	out.messages.nudgeCooldown = math.clamp(
 		math.floor(tonumber(out.messages.nudgeCooldown) or 10), 0, 300)
 
-	--════════════════════════════════════════════════════════════════════
-	-- 🔄 MIGRATION V4 (une seule fois)
-	--    Une config enregistrée AVANT la V4 garde ses anciennes valeurs
-	--    (2 warnings, cartes visibles, rappel à chaque connexion). On applique
-	--    une fois les réglages demandés, puis le panel reprend la main.
-	--════════════════════════════════════════════════════════════════════
-	if (tonumber(raw.configVersion) or 1) < CONFIG_VERSION then
-		out.silent = true
-		out.warningExpiryDays = DEFAULTS.warningExpiryDays
-		out.warningsToRestrict = 1
-		out.modes.ugc.warningsToPunish = 1
-		out.modes.ugc.remindOnJoin = false
-		out.modes.ugc.revealOnlyWhenAffordable = true
-		out.messages.nudgeEnabled = false
-		out.messages.warnEnabled = false
-		if ACTIVATE_ON_INSTALL then
-			out.mode = "ugc"
-			out.shadow = false
-		end
-		out._migrated = true
-	end
-	out.configVersion = CONFIG_VERSION
+	--  Version du fichier ANTICHEAT_CONFIG d'où vient cette config.
+	out.fileVersion = tonumber(raw.fileVersion)
 
 	--  Un titre vide casserait l'affichage : on retombe sur le défaut.
 	for _, k in ipairs({ "nudgeTitle", "warnTitle", "restrictTitle",
@@ -623,24 +662,26 @@ local function loadConfig()
 	for attempt = 1, 3 do
 		local ok, data = pcall(function() return CONFIG_STORE:GetAsync("config") end)
 		if ok then
-			cfg = sanitizeConfig(data)
-			cfgLoaded = true
-			if cfg._migrated then
-				cfg._migrated = nil
-				--  On écrit la config migrée UNE fois (UpdateAsync : si un autre
-				--  serveur l'a déjà fait, on garde la sienne).
+			local stored = (type(data) == "table") and tonumber(data.fileVersion) or nil
+			if ACFILE and stored ~= FILE_VERSION then
+				--  📄 Nouvelle VERSION de ANTICHEAT_CONFIG (ou 1er lancement) :
+				--     le FICHIER écrase ce que le panel avait enregistré.
+				cfg = sanitizeConfig(nil)
+				cfg.fileVersion = FILE_VERSION
 				pcall(function()
 					CONFIG_STORE:UpdateAsync("config", function(old)
-						if type(old) == "table" and (tonumber(old.configVersion) or 1) >= CONFIG_VERSION then
+						--  Un autre serveur l'a déjà fait : on garde la sienne.
+						if type(old) == "table" and tonumber(old.fileVersion) == FILE_VERSION then
 							return nil
 						end
 						return cfg
 					end)
 				end)
-				log("Config migrée en V4 (discret, 1 warning, expiration "
-					.. tostring(cfg.warningExpiryDays) .. " j"
-					.. (ACTIVATE_ON_INSTALL and ", anti-cheat ACTIVÉ)" or ")"))
+				log(string.format("Réglages pris dans ANTICHEAT_CONFIG (VERSION %d)", FILE_VERSION))
+			else
+				cfg = sanitizeConfig(data)
 			end
+			cfgLoaded = true
 			log(string.format("Config chargée — mode=%s | shadow=%s | seuil=%d warning(s)",
 				cfg.mode, tostring(cfg.shadow), cfg.warningsToRestrict))
 			cfgChanged:Fire(cfg)
@@ -657,7 +698,7 @@ end
 
 local function saveConfig(newCfg, byName)
 	local clean = sanitizeConfig(newCfg)
-	clean._migrated = nil
+	clean.fileVersion = FILE_VERSION
 	local ok = pcall(function()
 		CONFIG_STORE:SetAsync("config", clean)
 	end)
@@ -680,7 +721,6 @@ pcall(function()
 		local d = msg and msg.Data
 		if type(d) == "table" and type(d.cfg) == "table" then
 			cfg = sanitizeConfig(d.cfg)
-			cfg._migrated = nil
 			cfgLoaded = true
 			cfgChanged:Fire(cfg)
 			log("Config synchronisée depuis un autre serveur")
