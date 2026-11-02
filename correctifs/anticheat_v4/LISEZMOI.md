@@ -13,7 +13,7 @@ J'ai passé en revue les 724 scripts qui bougent un joueur, soit 224 scripts dif
 | Où dans le jeu | Problème | Correction |
 |---|---|---|
 | **Tapis roulant « Hard obby part »** (WorkspaceScriptsManager, 50 studs/s) | Un joueur qui marche dessus va à environ 66 studs/s pendant plusieurs secondes. Le maximum autorisé était de 37 → **warning VITESSE**. | La vitesse de la pièce sous les pieds est ajoutée au maximum. Elle reste en mémoire 1,5 s après avoir quitté le tapis. Ça couvre aussi les plateformes mobiles. |
-| **Météo Admin Abuse** (gravité jusqu'à 5, saut jusqu'à 500, vitesse jusqu'à 400) | Le script appelait `_G.AntiFlyTP.SetTestMode(true)` pour mettre l'anti-cheat en pause, mais cette fonction ne faisait plus rien. Avec une gravité très basse, un simple saut reste « immobile en l'air » plus de 2,5 s → **warning VOL**. | `SetTestMode(true/false)` met de nouveau l'analyse en pause pendant la météo, plus 6 s après. En plus, la limite de vol stationnaire grandit quand la gravité baisse. |
+| **Météo Admin Abuse** (gravité jusqu'à 5, saut jusqu'à 500, vitesse jusqu'à 400) | Le script appelait `_G.AntiFlyTP.SetTestMode(true)` pour mettre l'anti-cheat en pause, mais cette fonction ne faisait plus rien. Avec une gravité très basse, un simple saut reste « immobile en l'air » plus de 2,5 s → **warning VOL**. | Nouvelle fonction `PausePhysics(true/false)` : pause pendant la météo, plus 6 s après, et 15 min au maximum. AdminAbuse_Server l'appelle (4 mots à changer). En plus, la limite de vol stationnaire grandit quand la gravité baisse. `SetTestMode` reste sans effet, pour que le vieux bouton « Toggled global test mode » ne mette jamais l'anti-cheat en pause. |
 | **Téléportations faites par le serveur sans prévenir l'anti-cheat** (« Tp finish obby shop », « system ancer reculer level », portails…) | Le joueur est déplacé loin d'un coup. Le seul filet était la liste des « destinations sûres », qui ne couvre pas tout → **warning TÉLÉPORT**. | Détection automatique : quand un script **serveur** écrit la position, l'anti-cheat le voit et ne compte pas ce saut. Le joueur, lui, ne peut pas déclencher ce signal. Le vol et la vitesse restent mesurés juste après. |
 | **Tyrolienne** | L'attribut `Ziplining` désactivait toute l'analyse. Un tricheur pouvait s'accrocher, ne jamais envoyer « Stop » et voler partout : **faille**. | L'exemption ne vaut plus que si le joueur est à moins de 18 studs d'une corde « Tirolienne ». |
 
@@ -64,20 +64,21 @@ Avant, tout s'effaçait d'un coup seulement si le dernier warning datait de plus
 
 ---
 
-## 2. Installation (6 étapes)
+## 2. Installation (7 étapes)
 
 > Les fichiers « COMPLET » sont faits à partir de ta version actual_version_1.0. Si tu as modifié l'un de ces scripts depuis, utilise plutôt les fichiers « REMPLACEMENTS ».
 
 1. **ServerScriptService ▸ anti fly/tp server** : remplace tout par `AntiFlyTP_SERVEUR.lua`.
 2. **ServerScriptService ▸ AntiCheat_UGCRestrict** : remplace tout par `AntiCheat_UGCRestrict_SERVEUR.lua`.
 3. **StarterPlayerScripts ▸ UGCRestrictNotify** : remplace tout par `UGCRestrictNotify_CLIENT.lua`.
-4. **ServerScriptService ▸ time** : remplace tout par `time_COMPLET.lua`, ou fais les 2 remplacements de `time_REMPLACEMENTS.md`.
+4. **ServerScriptService ▸ time** : remplace tout par `time_COMPLET.lua`, ou fais les 5 petits remplacements de `time_REMPLACEMENTS.md`.
 5. **ServerScriptService ▸ Admin server** : remplace tout par `Admin_server_COMPLET.lua`, ou fais ces 2 remplacements :
    - `getACBoard.OnServerInvoke = function(player, boardId, n)` devient la fonction `acFilterRestricted` suivie de `local function getACBoardRaw(player, boardId, n)` ;
    - juste avant `getGameBoard.OnServerInvoke = function(player, boardId, n)`, ajoute le nouveau `getACBoard.OnServerInvoke` qui appelle `acFilterRestricted(getACBoardRaw(...))`.
 
    Le texte exact est dans `Admin_server_COMPLET.lua`, autour de la ligne 266.
-6. **ServerStorage ▸ AdminClientScripts ▸ Admin_client** : remplace tout par `Admin_client_COMPLET.lua`, ou fais les 12 remplacements de `Admin_client_REMPLACEMENTS.md`.
+6. **ServerScriptService ▸ AdminAbuse_Server**, fonction `setPhysicsGrace` : remplace les 4 `SetTestMode` par `PausePhysics`.
+7. **ServerStorage ▸ AdminClientScripts ▸ Admin_client** : remplace tout par `Admin_client_COMPLET.lua`, ou fais les 12 remplacements de `Admin_client_REMPLACEMENTS.md`.
 
 ### Recommandé
 

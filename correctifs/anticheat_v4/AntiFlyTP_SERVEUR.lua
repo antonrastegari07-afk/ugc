@@ -10,7 +10,7 @@
 --    • Tapis roulants / plateformes mobiles : la vitesse du sol est ajoutée.
 --    • Gravité basse (Admin Abuse) : le vol stationnaire tient compte de la gravité.
 --    • Tyrolienne : l'exemption ne vaut que près d'une corde (anti-abus).
---    • Météo Admin Abuse : SetTestMode(true) met enfin l'analyse en pause.
+--    • Météo Admin Abuse : PausePhysics(true) met l'analyse en pause (15 min max).
 --    • Raison de sanction lisible et précise, enregistrée dans la fiche.
 --
 --  📍 OÙ ? ServerScriptService (remplace intégralement ton ancien script).
@@ -422,7 +422,7 @@ local CONFIG = {
 	--  d'autant (196.2 / gravité actuelle).
 	ScaleHoverWithGravity = true,
 
-	--  Pause globale demandée par la météo Admin Abuse (SetTestMode), puis
+	--  Pause globale demandée par la météo Admin Abuse (PausePhysics), puis
 	--  quelques secondes de grâce après la fin.
 	GlobalToleranceTrail = 6,
 
@@ -1657,22 +1657,30 @@ local function moveBoostFor(player)
 	}
 end
 
---  🧵 Cordes de tyrolienne (mises en cache, relues si la map change).
-local ropes, ropesAt = {}, -1000
+--  🧵 Cordes de tyrolienne : relevées une fois, puis tenues à jour quand une
+--     map est chargée (aucun parcours complet du workspace pendant le jeu).
+local ropes, ropesReady = {}, false
+local function isRope(inst)
+	local Z = CONFIG.Zipline
+	return inst:IsA("BasePart") and inst.Name == Z.Rope and inst.Parent
+		and inst.Parent:IsA("Model") and inst.Parent.Name:sub(1, #Z.Prefix) == Z.Prefix
+end
+task.spawn(function()
+	for i, d in ipairs(workspace:GetDescendants()) do
+		if isRope(d) then ropes[d] = true end
+		if i % 2000 == 0 then task.wait() end
+	end
+	ropesReady = true
+end)
+workspace.DescendantAdded:Connect(function(d)
+	if isRope(d) then ropes[d] = true end
+end)
 local function nearZipline(pos)
 	local Z = CONFIG.Zipline
-	if os.clock() - ropesAt > 20 then
-		ropesAt = os.clock()
-		ropes = {}
-		for _, m in ipairs(workspace:GetDescendants()) do
-			if m:IsA("Model") and m.Name:sub(1, #Z.Prefix) == Z.Prefix then
-				local c = m:FindFirstChild(Z.Rope)
-				if c and c:IsA("BasePart") then table.insert(ropes, c) end
-			end
-		end
-	end
-	for _, c in ipairs(ropes) do
-		if c.Parent then
+	if not ropesReady then return true end   -- tout début de serveur : on ne juge pas
+	for c in pairs(ropes) do
+		if not c.Parent then ropes[c] = nil
+		else
 			--  distance au SEGMENT de la corde (pas à son centre)
 			local sz = c.Size
 			local axis, half
@@ -1703,7 +1711,7 @@ local function anyFullBypassAttribute(player, char)
 	return false
 end
 
---  ⛅ Pause globale (météo Admin Abuse via SetTestMode).
+--  ⛅ Pause globale (météo Admin Abuse via PausePhysics).
 local globalToleranceOn, globalToleranceUntil = false, 0
 local function globalTolerance()
 	return globalToleranceOn or os.clock() < globalToleranceUntil
@@ -3310,22 +3318,31 @@ _G.AntiFlyTP = {
 	-- ── Compat panel : « mode test » = case shadow de la config partagée ──
 	IsTestMode = function() return acShadow() end,
 	IsSilent   = function() return not acShadowCorrect() end,
-	--  ⛅ Utilisé par la météo Admin Abuse : pendant une météo physique
-	--     (vitesse, saut, gravité), l'analyse est mise en PAUSE pour tout le
-	--     monde, puis reprend après quelques secondes de grâce. Avant, cet
-	--     appel ne faisait plus rien et les joueurs étaient mesurés pendant
-	--     la météo. Le mode shadow, lui, se règle dans le panel.
-	SetTestMode = function(on)
+	--  ⛅ PAUSE MÉTÉO (Admin Abuse) : pendant une météo physique (vitesse,
+	--     saut, gravité), l'analyse est en PAUSE pour tout le monde, puis
+	--     reprend après quelques secondes. Coupée d'office après 15 min
+	--     (filet si la fin de météo n'arrive jamais).
+	PausePhysics = function(on)
 		if on == true then
 			globalToleranceOn = true
+			globalToleranceUntil = os.clock() + 900
 			print("⛅ [AntiFlyTP] Analyse en pause (météo Admin Abuse)")
+			task.delay(900, function()
+				if globalToleranceOn and os.clock() >= globalToleranceUntil - 1 then
+					globalToleranceOn = false
+					print("⛅ [AntiFlyTP] Pause météo coupée automatiquement (15 min)")
+				end
+			end)
 		else
-			if globalToleranceOn then
-				globalToleranceUntil = os.clock() + (CONFIG.GlobalToleranceTrail or 6)
-			end
 			globalToleranceOn = false
+			globalToleranceUntil = os.clock() + (CONFIG.GlobalToleranceTrail or 6)
 			print("⛅ [AntiFlyTP] Analyse reprise (fin de la météo)")
 		end
+	end,
+	--  Ancien bouton « mode test » : il ne fait rien ici (le shadow se règle
+	--  dans le panel ⚙️, c'est le seul chemin qui persiste et synchronise).
+	SetTestMode = function()
+		print("🛡️ Utilise le panel admin (⚙️ Réglages → Mode test) pour le shadow.")
 	end,
 	IsPaused = function() return globalTolerance() end,
 	GetActiveWarnings = function(userId)
