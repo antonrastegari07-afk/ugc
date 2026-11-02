@@ -10,6 +10,9 @@
 --  Les outils permanents (gamepass, sauvegardés, Scythe…) sont redonnés par leurs propres
 --  systèmes : on ne crée JAMAIS de doublon (un outil déjà présent n'est pas redonné).
 --
+--  🖐️ L'outil TENU EN MAIN (coil, Scythe…) est ré-équipé au retour.
+--  💤 Aussi utilisé par le rechargement AFK (_G.SessionToolCarrySave, appelé par le script time).
+--
 --  🔒 Sécurité : la liste vient UNIQUEMENT du serveur (sac / StarterGear vus par le serveur),
 --     jamais du client. Elle n'est utilisable qu'UNE fois, et seulement dans les
 --     CARRY_WINDOW secondes après le reset (un départ normal ne garde rien).
@@ -131,7 +134,32 @@ local function take(p)
 	for _, e in ipairs(s) do
 		if e.k == "gear" or not gearN[e.n] then table.insert(clean, e) end
 	end
-	last[p.UserId] = { tools = clean, t = os.time() }
+	-- 🖐️ outil tenu en main (si le personnage a déjà disparu, on garde celui de la photo d'avant)
+	--    (la Scythe change de numéro d'un serveur à l'autre : on la reconnaît à son attribut)
+	local eq
+	local char = p.Character
+	if char then
+		local held = char:FindFirstChildOfClass("Tool")
+		if held then eq = held:GetAttribute("JackScythe") ~= nil and "@JackScythe" or held.Name end
+	elseif old then
+		eq = old.eq
+	end
+	last[p.UserId] = { tools = clean, eq = eq, t = os.time() }
+end
+
+-- 💾 écriture de la photo d'un joueur (reset ou rechargement AFK)
+local function writeSnap(uid, snap)
+	if READ_ONLY or not snap or (#snap.tools == 0 and not snap.eq) then return true end
+	local ok = pcall(function()
+		STORE:SetAsync("u_" .. uid, { t = os.time(), tools = snap.tools, eq = snap.eq })
+	end)
+	return ok
+end
+
+-- 💤 rechargement AFK : on garde ses outils et l'outil en main AVANT la téléportation
+_G.SessionToolCarrySave = function(player)
+	take(player)
+	return writeSnap(player.UserId, last[player.UserId])
 end
 task.spawn(function()
 	while true do
@@ -157,12 +185,10 @@ game:BindToClose(function()
 	for uid, snap in pairs(last) do
 		-- joueurs encore là, ou retirés par la fermeture elle-même (il y a moins de 15 s)
 		local gone = leftAt[uid]
-		if #snap.tools > 0 and (not gone or os.clock() - gone < 15) then
+		if (#snap.tools > 0 or snap.eq) and (not gone or os.clock() - gone < 15) then
 			pending += 1
 			task.spawn(function()
-				pcall(function()
-					STORE:SetAsync("u_" .. uid, { t = os.time(), tools = snap.tools })
-				end)
+				writeSnap(uid, snap)
 				pending -= 1
 			end)
 		end
@@ -195,6 +221,40 @@ local function scheduleExpiry(player, name, exp)
 	end)
 end
 
+-- 🖐️ remet en main l'outil qu'il tenait. On n'en crée JAMAIS : on équipe seulement un outil
+--    déjà dans son sac (donné par le jeu, la Scythe, les coils ou ce script, jusqu'à 25 s après l'apparition)
+local function findInBackpack(player, eq)
+	local bp = player:FindFirstChildOfClass("Backpack")
+	if not bp then return nil end
+	if eq == "@JackScythe" then
+		for _, t in ipairs(bp:GetChildren()) do
+			if t:IsA("Tool") and t:GetAttribute("JackScythe") ~= nil then return t end
+		end
+		return nil
+	end
+	local t = bp:FindFirstChild(eq)
+	return (t and t:IsA("Tool")) and t or nil
+end
+
+local function reEquip(player, eq)
+	local t0 = os.clock()
+	while player.Parent and os.clock() - t0 < 25 do
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if char and char:FindFirstChildOfClass("Tool") then return end   -- il tient déjà quelque chose : on n'y touche pas
+		if player:GetAttribute("InArena") == true then return end
+		local tool = findInBackpack(player, eq)
+		if hum and hum.Health > 0 and tool then
+			task.wait(0.3)   -- laisse le personnage finir d'apparaître
+			if tool.Parent == player:FindFirstChildOfClass("Backpack") and not char:FindFirstChildOfClass("Tool") then
+				pcall(function() hum:EquipTool(tool) end)
+			end
+			return
+		end
+		task.wait(0.5)
+	end
+end
+
 local function restore(player)
 	if READ_ONLY then return end
 	local uid = player.UserId
@@ -212,6 +272,7 @@ local function restore(player)
 	-- attend que le joueur soit apparu (sans bloquer s'il repart)
 	local t0 = os.clock()
 	while player.Parent and not player.Character and os.clock() - t0 < 120 do task.wait(0.5) end
+	if type(data.eq) == "string" then task.spawn(reEquip, player, data.eq) end
 	task.wait(RESTORE_DELAY)
 	-- pas d'outils de l'obby en pleine arène : on attend qu'il en sorte (10 min max)
 	t0 = os.clock()
@@ -254,4 +315,4 @@ end
 Players.PlayerAdded:Connect(function(p) task.spawn(restore, p) end)
 for _, p in ipairs(Players:GetPlayers()) do task.spawn(restore, p) end
 
-print("✅ SessionToolCarry chargé (outils gardés pendant un reset serveur)")
+print("✅ SessionToolCarry chargé (outils gardés pendant un reset serveur ou un rechargement AFK)")
