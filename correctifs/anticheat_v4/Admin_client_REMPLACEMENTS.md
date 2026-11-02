@@ -1,7 +1,6 @@
-# Panel admin (ServerStorage ▸ AdminClientScripts ▸ Admin_client) — remplacements
+# Panel admin (Admin_client) — remplacements
 
-Plus simple : remplace tout le script par `Admin_client_COMPLET.lua` (fait à partir de ta version actual_version_1.0).
-Sinon, fais ces 12 remplacements dans l'ordre (Ctrl+F sur le texte « Cherche »).
+Ou remplace tout par `Admin_client_COMPLET.lua`.
 
 ## 1. Cherche
 ```lua
@@ -88,6 +87,9 @@ Remplace par
 		end
 		statLine(rows, 8, "👁️ Panneau vu par le joueur", rec.noticeShown and "oui" or "pas encore",
 			rec.noticeShown and GREEN or C.TEXT_GREY)
+		if (rec.leaks or 0) > 0 then
+			statLine(rows, 9, "🚨 UGC reçue(s) malgré la sanction", tostring(rec.leaks), RED)
+		end
 
 		note(rows, 10, "📝 RAISON\n" .. reasonOf(rec), col)
 

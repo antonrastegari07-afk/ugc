@@ -19957,6 +19957,9 @@ end)()
 		end
 		statLine(rows, 8, "👁️ Panneau vu par le joueur", rec.noticeShown and "oui" or "pas encore",
 			rec.noticeShown and GREEN or C.TEXT_GREY)
+		if (rec.leaks or 0) > 0 then
+			statLine(rows, 9, "🚨 UGC reçue(s) malgré la sanction", tostring(rec.leaks), RED)
+		end
 
 		note(rows, 10, "📝 RAISON\n" .. reasonOf(rec), col)
 
