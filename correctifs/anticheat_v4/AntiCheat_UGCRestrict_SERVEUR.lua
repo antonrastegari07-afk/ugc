@@ -542,7 +542,7 @@ local function sanitizeConfig(raw)
 	if type(raw.notifyOnRestrict) == "boolean" then out.notifyOnRestrict = raw.notifyOnRestrict end
 	if type(raw.kickOnRestrict)  == "boolean" then out.kickOnRestrict = raw.kickOnRestrict end
 	if type(raw.warningsToRestrict) == "number" then
-		out.warningsToRestrict = math.clamp(math.floor(raw.warningsToRestrict), 1, 20)
+		out.warningsToRestrict = math.clamp(math.floor(raw.warningsToRestrict), 1, 1000)
 	end
 	if type(raw.analyzeAdmins) == "boolean" then out.analyzeAdmins = raw.analyzeAdmins end
 	if type(raw.silent) == "boolean" then out.silent = raw.silent end
@@ -594,8 +594,8 @@ local function sanitizeConfig(raw)
 	--  première détection comptée : c'est exactement le faux positif qu'on
 	--  passe le reste du script à éviter. Le minimum est donc 1.
 	local B = {
-		ban = { warningsToPunish = { 1, 20 }, banDays = { 0, 3650 } },
-		ugc = { warningsToPunish = { 1, 20 }, durationHours = { 0, 8760 } },
+		ban = { warningsToPunish = { 1, 1000 }, banDays = { 0, 3650 } },
+		ugc = { warningsToPunish = { 1, 1000 }, durationHours = { 0, 8760 } },
 		test = { suggestAfterDays = { 1, 90 } },
 	}
 	for modeName, fields in pairs(B) do
@@ -1216,6 +1216,29 @@ function UGCRestrict.RestrictedIdSet()
 	return restrictedSet
 end
 
+--  🏷️ Marque chaque entrée d'une liste { {userId=…}, … } : restricted = true/false.
+--     Source : le registre des sanctions (index + ce que ce serveur vient de
+--     faire), jamais une supposition. Renvoie la liste et le nombre de restreints.
+function UGCRestrict.Annotate(entries)
+	if type(entries) ~= "table" then return entries, 0 end
+	local set = UGCRestrict.RestrictedIdSet()
+	local n = 0
+	for _, e in ipairs(entries) do
+		if type(e) == "table" then
+			local uid = tonumber(e.userId)
+			local r = (uid ~= nil) and (set[uid] == true)
+			--  Une privation temporaire déjà terminée n'est plus « restreint ».
+			local c = uid and cache[uid]
+			if r and c == false then r = false end
+			if r and type(c) == "table" and type(c.until_) == "number" and c.until_ > 0
+				and os.time() >= c.until_ then r = false end
+			e.restricted = r
+			if r then n = n + 1 end
+		end
+	end
+	return entries, n
+end
+
 --  Retire les restreints d'une liste { {userId=…}, … }.
 function UGCRestrict.FilterOutRestricted(entries)
 	if type(entries) ~= "table" then return entries end
@@ -1816,10 +1839,13 @@ adminAction.OnServerInvoke = function(player, action, payload)
 		--    une liste de fiches.
 	elseif action == "feed" then
 		local n = math.clamp(tonumber(payload.limit) or 40, 1, 100)
+		local hide = payload.hideRestricted == true
 		local out = {}
 		local s = ensureFeedStore()
 		if s then
-			local ok, pages = pcall(function() return s:GetSortedAsync(false, n) end)
+			--  Masquer les restreints : on lit plus large pour combler les trous.
+			local want = hide and 100 or n
+			local ok, pages = pcall(function() return s:GetSortedAsync(false, want) end)
 			if ok then
 				for _, e in ipairs(pages:GetCurrentPage()) do
 					local uid = tonumber(e.key)
@@ -1827,11 +1853,13 @@ adminAction.OnServerInvoke = function(player, action, payload)
 				end
 			end
 		end
-		--  Les restreints sont dans l'onglet « 🚫 Restreints », pas ici.
-		if payload.includeRestricted ~= true then
+		local hidden = 0
+		out, hidden = UGCRestrict.Annotate(out)
+		if hide then
 			out = UGCRestrict.FilterOutRestricted(out)
 		end
-		return { ok = true, entries = out }
+		while #out > n do table.remove(out) end
+		return { ok = true, entries = out, restrictedCount = hidden, hidden = hide }
 
 		----------------------------------------------------------------
 		-- 🏷️ RÉSOLUTION EN LOT — noms + points + statut, EN PARALLÈLE

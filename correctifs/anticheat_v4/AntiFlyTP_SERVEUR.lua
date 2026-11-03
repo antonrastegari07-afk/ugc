@@ -2037,7 +2037,8 @@ local function persistWarning(userId, vType, details)
 			local now = os.time()
 			local hist = activeHistory(data, now)       -- les expirés tombent ici
 			table.insert(hist, { t = now, type = vType, details = details })
-			while #hist > 40 do table.remove(hist, 1) end
+			--  Assez de place pour un seuil élevé (jusqu'à 1000 warnings).
+			while #hist > 1000 do table.remove(hist, 1) end
 			data.history = hist
 			data.count = #hist
 			data.firstWarningAt = hist[1] and hist[1].t or now

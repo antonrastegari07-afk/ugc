@@ -262,20 +262,14 @@ local function readOrdered(store, n)
 	return fromCache()
 end
 
--- 🚫 V4 : un joueur privé d'UGC SORT des classements anti-cheat
---    (il est dans l'onglet « 🚫 Restreints » du panel).
-local function acFilterRestricted(res)
-	if type(res) == "table" and type(res.entries) == "table"
-		and _G.UGCRestrict and _G.UGCRestrict.FilterOutRestricted then
-		local ok, f = pcall(_G.UGCRestrict.FilterOutRestricted, res.entries)
-		if ok and type(f) == "table" then res.entries = f end
-	end
-	return res
-end
-
-local function getACBoardRaw(player, boardId, n)
-	if not isAdmin(player.UserId) then return { error = "not admin" } end
-	if not checkRateLimit(player.UserId, "board", 0.25) then return { error = "rate", throttled = true } end
+--════════════════════════════════════════════════════════════════════
+-- 🚫 V4 : CLASSEMENTS ANTI-CHEAT ET JOUEURS RESTREINTS
+--    • Chaque entrée porte `restricted = true/false`, lu dans le registre
+--      des sanctions (jamais deviné) → le panel l'écrit sur la ligne.
+--    • `hideRestricted = true` : les restreints sont retirés ET on lit
+--      plus loin dans le classement pour combler les trous.
+--════════════════════════════════════════════════════════════════════
+local function getACBoardRaw(boardId, n)
 	boardId = tostring(boardId or "")
 
 	if boardId:sub(1, 4) == "fly_" then
@@ -307,8 +301,40 @@ local function getACBoardRaw(player, boardId, n)
 	return { entries = {} }
 end
 
-getACBoard.OnServerInvoke = function(player, boardId, n)
-	return acFilterRestricted(getACBoardRaw(player, boardId, n))
+getACBoard.OnServerInvoke = function(player, boardId, n, hideRestricted)
+	if not isAdmin(player.UserId) then return { error = "not admin" } end
+	if not checkRateLimit(player.UserId, "board", 0.25) then return { error = "rate", throttled = true } end
+	n = math.clamp(math.floor(tonumber(n) or 50), 1, 200)
+	local UR = _G.UGCRestrict
+	local canMark = UR and UR.Annotate and UR.FilterOutRestricted
+
+	if not (hideRestricted == true and canMark) then
+		local res = getACBoardRaw(boardId, n)
+		if canMark and type(res) == "table" and type(res.entries) == "table" then
+			local _, cnt = UR.Annotate(res.entries)
+			res.restrictedCount = cnt
+		end
+		return res
+	end
+
+	--  Masquer les restreints : on élargit la lecture jusqu'à avoir n joueurs
+	--  non restreints (ou la fin du classement, 200 au maximum).
+	local want, res, kept, hidden = n, nil, {}, 0
+	for _ = 1, 4 do
+		res = getACBoardRaw(boardId, want)
+		if type(res) ~= "table" or type(res.entries) ~= "table" then return res end
+		local all = res.entries
+		local _, cnt = UR.Annotate(all)
+		hidden = cnt
+		kept = UR.FilterOutRestricted(all)
+		if #kept >= n or #all < want or want >= 200 then break end
+		want = math.min(200, want + (n - #kept) + 10)
+	end
+	while #kept > n do table.remove(kept) end
+	res.entries = kept
+	res.restrictedCount = hidden
+	res.hidden = true
+	return res
 end
 
 getGameBoard.OnServerInvoke = function(player, boardId, n)

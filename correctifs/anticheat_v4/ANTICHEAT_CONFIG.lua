@@ -51,7 +51,8 @@ C.Activation = {
 -- ② 🖥️ SANCTION — MODE PRIVATION D'UGC
 --════════════════════════════════════════════════════════════════════════════
 C.Sanction = {
-	--  Nombre de warnings avant la privation (1 à 20).
+	--  Nombre de warnings avant la privation : N'IMPORTE QUEL nombre de 1 à 1000
+	--  (ex : 1, 5, 100). Dans le panel, tape directement le nombre dans la case.
 	--  Rappel : 3 détections retenues et rapprochées = 1 warning.
 	WarningsAvantSanction = 1,
 
@@ -109,7 +110,7 @@ C.Preuve = {
 -- ⑤ 🖥️ MODE BAN (seulement si Activation.Mode = "ban")
 --════════════════════════════════════════════════════════════════════════════
 C.ModeBan = {
-	WarningsAvantBan   = 3,
+	WarningsAvantBan   = 3,      -- 1 à 1000
 	DureeJours         = 0,      -- 0 = définitif
 	KickAvantBan       = true,   -- kick au warning juste avant le ban (ignoré si discret)
 	PriverAussiUGC     = true,

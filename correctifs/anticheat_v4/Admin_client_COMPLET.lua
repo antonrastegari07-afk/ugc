@@ -19042,7 +19042,8 @@ end)()
 						if e.name then CACHE.name[id] = e.name end
 						if e.points ~= nil then CACHE.pts[id] = e.points end
 						if e.banned ~= nil then CACHE.ban[id] = e.banned end
-						if e.restricted ~= nil then CACHE.restr[id] = e.restricted end
+						--  (statut « restreint » : pris UNIQUEMENT des classements, qui le
+						--   lisent dans le registre des sanctions)
 					end
 				end
 			end
@@ -19137,7 +19138,7 @@ end)()
 
 		--  Ligne 1 : le pseudo. Affiché « … » puis rempli.
 		local nameLbl = label(row, {
-			text = nameOf(id) or "…",
+			text = ((CACHE.restr[id] == true) and "🚫 " or "") .. (nameOf(id) or "…"),
 			size = UDim2.new(1, -tx - valW - 10, 0, IS_MOBILE and 15 or 19),
 			position = UDim2.new(0, tx, 0, IS_MOBILE and 8 or 12),
 			xAlign = Enum.TextXAlignment.Left, color = C.TEXT_WHITE,
@@ -19162,8 +19163,29 @@ end)()
 			textSize = IS_MOBILE and 12 or 15, zIndex = 12, truncate = true,
 		})
 
+		--  🚫 V4 : joueur restreint → ligne violette + étiquette RESTREINT sous l'avatar
+		local isR = CACHE.restr[id] == true
+		local baseBg = isR and Color3.fromRGB(48, 26, 66) or C.BG_DARK
+		local baseSt = isR and PURPLE or C.BORDER_SUBTLE
+		row.BackgroundColor3 = baseBg ; rs.Color = baseSt
+		if isR then
+			rs.Thickness = 2
+			local tag = Instance.new("TextLabel")
+			tag.AnchorPoint = Vector2.new(0.5, 1)
+			tag.Position = UDim2.new(0, rankW + 6 + avS / 2, 1, -2)
+			tag.Size = UDim2.new(0, avS + 14, 0, IS_MOBILE and 11 or 13)
+			tag.BackgroundColor3 = PURPLE
+			tag.BorderSizePixel = 0
+			tag.Font = FONT
+			tag.Text = "RESTREINT"
+			tag.TextColor3 = Color3.new(0, 0, 0)
+			tag.TextScaled = true
+			tag.ZIndex = 14
+			tag.Parent = row
+			corner(tag, 4)
+		end
 		row.MouseEnter:Connect(function() row.BackgroundColor3 = C.BG_MEDIUM ; rs.Color = accent end)
-		row.MouseLeave:Connect(function() row.BackgroundColor3 = C.BG_DARK ; rs.Color = C.BORDER_SUBTLE end)
+		row.MouseLeave:Connect(function() row.BackgroundColor3 = baseBg ; rs.Color = baseSt end)
 		row.MouseButton1Click:Connect(function()
 			ST.tab = "card" ; ST.cardFor = id ; ST.cardData = nil
 			screenACBoards_new()
@@ -19176,7 +19198,8 @@ end)()
 	local function fillLines(refs, subBuilder)
 		for _, r in ipairs(refs) do
 			if r.name.Parent then
-				r.name.Text = nameOf(r.userId) or ("UserId " .. r.userId)
+				r.name.Text = ((CACHE.restr[r.userId] == true) and "🚫 " or "")
+					.. (nameOf(r.userId) or ("UserId " .. r.userId))
 				if subBuilder then
 					local txt, col = subBuilder(r.userId)
 					r.sub.Text = txt
@@ -19201,7 +19224,7 @@ end)()
 		else
 			table.insert(parts, "Points : —")
 		end
-		if CACHE.restr[id] then table.insert(parts, "🚫 privé d'UGC") end
+		if CACHE.restr[id] then table.insert(parts, 1, "🚫 RESTREINT (privé d'UGC)") end
 		if CACHE.ban[id] then table.insert(parts, "⛔ banni") end
 		if Players:GetPlayerByUserId(id) then table.insert(parts, "🟢 en ligne") end
 
@@ -19257,6 +19280,7 @@ end)()
 			local refs, ids = {}, {}
 			for i, e in ipairs(entries) do
 				ids[#ids + 1] = e.userId
+				if e.restricted ~= nil then CACHE.restr[e.userId] = (e.restricted == true) end
 				refs[#refs + 1] = acLine(holder, i, {
 					userId = e.userId, rank = i, accent = ORANGE,
 					value = e.at and fmtAgo(e.at) or "?",
@@ -19275,7 +19299,7 @@ end)()
 			return
 		end
 
-		callAC("feed", { limit = 50 }, function(res)
+		callAC("feed", { limit = 50, hideRestricted = ST.hideR == true }, function(res)
 			if not status.Parent then return end
 			if not (res and res.ok) then
 				stl.Text = "Lecture impossible. Appuie sur 🔄."
@@ -19333,7 +19357,7 @@ end)()
 			--  On part du classement des warnings : c'est la seule dimension
 			--  « suspicion » qui a du sens économiquement (un simple signal
 			--  écarté ne veut rien dire).
-			local ok, res = pcall(function() return gb:InvokeServer("fly_warnings", 60) end)
+			local ok, res = pcall(function() return gb:InvokeServer("fly_warnings", 60, ST.hideR == true) end)
 			if not status.Parent then return end
 			if not (ok and type(res) == "table" and type(res.entries) == "table") then
 				stl.Text = "Lecture du classement impossible. Appuie sur 🔄."
@@ -19363,6 +19387,7 @@ end)()
 
 				local rows = {}
 				for _, e in ipairs(entries) do
+					if e.restricted ~= nil then CACHE.restr[e.userId] = (e.restricted == true) end
 					local p = pointsOf(e.userId)
 					local pw = ugcPower(p) or 0
 					if pw >= ST.riskMinUGC then
@@ -19397,13 +19422,15 @@ end)()
 					})
 					--  Ligne de contexte spécifique : on veut voir les deux
 					--  facteurs du score côte à côte, pas un total opaque.
-					ref.sub.Text = string.format("⚠️ %d warning(s)  ·  💎 %s  ·  🎽 %s",
+					ref.sub.Text = (CACHE.restr[r.userId] and "🚫 RESTREINT  ·  " or "")
+						.. string.format("⚠️ %d warning(s)  ·  💎 %s  ·  🎽 %s",
 						r.warnings,
 						r.points and fmtNum(r.points) or "—",
 						r.pw >= 1 and (math.floor(r.pw) .. " UGC")
 							or (math.floor(r.pw * 100) .. " % d'une UGC"))
-					ref.sub.TextColor3 = col
-					ref.name.Text = nameOf(r.userId) or ("UserId " .. r.userId)
+					ref.sub.TextColor3 = CACHE.restr[r.userId] and PURPLE or col
+					ref.name.Text = ((CACHE.restr[r.userId] == true) and "🚫 " or "")
+						.. (nameOf(r.userId) or ("UserId " .. r.userId))
 				end
 
 				local nf = Instance.new("Frame")
@@ -19573,6 +19600,7 @@ end)()
 			local refs, ids = {}, {}
 			for i, e in ipairs(entries) do
 				ids[#ids + 1] = e.userId
+				if e.restricted ~= nil then CACHE.restr[e.userId] = (e.restricted == true) end
 				refs[#refs + 1] = acLine(holder, i + 1, {
 					userId = e.userId, rank = i, accent = sys.color,
 					value = isDate
@@ -19603,7 +19631,7 @@ end)()
 
 		--  Cache de 45 s : rebasculer entre deux onglets ne relit pas le
 		--  DataStore. C'est ce qui rend la navigation instantanée.
-		local key = ST.metric .. "_" .. ST.count
+		local key = ST.metric .. "_" .. ST.count .. (ST.hideR and "_h" or "")
 		local cached = CACHE.board[key]
 		if cached and (os.clock() - cached.at) < CACHE.BOARD_TTL then
 			paint(cached.entries, cached.testMode)
@@ -19611,7 +19639,7 @@ end)()
 		end
 
 		task.spawn(function()
-			local ok, res = pcall(function() return gb:InvokeServer(ST.metric, ST.count) end)
+			local ok, res = pcall(function() return gb:InvokeServer(ST.metric, ST.count, ST.hideR == true) end)
 			if not status.Parent then return end
 			if not (ok and type(res) == "table" and type(res.entries) == "table") then
 				stl.Text = "Lecture impossible. Appuie sur 🔄."
@@ -20155,16 +20183,36 @@ end)()
 			screenACBoards_new()
 		end)
 
-		acTabBar(body, -2, {
+		acTabBar(body, -3, {
 			{ id = "feed", label = "📡 Récent" },
 			{ id = "risk", label = "🎯 Risque" },
 			{ id = "restricted", label = "🚫 Restreints" },
 		}, ST.tab, RED, function(id) ST.tab = id ; screenACBoards_new() end)
 
-		acTabBar(body, -1, {
+		acTabBar(body, -2, {
 			{ id = "boards", label = "🏆 Classements" },
 			{ id = "card",   label = "🔍 Dossier" },
 		}, ST.tab, RED, function(id) ST.tab = id ; screenACBoards_new() end)
+
+		--  🙈 V4 : masquer / afficher les joueurs restreints dans les listes
+		if ST.tab == "feed" or ST.tab == "risk" or ST.tab == "boards" then
+			local hb = Instance.new("Frame")
+			hb.Size = UDim2.new(1, 0, 0, IS_MOBILE and 34 or 40)
+			hb.BackgroundTransparency = 1
+			hb.LayoutOrder = -1 ; hb.ZIndex = 11 ; hb.Parent = body
+			local on = ST.hideR == true
+			local hbtn = actionButton(hb, {
+				color = on and PURPLE or C.BG_DARK, strokeColor = PURPLE,
+				text = on and "🙈 Restreints masqués (liste complétée) — Afficher"
+					or "🚫 Masquer les restreints et compléter la liste",
+				textColor = on and Color3.new(0, 0, 0) or C.TEXT_WHITE,
+				textSize = IS_MOBILE and 10 or 13, radius = 9, zIndex = 12 })
+			hbtn.MouseButton1Click:Connect(function()
+				ST.hideR = not on
+				CACHE.board = {}
+				screenACBoards_new()
+			end)
+		end
 
 		if ST.tab == "restricted" then
 			renderRestricted(body)
@@ -20568,11 +20616,35 @@ end)()
 		side(true,  plusX)
 		side(false, minusX)
 
-		label(row, { text = opt.format and opt.format(value) or tostring(value),
-			size = UDim2.new(0, vw, 1, 0),
-			position = UDim2.new(1, valX, 0.5, 0),
-			anchor = Vector2.new(1, 0.5),
-			color = opt.color or CYAN, textSize = IS_MOBILE and 12 or 15, zIndex = 13 })
+		--  ✍️ V4 : la valeur est une CASE : touche-la et tape le nombre que tu veux
+		--     (ex : 100), puis Entrée. Les boutons − / + marchent toujours.
+		local vb = Instance.new("TextBox")
+		vb.AnchorPoint = Vector2.new(1, 0.5)
+		vb.Position = UDim2.new(1, valX, 0.5, 0)
+		vb.Size = UDim2.new(0, vw, 0, IS_MOBILE and 26 or 30)
+		vb.BackgroundColor3 = C.BG_ITEM
+		vb.BorderSizePixel = 0
+		vb.Font = FONT
+		vb.Text = opt.format and opt.format(value) or tostring(value)
+		vb.TextColor3 = opt.color or CYAN
+		vb.TextSize = IS_MOBILE and 12 or 15
+		vb.ClearTextOnFocus = false
+		vb.ZIndex = 13
+		vb.Parent = row
+		corner(vb, 6); stroke(vb, opt.color or CYAN, 1)
+		vb.Focused:Connect(function() vb.Text = tostring(value) end)
+		vb.FocusLost:Connect(function()
+			local n = tonumber((vb.Text:gsub("[^%d%.%-]", "")))
+			if n then
+				n = math.clamp(math.floor(n + 0.5), opt.min, opt.max)
+				if n ~= value then
+					setDraft(opt.path, n)
+					screen(false)
+					return
+				end
+			end
+			vb.Text = opt.format and opt.format(value) or tostring(value)
+		end)
 
 		if opt.desc then
 			local d = Instance.new("TextLabel")
@@ -20857,7 +20929,7 @@ end)()
 				title = "Warnings avant le ban",
 				value = getDraft({ "modes", "ban", "warningsToPunish" }, 3),
 				path = { "modes", "ban", "warningsToPunish" },
-				min = 1, max = 20, step = 1, color = ORANGE,
+				min = 1, max = 1000, step = 1, color = ORANGE,
 				desc = "Rappel de l'échelle : 3 détections comptées et rapprochées = "
 					.. "1 warning. Un seuil à 3 warnings, c'est donc un comportement "
 					.. "répété sur plusieurs minutes, pas un accident.",
@@ -20922,8 +20994,9 @@ end)()
 				title = "Warnings avant la privation",
 				value = getDraft({ "modes", "ugc", "warningsToPunish" }, 1),
 				path = { "modes", "ugc", "warningsToPunish" },
-				min = 1, max = 20, step = 1, color = RED,
-				desc = "C'est ce chiffre qui apparaît dans « Warning 1/2 » côté joueur. "
+				min = 1, max = 1000, step = 1, color = RED,
+				desc = "✍️ Touche le chiffre pour taper n'importe quel nombre (1 à 1000, ex : 100). "
+					.. "C'est ce chiffre qui apparaît dans « Warning 1/2 » côté joueur. "
 					.. "Un seul endroit le définit, donc l'affichage ne peut pas mentir "
 					.. "sur le vrai seuil.",
 			})

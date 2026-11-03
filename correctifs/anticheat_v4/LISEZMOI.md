@@ -39,3 +39,16 @@ Tous les fichiers sont faits à partir de ta version actual_version_1.0.
   - un changement dans le **panel** s'applique tout de suite et reste actif ;
   - un changement dans le **fichier** demande de monter `VERSION` de 1 puis de publier. Au démarrage, le fichier écrase alors le panel.
 - Pour les sections 📄 ⑧ à ⑩, il suffit de publier.
+
+## Panel admin (écran 🚨 ANTI-CHEAT)
+
+- **Classements, 📡 Récent, 🎯 Risque** : tous les joueurs y sont, comme avant. Un joueur restreint est marqué :
+  - 🚫 devant son nom ;
+  - une ligne violette ;
+  - l'étiquette **RESTREINT** sous son avatar ;
+  - « 🚫 RESTREINT (privé d'UGC) » en début de ligne.
+
+  Cette information est lue dans le registre des sanctions, jamais devinée.
+- **Bouton « 🚫 Masquer les restreints et compléter la liste »** : il retire les restreints et charge les joueurs suivants du classement pour garder une liste pleine (jusqu'à 200). Touche-le de nouveau pour les réafficher.
+- **Onglet 🚫 Restreints** : tous les sanctionnés, avec une recherche et la raison exacte.
+- **⚙️ Réglages** : chaque valeur numérique est une case. Touche-la, tape le nombre voulu (ex : **100** warnings), puis Entrée. Le nombre de warnings va de 1 à 1000.
