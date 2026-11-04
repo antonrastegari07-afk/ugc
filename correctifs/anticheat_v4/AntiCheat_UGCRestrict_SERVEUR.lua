@@ -81,6 +81,10 @@ local DEFAULTS = {
 	--     pardonner un tricheur qui recommence.
 	warningExpiryDays = 30,
 
+	--  🕛 Les warnings reçus AVANT cette date (os.time) sont ignorés. 0 = aucun.
+	--     Posé depuis le panel (activation des sanctions / remise à zéro générale).
+	countFrom = 0,
+
 	--  "ban" = l'échelle classique : warnings → kick → ban permanent.
 	--  "ugc" = personne n'est jamais banni ni kické par l'anti-fly ; au bout
 	--          de N warnings le joueur perd l'accès aux UGC, définitivement,
@@ -935,6 +939,9 @@ local function sanitizeConfig(raw)
 	if type(raw.silent) == "boolean" then out.silent = raw.silent end
 	if type(raw.warningExpiryDays) == "number" and raw.warningExpiryDays == raw.warningExpiryDays then
 		out.warningExpiryDays = math.clamp(math.floor(raw.warningExpiryDays), 0, 3650)
+	end
+	if type(raw.countFrom) == "number" and raw.countFrom == raw.countFrom then
+		out.countFrom = math.clamp(math.floor(raw.countFrom), 0, os.time() + 60)
 	end
 
 	--  Les seuils restent ordonnés : compter ≤ avertir ≤ sanctionner.
@@ -1828,6 +1835,7 @@ _G.ACConfig = {
 	Silent = function() return cfg.silent ~= false end,
 	--  ⏳ Durée de vie d'un warning (jours, 0 = jamais).
 	WarningExpiryDays = function() return tonumber(cfg.warningExpiryDays) or 30 end,
+	CountFrom = function() return tonumber(cfg.countFrom) or 0 end,
 	--  🛒 Le panneau ne réapparaît que s'il pourrait se payer l'UGC.
 	RevealOnlyWhenAffordable = function()
 		local m = (type(cfg.modes) == "table") and cfg.modes.ugc or nil
@@ -2194,6 +2202,13 @@ AC_ACTIONS.setvalues = function(player, payload)
 			n = n + 1
 		end
 	end
+	--  🕛 « Ignorer les anciens warnings » (à l'activation des sanctions)
+	if payload.countFromNow == true then
+		newCfg.countFrom = os.time()
+		n = n + 1
+		local af = AF()
+		if af and af.ResetRealRanks then task.spawn(function() pcall(af.ResetRealRanks) end) end
+	end
 	if n == 0 then
 		return { ok = false, msg = (#bad > 0) and ("Valeur refusée : " .. table.concat(bad, ", ")) or "Rien à enregistrer" }
 	end
@@ -2222,6 +2237,7 @@ AC_ACTIONS.home = function()
 	return { ok = true, recent = recent,
 		stats = { det24 = det, players24 = nP, warn24 = warns, sanc24 = sanc, restricted = nR },
 		state = { mode = cfg.mode, shadow = cfg.shadow == true, silent = cfg.silent ~= false,
+			countFrom = tonumber(cfg.countFrom) or 0,
 			threshold = threshold(), expiry = cfg.warningExpiryDays, reveal = m.revealOnlyWhenAffordable ~= false,
 			loaded = cfgLoaded, fileVersion = FILE_VERSION } }
 end

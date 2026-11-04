@@ -644,6 +644,17 @@ local function acSilent()
 end
 
 --  ⏳ Durée de vie d'un warning, en jours (0 = ne disparaît jamais).
+--  🕛 Les warnings reçus AVANT cette date sont ignorés (0 = aucun).
+--     Posé par « Activer les sanctions → ignorer les anciens warnings » ou
+--     « Réinitialiser les warnings de tout le monde » dans le panel.
+local function acCountFrom()
+	if _G.ACConfig and _G.ACConfig.CountFrom then
+		local ok, v = pcall(_G.ACConfig.CountFrom)
+		if ok and type(v) == "number" then return v end
+	end
+	return 0
+end
+
 local function acWarnExpiryDays()
 	if _G.ACConfig and _G.ACConfig.WarningExpiryDays then
 		local ok, v = pcall(_G.ACConfig.WarningExpiryDays)
@@ -2100,6 +2111,7 @@ local function activeHistory(data, nowT)
 	if type(data) ~= "table" then return out end
 	local days = acWarnExpiryDays()
 	local limit = (days > 0) and (nowT - days * 86400) or -math.huge
+	limit = math.max(limit, acCountFrom())
 	if type(data.history) == "table" and #data.history > 0 then
 		for _, h in ipairs(data.history) do
 			if type(h) == "table" and (tonumber(h.t) or 0) >= limit then
@@ -3542,11 +3554,25 @@ local function applyAdvanced(adv)
 	end
 end
 
+local fileCache = {}   -- fiches du panel (voir playerFile plus bas)
+
 --  Rechargement à chaud quand tu changes un réglage depuis le panel.
 task.spawn(function()
 	local ev = ServerStorage:WaitForChild("ACConfigChanged", 60)
 	if ev then
+		local lastCountFrom = nil
 		ev.Event:Connect(function(c)
+			--  🕛 « Ignorer les anciens warnings » : tout le monde repart de zéro,
+			--     y compris les détections en cours de comptage sur ce serveur.
+			local cf = (type(c) == "table" and tonumber(c.countFrom)) or 0
+			if lastCountFrom ~= nil and cf > lastCountFrom then
+				for _, st in pairs(S) do
+					st.warnings, st.strikes, st.batchConf = 0, 0, {}
+				end
+				fileCache = {}
+				log("🕛 Warnings remis à zéro pour tout le monde (comptés à partir de maintenant)")
+			end
+			lastCountFrom = cf
 			local ok, err = pcall(applyAdvanced, type(c) == "table" and c.advanced or nil)
 			if not ok then warn("🛡️ Réglages avancés non appliqués : " .. tostring(err)) end
 			log(string.format("Config rechargée → mode=%s | test=%s",
@@ -3567,7 +3593,6 @@ task.spawn(function()
 end)
 
 --  🗂️ Fiche complète d'un joueur pour le panel (cache 45 s par joueur).
-local fileCache = {}
 local function playerFile(userId)
 	userId = tonumber(userId)
 	if not userId then return nil end
@@ -3595,6 +3620,8 @@ _G.AntiFlyTP = {
 	GetFeedLog    = function(n) return FeedLog.get(n) end,
 	GetPlayerFile = function(userId) return playerFile(userId) end,
 	ForgetFile    = function(userId) fileCache[tonumber(userId) or 0] = nil end,
+	--  Vide le classement des warnings réels (il repart de zéro).
+	ResetRealRanks = function() return StatsStore.bumpRealGen() end,
 	GetCandidates = function(n)
 		return {
 			det  = StatsStore.getRank("detections", n),

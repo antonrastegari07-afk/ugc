@@ -23231,13 +23231,28 @@ end)()
 			text(b, 50, "Note (facultative, visible dans la fiche) :", C.TEXT_WHITE, TS, true)
 			input = searchBox(b, 51, opt.input, "", function() end, opt.color)
 		end
+		--  ☑️ Case à cocher facultative (ex : ignorer les anciens warnings)
+		local checked = opt.checkbox and (opt.checkbox.default == true) or false
+		if opt.checkbox then
+			local cbH = frame(b, 60, IS_MOBILE and 44 or 50)
+			local cb, cbl = actionButton(cbH, { color = C.BG_ITEM, strokeColor = opt.color or ORANGE,
+				text = "", textColor = C.TEXT_WHITE, textSize = TS, radius = 8, zIndex = 13 })
+			cbl.TextWrapped = true
+			local function paint()
+				cbl.Text = (checked and "☑️  " or "⬜  ") .. opt.checkbox.label
+				cb.BackgroundColor3 = checked and Color3.fromRGB(45, 60, 45) or C.BG_ITEM
+			end
+			paint()
+			cb.MouseButton1Click:Connect(function() checked = not checked ; paint() end)
+			if opt.checkbox.desc then text(b, 61, opt.checkbox.desc, C.TEXT_DIM, TS) end
+		end
 		local okBtn, okLbl = button(body, 3, "⏳ Lis bien… (2)", C.BG_LIGHT, function() end, nil)
 		local armed = false
 		okBtn.MouseButton1Click:Connect(function()
 			if not armed then return end
 			armed = false
 			okLbl.Text = "⏳ En cours…"
-			opt.onConfirm(input and input.Text or nil)
+			opt.onConfirm(input and input.Text or nil, checked)
 		end)
 		task.spawn(function()
 			for s = 2, 1, -1 do
@@ -23294,10 +23309,11 @@ end)()
 			end })
 	end
 	local function askReset(uid, name)
-		confirmPage({ title = "🧹 Remettre ses compteurs à zéro", color = CYAN, userId = uid, userName = name,
-			confirmText = "🧹 Oui, tout remettre à zéro",
+		confirmPage({ title = "🧹 Réinitialiser les warnings de ce joueur", color = CYAN, userId = uid, userName = name,
+			confirmText = "🧹 Oui, remettre ses warnings à 0",
 			lines = {
-				"Ses warnings et ses statistiques de détection sont effacés.",
+				"Ses warnings repassent à 0, sur tous tes serveurs.",
+				"Ses statistiques de détection (certitude, nombre de détections) sont aussi effacées.",
 				"Sa sanction, s'il en a une, n'est PAS levée (utilise « ✅ Lever » pour ça).",
 				"À faire quand tu conclus à une erreur de l'anti-cheat.",
 			},
@@ -23314,11 +23330,68 @@ end)()
 		screenAC()
 	end
 
+	--  ⋯ MENU RAPIDE : agir sur un joueur sans ouvrir sa fiche.
+	local function playerMenu(uid, name, restricted)
+		uid = tonumber(uid)
+		if not uid then return end
+		local ov = Instance.new("TextButton")
+		ov.Size = UDim2.fromScale(1, 1)
+		ov.BackgroundColor3 = BLACK
+		ov.BackgroundTransparency = 0.35
+		ov.AutoButtonColor = false
+		ov.Text = ""
+		ov.ZIndex = 60
+		ov.Parent = window
+		corner(ov, 14)
+		ov.MouseButton1Click:Connect(function() ov:Destroy() end)
+		local card = Instance.new("Frame")
+		card.AnchorPoint = Vector2.new(0.5, 0.5)
+		card.Position = UDim2.fromScale(0.5, 0.5)
+		card.Size = UDim2.new(0.86, 0, 0, 0)
+		card.AutomaticSize = Enum.AutomaticSize.Y
+		card.BackgroundColor3 = C.BG_DARK
+		card.BorderSizePixel = 0
+		card.ZIndex = 61
+		card.Parent = ov
+		corner(card, 12) ; stroke(card, restricted and PURPLE or CYAN, 1.5) ; padding(card, 12)
+		list(card, 8)
+		local t = text(card, 1, "⋯ " .. tostring(name or ("UserId " .. uid)) .. (restricted and "  ·  🚫 restreint" or ""), C.TEXT_WHITE, TM, true)
+		t.ZIndex = 62
+		local function item(order, txt, color, fn, textColor)
+			local c = Instance.new("Frame")
+			c.Size = UDim2.new(1, 0, 0, IS_MOBILE and 34 or 40)
+			c.BackgroundTransparency = 1 ; c.LayoutOrder = order ; c.ZIndex = 61 ; c.Parent = card
+			local b = actionButton(c, { color = color, strokeColor = color, text = txt, textColor = textColor or C.TEXT_WHITE,
+				textSize = IS_MOBILE and 11 or 13, radius = 9, zIndex = 62 })
+			b.MouseButton1Click:Connect(function() ov:Destroy() ; fn() end)
+		end
+		item(2, "🔍 Ouvrir sa fiche", CYAN, function() openCard(uid) end, BLACK)
+		item(3, "👤 Profil complet (admin)", C.PURPLE, function() openProfileDetail(name, function() screenAC() end) end)
+		if restricted then
+			item(4, "✅ Lever sa sanction", GREEN, function() askLift(uid, name) end, BLACK)
+		else
+			item(4, "🚫 Le priver d'UGC", RED, function() askRestrict(uid, name) end)
+		end
+		item(5, "🧹 Réinitialiser ses warnings", C.BG_LIGHT, function() askReset(uid, name) end)
+		item(6, "✖ Fermer", C.BG_ITEM, function() end)
+	end
+
 	--════════════════════════════════════════════════════════════════
 	-- 🧑 EN-TÊTE JOUEUR (avatar + nom + badges)
 	--════════════════════════════════════════════════════════════════
-	local function playerHead(parent, order, uid, name, restricted, online, rightText, rightColor)
+	local function playerHead(parent, order, uid, name, restricted, online, rightText, rightColor, noMenu)
 		local h = frame(parent, order, IS_MOBILE and 36 or 44)
+		local mw = noMenu and 0 or (IS_MOBILE and 30 or 36)
+		if not noMenu then
+			local mc = Instance.new("Frame")
+			mc.AnchorPoint = Vector2.new(1, 0)
+			mc.Position = UDim2.new(1, 0, 0, 0)
+			mc.Size = UDim2.new(0, mw - 4, 0, IS_MOBILE and 26 or 30)
+			mc.BackgroundTransparency = 1 ; mc.ZIndex = 13 ; mc.Parent = h
+			local mb = actionButton(mc, { color = C.BG_LIGHT, strokeColor = C.BORDER_BRIGHT, text = "⋯",
+				textSize = IS_MOBILE and 15 or 18, radius = 7, zIndex = 14 })
+			mb.MouseButton1Click:Connect(function() playerMenu(uid, name, restricted) end)
+		end
 		local s = IS_MOBILE and 32 or 40
 		uid = tonumber(uid)
 		if uid then
@@ -23327,17 +23400,17 @@ end)()
 		end
 		local rw = IS_MOBILE and 80 or 110
 		label(h, { text = (restricted and "🚫 " or "") .. tostring(name or ("UserId " .. uid)),
-			size = UDim2.new(1, -s - rw - 12, 0, IS_MOBILE and 16 or 20), position = UDim2.new(0, s + 8, 0, 2),
+			size = UDim2.new(1, -s - rw - mw - 12, 0, IS_MOBILE and 16 or 20), position = UDim2.new(0, s + 8, 0, 2),
 			xAlign = Enum.TextXAlignment.Left, color = restricted and PURPLE or C.TEXT_WHITE,
 			textSize = TM, truncate = true, zIndex = 13 })
 		label(h, { text = (online and "🟢 en ligne" or "⚪ hors ligne") .. "  ·  " .. tostring(uid)
 				.. (restricted and "  ·  🚫 RESTREINT" or ""),
-			size = UDim2.new(1, -s - rw - 12, 0, IS_MOBILE and 14 or 16),
+			size = UDim2.new(1, -s - rw - mw - 12, 0, IS_MOBILE and 14 or 16),
 			position = UDim2.new(0, s + 8, 0, IS_MOBILE and 18 or 23),
 			xAlign = Enum.TextXAlignment.Left, color = restricted and PURPLE or C.TEXT_DIM,
 			textSize = TS, truncate = true, zIndex = 13 })
 		if rightText then
-			label(h, { text = rightText, size = UDim2.new(0, rw, 1, 0), position = UDim2.new(1, 0, 0, 0),
+			label(h, { text = rightText, size = UDim2.new(0, rw, 1, 0), position = UDim2.new(1, -mw, 0, 0),
 				anchor = Vector2.new(1, 0), xAlign = Enum.TextXAlignment.Right, color = rightColor or C.TEXT_GREY,
 				textSize = TS, zIndex = 13, wrapped = true })
 		end
@@ -23413,7 +23486,7 @@ end)()
 		else
 			table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(uid, e.name) end })
 		end
-		table.insert(acts, { text = "🧹 Remise à zéro", color = C.BG_LIGHT, fn = function() askReset(uid, e.name) end })
+		table.insert(acts, { text = "🧹 Ses warnings à 0", color = C.BG_LIGHT, fn = function() askReset(uid, e.name) end })
 		buttonRow(b, 7, acts)
 		return b, fill
 	end
@@ -23435,37 +23508,52 @@ end)()
 		end
 		local s = d.state or {}
 
-		--  État en un coup d'œil
+		--  🧪 MODE SANS SANCTION / 🟢 SANCTIONS ACTIVES
 		local real = not s.shadow
-		local b = box(body, 1, real and "🟢 ANTI-CHEAT ACTIF : sanctions réelles" or "🧪 MODE TEST : personne n'est sanctionné",
-			real and GREEN or CYAN)
-		text(b, 2, string.format("Sanction : %s  ·  %s  ·  Un warning s'efface après %s",
+		local b = box(body, 1, real and "🟢 SANCTIONS ACTIVES" or "🧪 MODE SANS SANCTION (activé)",
+			real and GREEN or CYAN,
+			real and "Les joueurs qui atteignent le nombre de warnings sont vraiment sanctionnés."
+				or "L'anti-cheat mesure et note tout, mais PERSONNE n'est sanctionné. Regarde le 📡 Fil et les 👥 Joueurs pendant quelques jours : si tout est normal, active les sanctions.")
+		text(b, 2, string.format("Sanction : %s  ·  %s  ·  Un warning s'efface après %s%s",
 			s.mode == "ban" and "🔨 Ban" or "🚫 Privation d'UGC",
 			s.silent and "🤫 le joueur ne voit rien de ses warnings" or "👁️ le joueur voit ses warnings",
-			(tonumber(s.expiry) or 0) > 0 and (s.expiry .. " jours") or "jamais"), C.TEXT_GREY, TS)
-		buttonRow(b, 3, {
-			{ text = real and "🧪 Passer en mode test" or "🟢 Activer les sanctions", color = real and CYAN or GREEN, textColor = BLACK,
-				fn = function()
-					confirmPage({ title = real and "🧪 Passer en mode test" or "🟢 Activer les sanctions",
-						color = real and CYAN or GREEN,
-						confirmText = real and "🧪 Oui, mode test" or "🟢 Oui, sanctions réelles",
-						lines = real and {
-							"Plus AUCUNE sanction automatique ne sera appliquée, sur tous les serveurs.",
-							"Les détections continuent d'être mesurées et notées dans le fil.",
-							"Les joueurs déjà restreints restent restreints.",
-						} or {
-							"Les joueurs qui atteignent le nombre de warnings seront VRAIMENT sanctionnés.",
-							"S'applique tout de suite sur tous tes serveurs.",
+			(tonumber(s.expiry) or 0) > 0 and (s.expiry .. " jours") or "jamais",
+			(tonumber(s.countFrom) or 0) > 0 and ("\n🕛 Warnings comptés depuis le " .. dateOf(s.countFrom)) or ""), C.TEXT_GREY, TS)
+		button(b, 3, real and "🧪 Activer le mode sans sanction" or "🟢 Activer les sanctions",
+			real and CYAN or GREEN, function()
+				if real then
+					confirmPage({ title = "🧪 Activer le mode sans sanction", color = CYAN,
+						confirmText = "🧪 Oui, plus aucune sanction",
+						lines = {
+							"Plus AUCUNE sanction automatique, sur tous les serveurs, tant que ce mode est activé.",
+							"L'anti-cheat continue de tout mesurer : tu vois tout dans le 📡 Fil et les 👥 Joueurs.",
+							"Les joueurs déjà restreints restent restreints (lève-les dans 🚫 Restreints si besoin).",
 						},
 						onConfirm = function()
-							call("setvalues", { values = { shadow = real } }, function(res)
+							call("setvalues", { values = { shadow = true } }, function(res)
 								toast(res and res.msg or "Erreur", res and res.ok == true)
 								DATA.home = nil ; DATA.schema = nil
 								screenAC()
 							end)
 						end })
-				end },
-		})
+				else
+					confirmPage({ title = "🟢 Activer les sanctions", color = GREEN,
+						confirmText = "🟢 Oui, activer les sanctions",
+						lines = {
+							"À partir de maintenant, un joueur qui atteint " .. tostring(s.threshold) .. " warning(s) est vraiment privé d'UGC.",
+							"S'applique tout de suite sur tous tes serveurs.",
+						},
+						checkbox = { label = "Ignorer les anciens warnings : ne compter qu'à partir de maintenant", default = true,
+							desc = "Coché (conseillé) : tous les warnings reçus avant maintenant ne comptent plus, tout le monde repart de 0. Décoché : les warnings déjà reçus comptent (un joueur proche du seuil peut être sanctionné au prochain)." },
+						onConfirm = function(_, ignoreOld)
+							call("setvalues", { values = { shadow = false }, countFromNow = ignoreOld == true }, function(res)
+								toast(res and res.msg or "Erreur", res and res.ok == true)
+								DATA.home = nil ; DATA.schema = nil ; DATA.cand = nil ; DATA.files = {}
+								screenAC()
+							end)
+						end })
+				end
+			end, IS_MOBILE and 38 or 44, BLACK)
 
 		--  ⭐ LE réglage le plus important, ici, en gros
 		local w = box(body, 2, "🚨 Warnings avant la restriction", RED,
@@ -23504,20 +23592,41 @@ end)()
 				end })
 		end)
 
+		--  🧹 Réinitialiser les warnings
+		local z = box(body, 3, "🧹 Réinitialiser les warnings", C.BORDER_BRIGHT,
+			"D'UN joueur : touche ⋯ en haut à droite de n'importe quelle entrée (Fil, Joueurs, Restreints) → « 🧹 Réinitialiser ses warnings », ou ouvre sa 🔍 Fiche.\nDe TOUT LE MONDE : le bouton ci-dessous.")
+		button(z, 3, "👥 Réinitialiser les warnings de TOUT LE MONDE", C.BG_LIGHT, function()
+			confirmPage({ title = "🧹 Réinitialiser les warnings de tout le monde", color = ORANGE,
+				confirmText = "🧹 Oui, tout le monde repart de 0",
+				lines = {
+					"Tous les warnings reçus avant maintenant ne comptent plus, pour TOUS les joueurs, sur tous les serveurs.",
+					"Le classement des warnings repart de zéro.",
+					"Les sanctions déjà posées ne sont PAS levées.",
+					"Le 📡 Fil et l'historique des détections sont gardés.",
+				},
+				onConfirm = function()
+					call("setvalues", { countFromNow = true }, function(res)
+						toast(res and res.msg or "Erreur", res and res.ok == true)
+						DATA.home = nil ; DATA.cand = nil ; DATA.files = {}
+						screenAC()
+					end)
+				end })
+		end)
+
 		--  Dernières 24 h
 		local st = d.stats or {}
-		local c = box(body, 3, "📊 Dernières 24 heures", ORANGE)
+		local c = box(body, 4, "📊 Dernières 24 heures", ORANGE)
 		text(c, 2, string.format("🔎 %d détection(s) sur %d joueur(s)\n⚠️ %d warning(s)  ·  🚫 %d sanction(s)\n🗂️ %d joueur(s) restreint(s) au total",
 			st.det24 or 0, st.players24 or 0, st.warn24 or 0, st.sanc24 or 0, st.restricted or 0), C.TEXT_WHITE, TM)
 
 		--  Dernières détections
-		local r = box(body, 4, "📡 Derniers événements", CYAN, "Touche « Voir tout le fil » pour le détail complet de chaque entrée.")
+		local r = box(body, 5, "📡 Derniers événements", CYAN, "Touche « Voir tout le fil » pour le détail complet de chaque entrée.")
 		if #(d.recent or {}) == 0 then text(r, 2, "✅ Rien de récent.", GREEN, TS) end
 		for i, e in ipairs(d.recent or {}) do feedEntry(r, 1 + i, e, true) end
 		button(r, 20, "📡 Voir tout le fil →", CYAN, function() ST.tab = "feed" ; screenAC() end, nil, BLACK)
 
 		--  Mode d'emploi
-		note(body, 5,
+		note(body, 6,
 			"📖 COMMENT ÇA MARCHE\n"
 				.. "1. L'anti-cheat mesure chaque joueur 4 fois par seconde (vol, téléportation, vitesse).\n"
 				.. "2. Chaque détection reçoit une CERTITUDE en %. Les détections trop peu sûres sont ignorées.\n"
@@ -23918,7 +24027,7 @@ end)()
 		else
 			table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(uid, d.name) end })
 		end
-		table.insert(acts, { text = "🧹 Remise à zéro", color = C.BG_LIGHT, fn = function() askReset(uid, d.name) end })
+		table.insert(acts, { text = "🧹 Ses warnings à 0", color = C.BG_LIGHT, fn = function() askReset(uid, d.name) end })
 		buttonRow(body, 8, acts, IS_MOBILE and 38 or 44)
 	end
 
@@ -24118,6 +24227,7 @@ end)()
 				end },
 			}, IS_MOBILE and 36 or 42)
 		end
+		text(body, 4, "🧹 Pour réinitialiser des warnings : 🏠 Accueil → « Réinitialiser les warnings », ou ⋯ sur un joueur.", C.TEXT_DIM, TS)
 		searchBox(body, 3, "🔍 Chercher un réglage (ex : warning, vol, jetpack)…", S.search, function(t)
 			S.search = t ; screenAC()
 		end, GOLD)

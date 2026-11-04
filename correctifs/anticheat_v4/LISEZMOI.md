@@ -54,3 +54,12 @@ Les anciens boutons « 🚫 UGC BAN » et « ⚙️ MODES & MSG » disparaissent
 | ⚙️ Réglages | **Absolument tous les réglages** (173), en 17 sections repliables, avec « ⭐ L'ESSENTIEL » en premier. Recherche, valeurs modifiées en jaune, bouton « ↺ valeur du fichier », enregistrement avec page récapitulative |
 
 Toute action importante (restreindre, lever, remise à zéro, enregistrer, passer en mode test) ouvre une **page de confirmation**. Elle explique ce qui va se passer, et le bouton ne s'active qu'au bout de 2 secondes.
+
+### Mode sans sanction, remise à zéro et menu ⋯
+
+- **🏠 Accueil → « 🧪 Activer le mode sans sanction »** : l'anti-cheat mesure tout, mais personne n'est sanctionné. Pratique les premiers jours, pour vérifier que tout est normal.
+- **« 🟢 Activer les sanctions »** : la page de confirmation propose la case **« Ignorer les anciens warnings : ne compter qu'à partir de maintenant »**, cochée par défaut. Tout le monde repart alors de 0.
+- **🧹 Réinitialiser les warnings** :
+  - **d'un joueur** : ⋯ sur son entrée → « Réinitialiser ses warnings », ou depuis sa 🔍 Fiche ;
+  - **de tout le monde** : 🏠 Accueil → « 👥 Réinitialiser les warnings de TOUT LE MONDE ».
+- **⋯ en haut à droite de chaque entrée** (Fil, Joueurs, Restreints, Accueil) : ouvrir la fiche, profil complet, priver d'UGC ou lever, réinitialiser ses warnings. Sans ouvrir la fiche.
