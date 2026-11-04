@@ -19424,9 +19424,9 @@ end)()
 					--  facteurs du score côte à côte, pas un total opaque.
 					ref.sub.Text = (CACHE.restr[r.userId] and "🚫 RESTREINT  ·  " or "")
 						.. string.format("⚠️ %d warning(s)  ·  💎 %s  ·  🎽 %s",
-						r.warnings,
-						r.points and fmtNum(r.points) or "—",
-						r.pw >= 1 and (math.floor(r.pw) .. " UGC")
+							r.warnings,
+							r.points and fmtNum(r.points) or "—",
+							r.pw >= 1 and (math.floor(r.pw) .. " UGC")
 							or (math.floor(r.pw * 100) .. " % d'une UGC"))
 					ref.sub.TextColor3 = CACHE.restr[r.userId] and PURPLE or col
 					ref.name.Text = ((CACHE.restr[r.userId] == true) and "🚫 " or "")
@@ -22925,5 +22925,1301 @@ end)()
 		return table.unpack(r, 1, r.n)
 	end
 end)()
+
+--════════════════════════════════════════════════════════════════════════════
+-- 🛡️ BLOC 16 — ÉCRAN ANTI-CHEAT UNIQUE (remplace « 🚫 UGC BAN », « 🚨 A-CHEAT »
+--    et « ⚙️ MODES & MSG »)
+--
+--    🏠 Accueil · 📡 Fil récent · 👥 Joueurs · 🚫 Restreints · 🔍 Fiche · ⚙️ Réglages
+--
+--    Toute action importante passe par une PAGE DE CONFIRMATION qui dit
+--    exactement ce qui va se passer. Les anciens écrans restent dans le
+--    code mais ne sont plus accessibles depuis l'accueil.
+--════════════════════════════════════════════════════════════════════════════
+;(function()
+	local RED    = Color3.fromRGB(235, 60, 65)
+	local RED_D  = Color3.fromRGB(140, 25, 30)
+	local ORANGE = Color3.fromRGB(255, 170, 60)
+	local GREEN  = Color3.fromRGB(55, 195, 100)
+	local GREEN_D = Color3.fromRGB(28, 122, 62)
+	local CYAN   = Color3.fromRGB(110, 200, 255)
+	local GOLD   = Color3.fromRGB(255, 205, 60)
+	local PURPLE = Color3.fromRGB(190, 130, 255)
+	local BLACK  = Color3.new(0, 0, 0)
+	local TS     = IS_MOBILE and 10 or 12      -- petit texte
+	local TM     = IS_MOBILE and 11 or 14      -- texte normal
+	local TL     = IS_MOBILE and 13 or 16      -- titres
+
+	--  Prix de l'UGC la moins chère du shop (sert au « pouvoir d'achat »)
+	local UGC_PRICE = 2000000
+	pcall(function()
+		local m = ReplicatedStorage:FindFirstChild("UGC_CONFIG")
+		local cfgU = m and require(m)
+		local best
+		for _, it in ipairs((cfgU and cfgU.Items) or {}) do
+			local p = tonumber(it.Price)
+			if p and p > 0 and (not best or p < best) then best = p end
+		end
+		if best then UGC_PRICE = best end
+	end)
+
+	local TYPE_LABEL = {
+		FLY_STATE = "🕊️ Vol (état Flying)", FLY_HOVER = "🕊️ Vol stationnaire",
+		FLY_ASCENT = "🕊️ Montée sans appui", FLY_UPSPEED = "🕊️ Montée trop rapide",
+		TELEPORT = "🌀 Téléportation", SPEED = "💨 Vitesse anormale",
+	}
+	local function typeFamily(t)
+		t = tostring(t or "")
+		if t:sub(1, 3) == "FLY" then return "fly" end
+		if t == "TELEPORT" then return "tp" end
+		if t == "SPEED" then return "speed" end
+		return "other"
+	end
+	local KIND = {
+		detection = { "DÉTECTION", ORANGE }, warning = { "WARNING", RED },
+		sanction = { "SANCTION", PURPLE }, manual = { "RESTREINT À LA MAIN", PURPLE },
+		lift = { "SANCTION LEVÉE", GREEN },
+	}
+
+	--════════════════════════════════════════════════════════════════
+	-- 🗄️ ÉTAT
+	--════════════════════════════════════════════════════════════════
+	local ST = {
+		tab = "home",
+		feed = { kind = "all", fam = "all", online = false, hideR = false, minConf = 0, search = "", show = 30 },
+		pl = { sort = "last", desc = true, fam = "all", status = "all", online = false, search = "", show = 30 },
+		rs = { sort = "recent", search = "" },
+		card = nil, cardData = nil, cardLoading = false, cardSearch = "",
+		set = { open = { essentiel = true }, search = "", draft = {}, resets = {} },
+	}
+	local DATA = { home = nil, feed = nil, cand = nil, files = {}, schema = nil, restricted = nil }
+	local screenAC   -- forward
+
+	--════════════════════════════════════════════════════════════════
+	-- 📞 SERVEUR
+	--════════════════════════════════════════════════════════════════
+	local function call(action, payload, cb, attempt)
+		local fn = ReplicatedStorage:FindFirstChild("AdminUGCRestrictAction")
+		if not fn then if cb then cb(nil) end return end
+		attempt = attempt or 1
+		task.spawn(function()
+			local ok, res = pcall(function() return fn:InvokeServer(action, payload) end)
+			if ok and type(res) == "table" and res.throttled and attempt < 4 then
+				task.wait(0.4 * attempt)
+				call(action, payload, cb, attempt + 1)
+				return
+			end
+			if cb then cb((ok and type(res) == "table") and res or nil) end
+		end)
+	end
+	local function alive() return currentScreen == "anticheat" and window.Visible end
+	local function rerender() if alive() then screenAC() end end
+
+	--  Détails de plusieurs joueurs, par paquets de 12, mis en cache 60 s.
+	local function loadFiles(ids, onBatch, onDone)
+		local need = {}
+		for _, id in ipairs(ids) do
+			local f = DATA.files[id]
+			if not f or os.clock() - f._at > 60 then table.insert(need, id) end
+		end
+		task.spawn(function()
+			local i = 1
+			while i <= #need do
+				local batch = {}
+				for _ = 1, 12 do if need[i] then table.insert(batch, need[i]) end ; i = i + 1 end
+				local done, res = false, nil
+				call("file", { ids = batch }, function(r) res = r ; done = true end)
+				local t0 = os.clock()
+				while not done and os.clock() - t0 < 15 do task.wait(0.05) end
+				if res and res.ok then
+					for _, f in ipairs(res.files or {}) do
+						f._at = os.clock()
+						DATA.files[f.userId] = f
+					end
+					if onBatch then onBatch(batch) end
+				end
+				task.wait(0.2)
+			end
+			if onDone then onDone() end
+		end)
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 🧱 COMPOSANTS
+	--════════════════════════════════════════════════════════════════
+	local function frame(parent, order, h)
+		local f = Instance.new("Frame")
+		f.Size = UDim2.new(1, 0, 0, h or 0)
+		if not h then f.AutomaticSize = Enum.AutomaticSize.Y end
+		f.BackgroundTransparency = 1
+		f.LayoutOrder = order or 0
+		f.ZIndex = 11
+		f.Parent = parent
+		return f
+	end
+	local function list(parent, pad)
+		local l = Instance.new("UIListLayout")
+		l.Padding = UDim.new(0, pad or 4)
+		l.SortOrder = Enum.SortOrder.LayoutOrder
+		l.Parent = parent
+		return l
+	end
+	local function text(parent, order, txt, color, size, bold)
+		local l = Instance.new("TextLabel")
+		l.Size = UDim2.new(1, 0, 0, 0)
+		l.AutomaticSize = Enum.AutomaticSize.Y
+		l.BackgroundTransparency = 1
+		l.Font = bold and FONT or Enum.Font.Gotham
+		l.Text = txt or ""
+		l.TextColor3 = color or C.TEXT_GREY
+		l.TextSize = size or TS
+		l.TextWrapped = true
+		l.TextXAlignment = Enum.TextXAlignment.Left
+		l.TextYAlignment = Enum.TextYAlignment.Top
+		l.LayoutOrder = order or 0
+		l.ZIndex = 12
+		l.Parent = parent
+		return l
+	end
+	--  Une boîte encadrée avec un titre (et une explication facultative).
+	local function box(parent, order, title, color, intro)
+		local f = Instance.new("Frame")
+		f.Size = UDim2.new(1, 0, 0, 0)
+		f.AutomaticSize = Enum.AutomaticSize.Y
+		f.BackgroundColor3 = C.BG_DARK
+		f.BorderSizePixel = 0
+		f.LayoutOrder = order or 0
+		f.ZIndex = 11
+		f.Parent = parent
+		corner(f, 10) ; stroke(f, color or C.BORDER_SUBTLE, 1)
+		padding(f, IS_MOBILE and 8 or 10)
+		list(f, 5)
+		if title then text(f, 0, title, color or C.TEXT_WHITE, TL, true) end
+		if intro then text(f, 1, intro, C.TEXT_DIM, TS) end
+		return f
+	end
+	local function note(parent, order, txt, color)
+		local b = box(parent, order, nil, color or C.BORDER_SUBTLE)
+		b.BackgroundColor3 = C.BG_ITEM
+		text(b, 1, txt, color or C.TEXT_GREY, TS)
+		return b
+	end
+	local function button(parent, order, txt, color, fn, h, textColor)
+		local c = frame(parent, order, h or (IS_MOBILE and 34 or 40))
+		local b, l = actionButton(c, { color = color, strokeColor = color, text = txt,
+			textColor = textColor or C.TEXT_WHITE, textSize = IS_MOBILE and 11 or 13, radius = 9, zIndex = 13 })
+		b.MouseButton1Click:Connect(fn)
+		return b, l
+	end
+	--  Rangée de boutons côte à côte.
+	local function buttonRow(parent, order, items, h)
+		local c = frame(parent, order, h or (IS_MOBILE and 32 or 38))
+		local g = Instance.new("UIGridLayout")
+		local n = math.max(1, #items)
+		g.CellSize = UDim2.new(1 / n, -6, 1, 0)
+		g.CellPadding = UDim2.new(0, 6, 0, 0)
+		g.SortOrder = Enum.SortOrder.LayoutOrder
+		g.Parent = c
+		for i, it in ipairs(items) do
+			local w = Instance.new("Frame")
+			w.BackgroundTransparency = 1 ; w.LayoutOrder = i ; w.ZIndex = 12 ; w.Parent = c
+			local b = actionButton(w, { color = it.color or C.BG_LIGHT, strokeColor = it.color or C.BORDER_BRIGHT,
+				text = it.text, textColor = it.textColor or C.TEXT_WHITE,
+				textSize = IS_MOBILE and 10 or 12, radius = 8, zIndex = 13 })
+			b.MouseButton1Click:Connect(it.fn)
+		end
+		return c
+	end
+	--  Puces de choix (plusieurs lignes si besoin). `cols` = puces par ligne.
+	local function chips(parent, order, items, selected, color, onPick, cols)
+		cols = cols or 3
+		local rows = math.ceil(#items / cols)
+		local h = IS_MOBILE and 26 or 30
+		local c = frame(parent, order, rows * h + (rows - 1) * 4)
+		local g = Instance.new("UIGridLayout")
+		g.CellSize = UDim2.new(1 / cols, -4, 0, h)
+		g.CellPadding = UDim2.new(0, 4, 0, 4)
+		g.SortOrder = Enum.SortOrder.LayoutOrder
+		g.Parent = c
+		for i, it in ipairs(items) do
+			local on = (it.id == selected)
+			local b = Instance.new("TextButton")
+			b.LayoutOrder = i
+			b.BackgroundColor3 = on and color or C.BG_ITEM
+			b.AutoButtonColor = false
+			b.BorderSizePixel = 0
+			b.Font = FONT
+			b.Text = it.label
+			b.TextColor3 = on and BLACK or C.TEXT_GREY
+			b.TextSize = IS_MOBILE and 9 or 11
+			b.TextWrapped = true
+			b.ZIndex = 12
+			b.Parent = c
+			corner(b, 7) ; stroke(b, on and color or C.BORDER_SUBTLE, 1)
+			b.MouseButton1Click:Connect(function() onPick(it.id) end)
+		end
+		return c
+	end
+	local function toggleChip(parent, order, label_, on, color, onPick)
+		return chips(parent, order, { { id = true, label = (on and "✅ " or "⬜ ") .. label_ } },
+			on and true or false, color, function() onPick(not on) end, 1)
+	end
+	local function searchBox(parent, order, placeholder, value, onChange, color)
+		local c = frame(parent, order, IS_MOBILE and 32 or 38)
+		local tb = Instance.new("TextBox")
+		tb.Size = UDim2.fromScale(1, 1)
+		tb.BackgroundColor3 = C.BG_ITEM
+		tb.BorderSizePixel = 0
+		tb.Font = FONT
+		tb.PlaceholderText = placeholder
+		tb.PlaceholderColor3 = C.TEXT_DIM
+		tb.Text = value or ""
+		tb.TextColor3 = C.TEXT_WHITE
+		tb.TextSize = TM
+		tb.TextXAlignment = Enum.TextXAlignment.Left
+		tb.ClearTextOnFocus = false
+		tb.ZIndex = 12
+		tb.Parent = c
+		corner(tb, 8) ; stroke(tb, color or C.BORDER_SUBTLE, 1)
+		local p = Instance.new("UIPadding") ; p.PaddingLeft = UDim.new(0, 10) ; p.Parent = tb
+		tb.FocusLost:Connect(function() onChange(tb.Text) end)
+		return tb
+	end
+	local function status(parent, order, txt)
+		return text(parent, order, txt or "⏳ Chargement…", C.TEXT_GREY, TM, true)
+	end
+	local function confColor(c)
+		c = tonumber(c) or 0
+		if c >= 85 then return RED elseif c >= 70 then return ORANGE elseif c >= 55 then return GOLD end
+		return C.TEXT_GREY
+	end
+	local function dateOf(t)
+		if not t or t <= 0 then return "?" end
+		return os.date("!%d/%m %H:%M", t) .. " UTC (" .. fmtAgo(t) .. ")"
+	end
+	local function ugcPow(p)
+		p = tonumber(p)
+		if not p then return "?" end
+		local x = p / UGC_PRICE
+		if x >= 1 then return string.format("%d UGC", math.floor(x)) end
+		return string.format("%d %% d'une UGC", math.floor(x * 100))
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- ⚠️ PAGE DE CONFIRMATION
+	--    opt = { title, color, userId, userName, lines = {…}, confirmText,
+	--            input = "placeholder" (facultatif), onConfirm = function(text) }
+	--    Le bouton « Confirmer » ne s'active qu'après 2 secondes : impossible
+	--    de valider par erreur en double-cliquant.
+	--════════════════════════════════════════════════════════════════
+	local function confirmPage(opt)
+		local back = function() screenAC() end
+		local body = buildScreen("⚠️ CONFIRMATION", true, opt.color or ORANGE, back)
+		local b = box(body, 1, opt.title, opt.color or ORANGE)
+		if opt.userId then
+			local h = frame(b, 2, IS_MOBILE and 44 or 54)
+			local av = makeAvatar(h, opt.userId, IS_MOBILE and 40 or 50, opt.color)
+			av.Position = UDim2.new(0, 0, 0, 2)
+			label(h, { text = tostring(opt.userName or opt.userId) .. "  ·  " .. tostring(opt.userId),
+				size = UDim2.new(1, -60, 1, 0), position = UDim2.new(0, IS_MOBILE and 48 or 60, 0, 0),
+				xAlign = Enum.TextXAlignment.Left, color = C.TEXT_WHITE, textSize = TM, zIndex = 13, truncate = true })
+		end
+		text(b, 3, "Ce qui va se passer :", C.TEXT_WHITE, TM, true)
+		for i, l in ipairs(opt.lines or {}) do text(b, 3 + i, "• " .. l, C.TEXT_GREY, TS) end
+		local input
+		if opt.input then
+			text(b, 50, "Note (facultative, visible dans la fiche) :", C.TEXT_WHITE, TS, true)
+			input = searchBox(b, 51, opt.input, "", function() end, opt.color)
+		end
+		local okBtn, okLbl = button(body, 3, "⏳ Lis bien… (2)", C.BG_LIGHT, function() end, nil)
+		local armed = false
+		okBtn.MouseButton1Click:Connect(function()
+			if not armed then return end
+			armed = false
+			okLbl.Text = "⏳ En cours…"
+			opt.onConfirm(input and input.Text or nil)
+		end)
+		task.spawn(function()
+			for s = 2, 1, -1 do
+				if not okLbl.Parent then return end
+				okLbl.Text = "⏳ Lis bien… (" .. s .. ")"
+				task.wait(1)
+			end
+			if okLbl.Parent then
+				armed = true
+				okBtn.BackgroundColor3 = opt.color or ORANGE
+				okLbl.Text = opt.confirmText or "✅ Confirmer"
+				okLbl.TextColor3 = BLACK
+			end
+		end)
+		button(body, 4, "↩️ Annuler, ne rien changer", C.BG_LIGHT, back)
+	end
+
+	--  Les 3 actions sur un joueur, toujours avec confirmation.
+	local function askRestrict(uid, name)
+		confirmPage({ title = "🚫 Priver ce joueur d'UGC", color = RED, userId = uid, userName = name,
+			confirmText = "🚫 Oui, le priver d'UGC", input = "Pourquoi ? (ex : vu en vidéo en train de voler)",
+			lines = {
+				"Il ne pourra plus obtenir AUCUNE UGC, sur tous tes serveurs, tout de suite.",
+				"Il garde ses points et continue de jouer normalement.",
+				"Il verra le message « UGC désactivées » une fois, puis seulement s'il essaie d'acheter.",
+				"Tu pourras lever la sanction à tout moment (onglet 🚫 Restreints).",
+				"L'action est enregistrée avec ton nom.",
+			},
+			onConfirm = function(note_)
+				call("add", { userId = uid, note = (note_ and note_ ~= "") and note_ or "Privation manuelle depuis le panel" },
+					function(res)
+						toast(res and res.msg or "Erreur", res and res.ok == true)
+						DATA.files[uid] = nil ; DATA.restricted = nil ; DATA.cand = nil ; DATA.feed = nil ; DATA.home = nil
+						ST.cardData = nil
+						screenAC()
+					end)
+			end })
+	end
+	local function askLift(uid, name)
+		confirmPage({ title = "✅ Lever la sanction", color = GREEN, userId = uid, userName = name,
+			confirmText = "✅ Oui, lui rendre l'accès aux UGC",
+			lines = {
+				"Il pourra de nouveau obtenir des UGC, tout de suite, sur tous tes serveurs.",
+				"⚠️ Ses warnings ne sont PAS effacés : s'il en reçoit encore, il peut être de nouveau sanctionné. Si c'était une erreur, utilise aussi « 🧹 Remettre à zéro ».",
+				"L'action est enregistrée avec ton nom.",
+			},
+			onConfirm = function()
+				call("remove", { userId = uid }, function(res)
+					toast(res and res.msg or "Erreur", res and res.ok == true)
+					DATA.files[uid] = nil ; DATA.restricted = nil ; DATA.cand = nil ; DATA.feed = nil ; DATA.home = nil
+					ST.cardData = nil
+					screenAC()
+				end)
+			end })
+	end
+	local function askReset(uid, name)
+		confirmPage({ title = "🧹 Remettre ses compteurs à zéro", color = CYAN, userId = uid, userName = name,
+			confirmText = "🧹 Oui, tout remettre à zéro",
+			lines = {
+				"Ses warnings et ses statistiques de détection sont effacés.",
+				"Sa sanction, s'il en a une, n'est PAS levée (utilise « ✅ Lever » pour ça).",
+				"À faire quand tu conclus à une erreur de l'anti-cheat.",
+			},
+			onConfirm = function()
+				call("clearstats", { userId = uid }, function(res)
+					toast(res and res.msg or "Erreur", res and res.ok == true)
+					DATA.files[uid] = nil ; DATA.cand = nil ; ST.cardData = nil
+					screenAC()
+				end)
+			end })
+	end
+	local function openCard(uid)
+		ST.tab = "card" ; ST.card = uid ; ST.cardData = nil
+		screenAC()
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 🧑 EN-TÊTE JOUEUR (avatar + nom + badges)
+	--════════════════════════════════════════════════════════════════
+	local function playerHead(parent, order, uid, name, restricted, online, rightText, rightColor)
+		local h = frame(parent, order, IS_MOBILE and 36 or 44)
+		local s = IS_MOBILE and 32 or 40
+		uid = tonumber(uid)
+		if uid then
+			local av = makeAvatar(h, uid, s, restricted and PURPLE or nil)
+			av.Position = UDim2.new(0, 0, 0, 2)
+		end
+		local rw = IS_MOBILE and 80 or 110
+		label(h, { text = (restricted and "🚫 " or "") .. tostring(name or ("UserId " .. uid)),
+			size = UDim2.new(1, -s - rw - 12, 0, IS_MOBILE and 16 or 20), position = UDim2.new(0, s + 8, 0, 2),
+			xAlign = Enum.TextXAlignment.Left, color = restricted and PURPLE or C.TEXT_WHITE,
+			textSize = TM, truncate = true, zIndex = 13 })
+		label(h, { text = (online and "🟢 en ligne" or "⚪ hors ligne") .. "  ·  " .. tostring(uid)
+				.. (restricted and "  ·  🚫 RESTREINT" or ""),
+			size = UDim2.new(1, -s - rw - 12, 0, IS_MOBILE and 14 or 16),
+			position = UDim2.new(0, s + 8, 0, IS_MOBILE and 18 or 23),
+			xAlign = Enum.TextXAlignment.Left, color = restricted and PURPLE or C.TEXT_DIM,
+			textSize = TS, truncate = true, zIndex = 13 })
+		if rightText then
+			label(h, { text = rightText, size = UDim2.new(0, rw, 1, 0), position = UDim2.new(1, 0, 0, 0),
+				anchor = Vector2.new(1, 0), xAlign = Enum.TextXAlignment.Right, color = rightColor or C.TEXT_GREY,
+				textSize = TS, zIndex = 13, wrapped = true })
+		end
+		return h
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 📰 UNE ENTRÉE DU FIL (détaillée)
+	--════════════════════════════════════════════════════════════════
+	local function feedEntry(parent, order, e, compact)
+		local k = KIND[e.kind] or { tostring(e.kind or "?"):upper(), C.TEXT_GREY }
+		local col = e.restricted and PURPLE or k[2]
+		local b = box(parent, order, nil, col)
+		if e.restricted then b.BackgroundColor3 = Color3.fromRGB(40, 24, 56) end
+		local f = DATA.files[tonumber(e.uid) or 0]
+		playerHead(b, 1, e.uid, e.name or (f and f.name), e.restricted, e.online,
+			k[1] .. "\n" .. fmtAgo(e.t), k[2])
+
+		--  Ce qu'il a fait
+		local what = (TYPE_LABEL[e.type] or tostring(e.type or "")) .. (e.details and e.details ~= "" and (" — " .. e.details) or "")
+		if e.kind == "warning" then
+			what = string.format("⚠️ Warning %s/%s — %s", tostring(e.warnings or "?"), tostring(e.max or "?"), what)
+		elseif e.kind == "sanction" then
+			what = string.format("🚫 PRIVÉ D'UGC après %s warning(s) — %s", tostring(e.warnings or "?"), what)
+		elseif e.kind == "manual" or e.kind == "lift" then
+			what = tostring(e.details or "")
+		end
+		text(b, 2, "📝 " .. what, C.TEXT_WHITE, TS)
+		if compact then return b end
+
+		--  Où et avec quoi
+		local cx = e.ctx
+		if type(cx) == "table" then
+			local parts = {}
+			if cx.pos then table.insert(parts, "📍 " .. cx.pos) end
+			table.insert(parts, "🧰 outil : " .. tostring(cx.tool or "aucun"))
+			if cx.speed then table.insert(parts, string.format("💨 %s studs/s (vertical %s)", cx.speed, tostring(cx.vy or 0))) end
+			if cx.walk then table.insert(parts, "🚶 vitesse de marche " .. cx.walk) end
+			if cx.arena then table.insert(parts, "🥊 en arène") end
+			text(b, 3, table.concat(parts, "  ·  "), C.TEXT_GREY, TS)
+			if cx.notes then text(b, 4, "ℹ️ " .. cx.notes, GOLD, TS) end
+		end
+
+		--  Pourquoi la machine y croit
+		if e.conf then
+			local why = (type(e.why) == "table" and #e.why > 0) and ("\n   " .. table.concat(e.why, "\n   ")) or ""
+			text(b, 5, string.format("🎯 Certitude %d %%%s", tonumber(e.conf) or 0, why), confColor(e.conf), TS)
+		end
+
+		--  Son dossier (rempli quand la fiche arrive)
+		local dossier = text(b, 6, "🗂️ Dossier : chargement…", C.TEXT_DIM, TS)
+		local function fill()
+			local fl = DATA.files[tonumber(e.uid) or 0]
+			if not fl or not dossier.Parent then return end
+			local th = (DATA.feed and DATA.feed.threshold) or (DATA.home and DATA.home.state and DATA.home.state.threshold) or "?"
+			local det24 = 0
+			for _, x in ipairs((DATA.feed and DATA.feed.events) or {}) do
+				if x.uid == e.uid and x.kind == "detection" and (x.t or 0) >= os.time() - 86400 then det24 = det24 + 1 end
+			end
+			dossier.Text = string.format("🗂️ Dossier : ⚠️ %s/%s warnings actifs  ·  📊 %d détection(s) sur 24 h, %s au total  ·  💎 %s (%s)%s",
+				tostring(fl.warnings or 0), tostring(th), det24, tostring(fl.total or "?"),
+				fl.points and fmtNum(fl.points) or "?", ugcPow(fl.points),
+				fl.restricted and ("  ·  🚫 restreint : " .. tostring(fl.restrictWhy or "")) or "")
+			dossier.TextColor3 = fl.restricted and PURPLE or C.TEXT_GREY
+		end
+		fill()
+		local uid = tonumber(e.uid)
+		local acts = {
+			{ text = "🔍 Fiche", color = CYAN, textColor = BLACK, fn = function() openCard(uid) end },
+		}
+		if e.restricted then
+			table.insert(acts, { text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(uid, e.name) end })
+		else
+			table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(uid, e.name) end })
+		end
+		table.insert(acts, { text = "🧹 Remise à zéro", color = C.BG_LIGHT, fn = function() askReset(uid, e.name) end })
+		buttonRow(b, 7, acts)
+		return b, fill
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 🏠 ACCUEIL
+	--════════════════════════════════════════════════════════════════
+	local function renderHome(body)
+		local d = DATA.home
+		if not d then
+			local st = status(body, 1)
+			call("home", {}, function(res)
+				if not st.Parent then return end
+				if not (res and res.ok) then st.Text = "❌ Lecture impossible. Appuie sur 🔄." return end
+				DATA.home = res
+				rerender()
+			end)
+			return
+		end
+		local s = d.state or {}
+
+		--  État en un coup d'œil
+		local real = not s.shadow
+		local b = box(body, 1, real and "🟢 ANTI-CHEAT ACTIF : sanctions réelles" or "🧪 MODE TEST : personne n'est sanctionné",
+			real and GREEN or CYAN)
+		text(b, 2, string.format("Sanction : %s  ·  %s  ·  Un warning s'efface après %s",
+			s.mode == "ban" and "🔨 Ban" or "🚫 Privation d'UGC",
+			s.silent and "🤫 le joueur ne voit rien de ses warnings" or "👁️ le joueur voit ses warnings",
+			(tonumber(s.expiry) or 0) > 0 and (s.expiry .. " jours") or "jamais"), C.TEXT_GREY, TS)
+		buttonRow(b, 3, {
+			{ text = real and "🧪 Passer en mode test" or "🟢 Activer les sanctions", color = real and CYAN or GREEN, textColor = BLACK,
+				fn = function()
+					confirmPage({ title = real and "🧪 Passer en mode test" or "🟢 Activer les sanctions",
+						color = real and CYAN or GREEN,
+						confirmText = real and "🧪 Oui, mode test" or "🟢 Oui, sanctions réelles",
+						lines = real and {
+							"Plus AUCUNE sanction automatique ne sera appliquée, sur tous les serveurs.",
+							"Les détections continuent d'être mesurées et notées dans le fil.",
+							"Les joueurs déjà restreints restent restreints.",
+						} or {
+							"Les joueurs qui atteignent le nombre de warnings seront VRAIMENT sanctionnés.",
+							"S'applique tout de suite sur tous tes serveurs.",
+						},
+						onConfirm = function()
+							call("setvalues", { values = { shadow = real } }, function(res)
+								toast(res and res.msg or "Erreur", res and res.ok == true)
+								DATA.home = nil ; DATA.schema = nil
+								screenAC()
+							end)
+						end })
+				end },
+		})
+
+		--  ⭐ LE réglage le plus important, ici, en gros
+		local w = box(body, 2, "🚨 Warnings avant la restriction", RED,
+			"Combien de warnings un joueur doit recevoir avant d'être privé d'UGC (1 à 1000). Tape le nombre puis appuie sur « Enregistrer ».")
+		local cur = tonumber(s.threshold) or 1
+		local row = frame(w, 3, IS_MOBILE and 36 or 42)
+		local vb = Instance.new("TextBox")
+		vb.Size = UDim2.new(0.4, 0, 1, 0)
+		vb.BackgroundColor3 = C.BG_ITEM ; vb.BorderSizePixel = 0
+		vb.Font = FONT ; vb.Text = tostring(cur) ; vb.TextColor3 = RED
+		vb.TextSize = IS_MOBILE and 18 or 22 ; vb.ClearTextOnFocus = false ; vb.ZIndex = 12 ; vb.Parent = row
+		corner(vb, 8) ; stroke(vb, RED, 1.5)
+		local sv = Instance.new("Frame")
+		sv.Size = UDim2.new(0.58, 0, 1, 0) ; sv.Position = UDim2.new(0.42, 0, 0, 0)
+		sv.BackgroundTransparency = 1 ; sv.ZIndex = 12 ; sv.Parent = row
+		local sb = actionButton(sv, { color = RED, strokeColor = RED_D, text = "💾 Enregistrer",
+			textSize = IS_MOBILE and 11 or 14, radius = 8, zIndex = 13 })
+		sb.MouseButton1Click:Connect(function()
+			local n = tonumber((vb.Text:gsub("[^%d]", "")))
+			if not n or n < 1 or n > 1000 then toast("Entre un nombre entre 1 et 1000", false) return end
+			if n == cur then toast("C'est déjà " .. cur, true) return end
+			confirmPage({ title = "🚨 Warnings avant la restriction : " .. cur .. " → " .. n, color = RED,
+				confirmText = "💾 Oui, passer à " .. n,
+				lines = {
+					string.format("Un joueur sera privé d'UGC à partir de %d warning(s) (au lieu de %d).", n, cur),
+					"S'applique tout de suite sur tous tes serveurs.",
+					n < cur and "⚠️ Les joueurs qui ont déjà ce nombre de warnings seront sanctionnés à leur PROCHAIN warning."
+						or "Les joueurs déjà restreints restent restreints.",
+				},
+				onConfirm = function()
+					call("setvalues", { values = { ["ugc.warn"] = n } }, function(res)
+						toast(res and res.msg or "Erreur", res and res.ok == true)
+						DATA.home = nil ; DATA.schema = nil
+						screenAC()
+					end)
+				end })
+		end)
+
+		--  Dernières 24 h
+		local st = d.stats or {}
+		local c = box(body, 3, "📊 Dernières 24 heures", ORANGE)
+		text(c, 2, string.format("🔎 %d détection(s) sur %d joueur(s)\n⚠️ %d warning(s)  ·  🚫 %d sanction(s)\n🗂️ %d joueur(s) restreint(s) au total",
+			st.det24 or 0, st.players24 or 0, st.warn24 or 0, st.sanc24 or 0, st.restricted or 0), C.TEXT_WHITE, TM)
+
+		--  Dernières détections
+		local r = box(body, 4, "📡 Derniers événements", CYAN, "Touche « Voir tout le fil » pour le détail complet de chaque entrée.")
+		if #(d.recent or {}) == 0 then text(r, 2, "✅ Rien de récent.", GREEN, TS) end
+		for i, e in ipairs(d.recent or {}) do feedEntry(r, 1 + i, e, true) end
+		button(r, 20, "📡 Voir tout le fil →", CYAN, function() ST.tab = "feed" ; screenAC() end, nil, BLACK)
+
+		--  Mode d'emploi
+		note(body, 5,
+			"📖 COMMENT ÇA MARCHE\n"
+				.. "1. L'anti-cheat mesure chaque joueur 4 fois par seconde (vol, téléportation, vitesse).\n"
+				.. "2. Chaque détection reçoit une CERTITUDE en %. Les détections trop peu sûres sont ignorées.\n"
+				.. "3. Plusieurs détections sûres et rapprochées = 1 WARNING.\n"
+				.. "4. Au nombre de warnings réglé ci-dessus → le joueur est PRIVÉ D'UGC (si la certitude du dossier est suffisante).\n"
+				.. "5. Chaque warning s'efface tout seul après le délai réglé.\n\n"
+				.. "📡 Fil : tout ce qui vient de se passer, expliqué.  👥 Joueurs : les suspects, triables.\n"
+				.. "🚫 Restreints : les sanctionnés.  🔍 Fiche : tout sur un joueur.  ⚙️ Réglages : TOUS les réglages.",
+			C.TEXT_GREY)
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 📡 FIL RÉCENT
+	--════════════════════════════════════════════════════════════════
+	local function renderFeed(body)
+		local F = ST.feed
+		note(body, 1, "Tout ce que l'anti-cheat a retenu, tous serveurs confondus, du plus récent au plus ancien : "
+			.. "détections sûres, warnings, sanctions et actions des admins. Chaque entrée explique ce que le joueur "
+			.. "a fait, où, avec quoi, et pourquoi la machine y croit.", CYAN)
+		chips(body, 2, {
+			{ id = "all", label = "Tout" }, { id = "detection", label = "🔎 Détections" },
+			{ id = "warning", label = "⚠️ Warnings" }, { id = "sanction", label = "🚫 Sanctions" },
+			{ id = "admin", label = "👮 Actions admin" },
+		}, F.kind, ORANGE, function(v) F.kind = v ; F.show = 30 ; screenAC() end, 5)
+		chips(body, 3, {
+			{ id = "all", label = "Tous types" }, { id = "fly", label = "🕊️ Vol" },
+			{ id = "tp", label = "🌀 Téléport" }, { id = "speed", label = "💨 Vitesse" },
+		}, F.fam, ORANGE, function(v) F.fam = v ; F.show = 30 ; screenAC() end, 4)
+		chips(body, 4, {
+			{ id = 0, label = "Toute certitude" }, { id = 70, label = "≥ 70 %" }, { id = 85, label = "≥ 85 %" },
+		}, F.minConf, ORANGE, function(v) F.minConf = v ; screenAC() end, 3)
+		local tg = frame(body, 5, IS_MOBILE and 26 or 30)
+		local g = Instance.new("UIGridLayout") ; g.CellSize = UDim2.new(0.5, -4, 1, 0) ; g.CellPadding = UDim2.new(0, 8, 0, 0) ; g.Parent = tg
+		toggleChip(tg, 1, "En ligne seulement", F.online, GREEN, function(v) F.online = v ; screenAC() end)
+		toggleChip(tg, 2, "Masquer les restreints", F.hideR, PURPLE, function(v) F.hideR = v ; screenAC() end)
+		searchBox(body, 6, "🔍 Pseudo ou UserId…", F.search, function(t) F.search = t ; screenAC() end, ORANGE)
+
+		local holder = frame(body, 7) ; list(holder, IS_MOBILE and 6 or 8)
+		local d = DATA.feed
+		if not d then
+			local st = status(holder, 1)
+			call("feedlog", { limit = 300 }, function(res)
+				if not st.Parent then return end
+				if not (res and res.ok) then st.Text = "❌ Lecture impossible. Appuie sur 🔄." return end
+				DATA.feed = res
+				rerender()
+			end)
+			return
+		end
+		local q = (F.search or ""):lower()
+		local shown, ids, fills = 0, {}, {}
+		local matched = 0
+		for _, e in ipairs(d.events or {}) do
+			local ok = true
+			if F.kind == "admin" then ok = (e.kind == "manual" or e.kind == "lift")
+			elseif F.kind ~= "all" then ok = (e.kind == F.kind) end
+			if ok and F.fam ~= "all" then ok = typeFamily(e.type) == F.fam end
+			if ok and F.minConf > 0 then ok = (tonumber(e.conf) or 0) >= F.minConf end
+			if ok and F.online then ok = e.online == true end
+			if ok and F.hideR then ok = not e.restricted end
+			if ok and #q > 0 then
+				ok = tostring(e.name or ""):lower():find(q, 1, true) ~= nil or tostring(e.uid) == q
+			end
+			if ok then
+				matched = matched + 1
+				if shown < F.show then
+					shown = shown + 1
+					local _, fill = feedEntry(holder, shown, e, false)
+					if fill then
+						fills[#fills + 1] = fill
+						if not DATA.files[tonumber(e.uid) or 0] then ids[#ids + 1] = tonumber(e.uid) end
+					end
+				end
+			end
+		end
+		if matched == 0 then text(holder, 1, "✅ Rien ne correspond à ces filtres.", C.TEXT_GREY, TM) end
+		if matched > shown then
+			button(holder, 9999, string.format("⬇️ Afficher plus (%d sur %d)", shown, matched), C.BG_LIGHT, function()
+				F.show = F.show + 30 ; screenAC()
+			end)
+		end
+		if #ids > 0 then
+			loadFiles(ids, function() for _, fn in ipairs(fills) do pcall(fn) end end)
+		end
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 👥 JOUEURS (classement triable)
+	--════════════════════════════════════════════════════════════════
+	local SORTS = {
+		{ id = "last",   label = "🕒 Dernière détection" },
+		{ id = "near",   label = "🔥 Proches de la sanction" },
+		{ id = "warn",   label = "⚠️ Warnings" },
+		{ id = "conf",   label = "🎯 Certitude moy." },
+		{ id = "confmax", label = "📈 Certitude max" },
+		{ id = "total",  label = "📊 Détections (total)" },
+		{ id = "det24",  label = "⚡ Détections 24 h" },
+		{ id = "points", label = "💎 Points / UGC" },
+		{ id = "risk",   label = "💣 Risque (warn × UGC)" },
+		{ id = "noise",  label = "🌫️ Bruit (écartés)" },
+		{ id = "new",    label = "🆕 Nouveaux suspects" },
+		{ id = "name",   label = "🔤 Nom A → Z" },
+	}
+	local function sortValue(m, key, th)
+		local f = DATA.files[m.userId] or {}
+		local w = tonumber(f.warnings) or tonumber(m.warn) or 0
+		if key == "last" then return tonumber(f.lastAt) or tonumber(m.lastAt) or 0 end
+		if key == "near" then return w / math.max(1, tonumber(th) or 1) end
+		if key == "warn" then return w end
+		if key == "conf" then return tonumber(f.confAvg) or 0 end
+		if key == "confmax" then return tonumber(f.confMax) or 0 end
+		if key == "total" then return tonumber(f.total) or tonumber(m.det) or 0 end
+		if key == "det24" then return tonumber(m.det24) or 0 end
+		if key == "points" then return tonumber(f.points) or -1 end
+		if key == "risk" then return w * ((tonumber(f.points) or 0) / UGC_PRICE) end
+		if key == "noise" then return tonumber(f.ignored) or 0 end
+		if key == "new" then return tonumber(f.firstSeen) or 0 end
+		if key == "name" then return tostring(f.name or m.name or m.userId):lower() end
+		return 0
+	end
+	local function famOf(m)
+		local f = DATA.files[m.userId] or {}
+		local best, bn = f.lastType or m.lastType, -1
+		for t, n in pairs(f.detByType or {}) do if (tonumber(n) or 0) > bn then best, bn = t, tonumber(n) end end
+		return typeFamily(best)
+	end
+
+	local function renderPlayers(body)
+		local P = ST.pl
+		note(body, 1, "Tous les joueurs qui ont au moins une détection retenue ou un warning. Choisis le tri et les "
+			.. "filtres, puis touche une ligne pour ouvrir sa fiche complète. Les joueurs restreints sont marqués 🚫 en violet.", GOLD)
+		text(body, 2, "Trier par :", C.TEXT_WHITE, TS, true)
+		chips(body, 3, SORTS, P.sort, GOLD, function(v) P.sort = v ; P.desc = (v ~= "name") ; screenAC() end, 3)
+		chips(body, 4, {
+			{ id = true, label = "⬇️ Du plus grand au plus petit" }, { id = false, label = "⬆️ Du plus petit au plus grand" },
+		}, P.desc, GOLD, function(v) P.desc = v ; screenAC() end, 2)
+		chips(body, 5, {
+			{ id = "all", label = "Tous types" }, { id = "fly", label = "🕊️ Vol" },
+			{ id = "tp", label = "🌀 Téléport" }, { id = "speed", label = "💨 Vitesse" },
+		}, P.fam, GOLD, function(v) P.fam = v ; screenAC() end, 4)
+		chips(body, 6, {
+			{ id = "all", label = "Tous" }, { id = "free", label = "Non restreints" }, { id = "restricted", label = "🚫 Restreints" },
+		}, P.status, PURPLE, function(v) P.status = v ; screenAC() end, 3)
+		toggleChip(body, 7, "En ligne seulement", P.online, GREEN, function(v) P.online = v ; screenAC() end)
+		searchBox(body, 8, "🔍 Pseudo ou UserId…", P.search, function(t) P.search = t ; screenAC() end, GOLD)
+
+		local holder = frame(body, 9) ; list(holder, IS_MOBILE and 6 or 8)
+		local d = DATA.cand
+		if not d then
+			local st = status(holder, 1)
+			call("candidates", { limit = 150 }, function(res)
+				if not st.Parent then return end
+				if not (res and res.ok) then st.Text = "❌ Lecture impossible. Appuie sur 🔄." return end
+				DATA.cand = res
+				--  l'affichage lance ensuite le chargement des détails de TOUS les
+				--  joueurs, par paquets, avec un seul nouvel affichage à la fin
+				rerender()
+			end)
+			return
+		end
+		local th = d.threshold or 1
+		local missing, need = 0, {}
+		for _, m in ipairs(d.entries or {}) do
+			if not DATA.files[m.userId] then missing = missing + 1 ; need[#need + 1] = m.userId end
+		end
+		if missing > 0 and not DATA.candLoading then
+			DATA.candLoading = true
+			loadFiles(need, nil, function()
+				DATA.candLoading = false
+				if ST.tab == "players" then rerender() end
+			end)
+		end
+		if missing > 0 then
+			text(holder, 0, string.format("⏳ Détails en cours de chargement (%d restants) — le tri s'affinera tout seul.", missing), C.TEXT_DIM, TS)
+		end
+
+		local q = (P.search or ""):lower()
+		local rows = {}
+		for _, m in ipairs(d.entries or {}) do
+			local f = DATA.files[m.userId] or {}
+			local restricted = (f.restricted ~= nil) and f.restricted or m.restricted
+			local online = Players:GetPlayerByUserId(m.userId) ~= nil
+			local ok = true
+			if P.status == "free" then ok = not restricted elseif P.status == "restricted" then ok = restricted == true end
+			if ok and P.online then ok = online end
+			if ok and P.fam ~= "all" then ok = famOf(m) == P.fam end
+			if ok and #q > 0 then
+				ok = tostring(f.name or m.name or ""):lower():find(q, 1, true) ~= nil or tostring(m.userId) == q
+			end
+			if ok then table.insert(rows, { m = m, v = sortValue(m, P.sort, th), r = restricted, o = online }) end
+		end
+		table.sort(rows, function(a, b)
+			if a.v == b.v then return a.m.userId < b.m.userId end
+			if P.desc then return a.v > b.v else return a.v < b.v end
+		end)
+		if #rows == 0 then text(holder, 1, "✅ Aucun joueur ne correspond.", C.TEXT_GREY, TM) end
+
+		for i = 1, math.min(#rows, P.show) do
+			local x = rows[i]
+			local m, f = x.m, DATA.files[x.m.userId] or {}
+			local w = tonumber(f.warnings) or tonumber(m.warn) or 0
+			local col = x.r and PURPLE or (w >= th and RED or (w > 0 and ORANGE or C.BORDER_SUBTLE))
+			local row = Instance.new("TextButton")
+			row.Size = UDim2.new(1, 0, 0, 0) ; row.AutomaticSize = Enum.AutomaticSize.Y
+			row.BackgroundColor3 = x.r and Color3.fromRGB(40, 24, 56) or C.BG_DARK
+			row.AutoButtonColor = false ; row.Text = "" ; row.BorderSizePixel = 0
+			row.LayoutOrder = i ; row.ZIndex = 11 ; row.Parent = holder
+			corner(row, 10) ; stroke(row, col, x.r and 2 or 1) ; padding(row, IS_MOBILE and 6 or 8) ; list(row, 3)
+			local right
+			local key = P.sort
+			if key == "last" then right = fmtAgo(sortValue(m, "last", th))
+			elseif key == "points" or key == "risk" then right = f.points and (fmtNum(f.points) .. "\n" .. ugcPow(f.points)) or "?"
+			elseif key == "conf" or key == "confmax" then right = string.format("%d %%", sortValue(m, key, th))
+			elseif key == "name" then right = ""
+			elseif key == "new" then right = f.firstSeen and ("depuis\n" .. fmtAgo(f.firstSeen)) or "?"
+			elseif key == "near" then right = string.format("%d / %d", w, th)
+			else right = tostring(math.floor(sortValue(m, key, th) + 0.5)) end
+			playerHead(row, 1, m.userId, f.name or m.name, x.r, x.o, "#" .. i .. "\n" .. right, col)
+			text(row, 2, string.format("⚠️ %d/%d warnings  ·  🎯 %s moy. (max %s)  ·  📊 %s détection(s), %d sur 24 h, %s écartée(s)",
+				w, th, f.confAvg and (f.confAvg .. " %") or "?", f.confMax and (f.confMax .. " %") or "?",
+				tostring(f.total or m.det or "?"), tonumber(m.det24) or 0, tostring(f.ignored or "?")), C.TEXT_GREY, TS)
+			local last = f.lastDetail and ((TYPE_LABEL[f.lastType] or tostring(f.lastType)) .. " — " .. f.lastDetail)
+				or (m.lastDetail and ((TYPE_LABEL[m.lastType] or tostring(m.lastType)) .. " — " .. m.lastDetail))
+			if last then text(row, 3, "🕒 Dernier : " .. last .. "  (" .. fmtAgo(f.lastAt or m.lastAt) .. ")", C.TEXT_WHITE, TS) end
+			text(row, 4, string.format("💎 %s pts (%s)%s", f.points and fmtNum(f.points) or "?", ugcPow(f.points),
+				x.r and ("  ·  🚫 RESTREINT : " .. tostring(f.restrictWhy or "")) or ""), x.r and PURPLE or C.TEXT_DIM, TS)
+			row.MouseButton1Click:Connect(function() openCard(m.userId) end)
+		end
+		if #rows > P.show then
+			button(holder, 9999, string.format("⬇️ Afficher plus (%d sur %d)", P.show, #rows), C.BG_LIGHT, function()
+				P.show = P.show + 30 ; screenAC()
+			end)
+		end
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 🚫 RESTREINTS
+	--════════════════════════════════════════════════════════════════
+	local function renderRestricted(body)
+		local R = ST.rs
+		note(body, 1, "Tous les joueurs privés d'UGC, avec la raison exacte. Touche « ✅ Lever » pour rendre l'accès "
+			.. "(une page de confirmation s'ouvre).", PURPLE)
+		chips(body, 2, {
+			{ id = "recent", label = "🕒 Plus récents" }, { id = "old", label = "⌛ Plus anciens" },
+			{ id = "auto", label = "🤖 Auto d'abord" }, { id = "manual", label = "👮 Manuels d'abord" },
+			{ id = "tries", label = "🔁 Tentatives d'achat" }, { id = "conf", label = "🎯 Certitude" },
+		}, R.sort, PURPLE, function(v) R.sort = v ; screenAC() end, 3)
+		searchBox(body, 3, "🔍 Pseudo, UserId, admin ou mot de la raison…", R.search, function(t) R.search = t ; screenAC() end, PURPLE)
+		local holder = frame(body, 4) ; list(holder, IS_MOBILE and 6 or 8)
+		local d = DATA.restricted
+		if not d then
+			local st = status(holder, 1)
+			local fn = ReplicatedStorage:FindFirstChild("AdminGetUGCRestrict")
+			if not fn then st.Text = "❌ AntiCheat_UGCRestrict manquant côté serveur." return end
+			task.spawn(function()
+				local ok, res = pcall(function() return fn:InvokeServer(true, false) end)
+				if not st.Parent then return end
+				if not (ok and type(res) == "table" and res.ok) then st.Text = "❌ Lecture impossible. Appuie sur 🔄." return end
+				DATA.restricted = res.entries or {}
+				rerender()
+			end)
+			return
+		end
+		local q = (R.search or ""):lower()
+		local rows = {}
+		for _, r in ipairs(d) do
+			local why = tostring(r.reasonText or r.details or r.reason or "")
+			local hay = (tostring(r.name or "") .. " " .. tostring(r.userId) .. " " .. tostring(r.by or "") .. " " .. why):lower()
+			if #q == 0 or hay:find(q, 1, true) then table.insert(rows, r) end
+		end
+		table.sort(rows, function(a, b)
+			if R.sort == "old" then return (a.at or 0) < (b.at or 0) end
+			if R.sort == "auto" and a.auto ~= b.auto then return a.auto == true end
+			if R.sort == "manual" and a.auto ~= b.auto then return a.auto ~= true end
+			if R.sort == "tries" and (a.attempts or 0) ~= (b.attempts or 0) then return (a.attempts or 0) > (b.attempts or 0) end
+			if R.sort == "conf" and (a.confidence or 0) ~= (b.confidence or 0) then return (a.confidence or 0) > (b.confidence or 0) end
+			return (a.at or 0) > (b.at or 0)
+		end)
+		text(holder, 0, string.format("🚫 %d joueur(s) restreint(s)%s", #rows, #q > 0 and " (recherche)" or ""), PURPLE, TM, true)
+		for i = 1, math.min(#rows, 60) do
+			local r = rows[i]
+			local b = box(holder, i, nil, PURPLE)
+			b.BackgroundColor3 = Color3.fromRGB(40, 24, 56)
+			playerHead(b, 1, r.userId, r.name, true, Players:GetPlayerByUserId(r.userId) ~= nil,
+				(r.auto and "🤖 AUTO" or "👮 MANUEL") .. "\n" .. fmtAgo(r.at), PURPLE)
+			text(b, 2, string.format("📅 %s  ·  par %s  ·  🎯 %s  ·  ⚠️ %d warning(s), %d détection(s) au moment de la sanction",
+				dateOf(r.at), r.auto and "l'anti-cheat" or tostring(r.by or "?"),
+				r.confidence and (r.confidence .. " %") or "—", r.warnings or 0, r.detections or 0), C.TEXT_GREY, TS)
+			text(b, 3, "📝 RAISON\n" .. tostring(r.reasonText or r.details or r.reason or "?"), C.TEXT_WHITE, TS)
+			if (r.attempts or 0) > 0 then text(b, 4, "🔁 " .. r.attempts .. " tentative(s) d'achat bloquée(s)", ORANGE, TS) end
+			if (r.leaks or 0) > 0 then text(b, 5, "🚨 " .. r.leaks .. " UGC reçue(s) malgré la sanction (prompt ouvert par un exécuteur)", RED, TS) end
+			text(b, 6, r.noticeShown and "👁️ Il a vu le message de sanction" or "👁️ Il n'a pas encore vu le message", C.TEXT_DIM, TS)
+			buttonRow(b, 7, {
+				{ text = "🔍 Fiche", color = CYAN, textColor = BLACK, fn = function() openCard(r.userId) end },
+				{ text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(r.userId, r.name) end },
+			})
+		end
+		if #rows > 60 then text(holder, 9999, "… affine la recherche pour voir les autres.", C.TEXT_DIM, TS) end
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 🔍 FICHE JOUEUR
+	--════════════════════════════════════════════════════════════════
+	local function renderCard(body)
+		searchBox(body, 1, "🔍 Pseudo exact ou UserId, puis Entrée…", ST.cardSearch, function(t)
+			ST.cardSearch = t
+			local v = t:gsub("^%s+", ""):gsub("%s+$", "")
+			if #v >= 2 then ST.card = tonumber(v) or v ; ST.cardData = nil ; screenAC() end
+		end, CYAN)
+		if not ST.card then
+			note(body, 2, "Choisis un joueur dans le 📡 Fil, 👥 Joueurs ou 🚫 Restreints, ou cherche-le ici. "
+				.. "La fiche montre ses warnings actifs (et quand ils expirent), tout son historique expliqué, "
+				.. "sa sanction éventuelle et les actions possibles.", C.TEXT_DIM)
+			return
+		end
+		local d = ST.cardData
+		if not d then
+			local st = status(body, 2, "⏳ Ouverture de la fiche…")
+			if not ST.cardLoading then
+				ST.cardLoading = true
+				call("lookup", { target = ST.card, deep = true }, function(res)
+					ST.cardLoading = false
+					ST.cardData = res or { ok = false, msg = "Pas de réponse" }
+					if res and res.ok then ST.card = res.userId end
+					rerender()
+				end)
+			end
+			return
+		end
+		if not d.ok then note(body, 2, "❌ " .. tostring(d.msg or "Joueur introuvable"), RED) return end
+		local uid = d.userId
+		local rec = d.record
+		local fl = d.file or {}
+		local per = d.persisted or {}
+		local th = d.threshold or 1
+		local head = box(body, 2, nil, rec and PURPLE or CYAN)
+		playerHead(head, 1, uid, d.name, rec ~= nil, d.online, d.isAdmin and "👮 ADMIN" or nil, CYAN)
+
+		local avg = ((per.confCount or 0) > 0) and math.floor(per.confSum / per.confCount) or 0
+		local s = box(body, 3, "📊 Résumé", CYAN)
+		text(s, 2, string.format(
+			"⚠️ Warnings actifs : %s / %s  (le %s déclenche la sanction)\n🎯 Certitude : %d %% en moyenne, %d %% au maximum\n📊 Détections retenues : %d  ·  écartées (doute) : %d\n🕒 Première détection : %s\n🕒 Dernière : %s",
+			tostring(fl.warnings or "?"), tostring(th), tostring(th), avg, per.confMax or 0, per.total or 0, per.detIgnored or 0,
+			per.firstSeen and dateOf(per.firstSeen) or "—", per.lastAt and dateOf(per.lastAt) or (per.lastSeen and dateOf(per.lastSeen) or "—")),
+			C.TEXT_WHITE, TS)
+		local bt = {}
+		for t, n in pairs(per.detByType or {}) do table.insert(bt, (TYPE_LABEL[t] or t) .. " : " .. n) end
+		table.sort(bt)
+		if #bt > 0 then text(s, 3, "Par type : " .. table.concat(bt, "  ·  "), C.TEXT_GREY, TS) end
+		if per.lastDetail then text(s, 4, "Dernier signal : " .. (TYPE_LABEL[per.lastType] or tostring(per.lastType)) .. " — " .. per.lastDetail .. (per.lastCtx and ("\n" .. per.lastCtx) or ""), C.TEXT_GREY, TS) end
+
+		if rec then
+			local r = box(body, 4, "🚫 PRIVÉ D'UGC", PURPLE)
+			text(r, 2, string.format("Depuis le %s  ·  par %s  ·  🔁 %d achat(s) bloqué(s)", dateOf(rec.at),
+				rec.auto and "l'anti-cheat" or tostring(rec.by or "?"), rec.attempts or 0), C.TEXT_GREY, TS)
+			text(r, 3, "📝 RAISON\n" .. tostring(rec.reasonText or rec.details or rec.reason or "?"), C.TEXT_WHITE, TS)
+		end
+
+		local hist = fl.warnHistory or {}
+		local wb = box(body, 5, "🧾 Warnings actifs (" .. #hist .. ")", ORANGE,
+			"Chaque warning s'efface tout seul après le délai réglé dans ⚙️ (⏳).")
+		if #hist == 0 then text(wb, 2, "✅ Aucun warning actif.", GREEN, TS) end
+		for i = #hist, math.max(1, #hist - 9), -1 do
+			local h = hist[i]
+			text(wb, 2 + (#hist - i), string.format("• %s — %s %s", dateOf(h.t), TYPE_LABEL[h.type] or tostring(h.type),
+				tostring(h.details or "")), C.TEXT_GREY, TS)
+		end
+
+		local eb = box(body, 6, "📰 Son historique (journal, tous serveurs)", CYAN)
+		if #(d.events or {}) == 0 then text(eb, 2, "Rien dans le journal récent.", C.TEXT_DIM, TS) end
+		for i, e in ipairs(d.events or {}) do
+			if i > 15 then break end
+			feedEntry(eb, 1 + i, e, true)
+		end
+
+		local live = d.live
+		if type(live) == "table" and type(live.recent) == "table" and #live.recent > 0 then
+			local lb = box(body, 7, "🎯 Ce que la machine a vu (ce serveur)", ORANGE,
+				"« + » fait monter la certitude, « − » la fait descendre. ⚪ = écarté, n'a rien coûté au joueur.")
+			for i, e in ipairs(live.recent) do
+				if i > 8 then break end
+				local lines = { string.format("%s %s — %s %%  (%s)", e.counted and "✅" or "⚪",
+					TYPE_LABEL[e.vType] or tostring(e.vType or e.kind), tostring(e.conf or "?"), fmtAgo(e.t)) }
+				if e.details then table.insert(lines, "   " .. e.details) end
+				for j, f in ipairs(e.factors or {}) do
+					if j > 6 then break end
+					table.insert(lines, string.format("   %+d  %s", tonumber(f.delta) or 0, tostring(f.label)))
+				end
+				text(lb, 1 + i, table.concat(lines, "\n"), e.counted and C.TEXT_GREY or C.TEXT_DIM, TS)
+			end
+		end
+
+		local acts = {
+			{ text = "👤 Profil", color = C.PURPLE, fn = function() openProfileDetail(d.name, function() screenAC() end) end },
+		}
+		if rec then
+			table.insert(acts, { text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(uid, d.name) end })
+		else
+			table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(uid, d.name) end })
+		end
+		table.insert(acts, { text = "🧹 Remise à zéro", color = C.BG_LIGHT, fn = function() askReset(uid, d.name) end })
+		buttonRow(body, 8, acts, IS_MOBILE and 38 or 44)
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- ⚙️ RÉGLAGES (tout, par sections repliables)
+	--════════════════════════════════════════════════════════════════
+	local function toText(f, v)
+		if f.t == "list" or f.t == "numlist" then
+			local o = {}
+			for _, x in ipairs(type(v) == "table" and v or {}) do table.insert(o, tostring(x)) end
+			return table.concat(o, ", ")
+		elseif f.t == "map" then
+			local o = {}
+			for k, x in pairs(type(v) == "table" and v or {}) do table.insert(o, tostring(k) .. "=" .. tostring(x)) end
+			table.sort(o)
+			return table.concat(o, ", ")
+		elseif f.t == "bool" then
+			return v and "OUI" or "NON"
+		elseif f.t == "choice" then
+			for _, o in ipairs(f.options or {}) do if o.v == v then return o.l end end
+		end
+		return tostring(v)
+	end
+	local function current(f)
+		local S = ST.set
+		if S.resets[f.id] then return f.default end
+		if S.draft[f.id] ~= nil then return S.draft[f.id] end
+		return f.value
+	end
+	local function setDraft(f, v)
+		ST.set.resets[f.id] = nil
+		if toText(f, v) == toText(f, f.value) then ST.set.draft[f.id] = nil else ST.set.draft[f.id] = v end
+	end
+	local function pendingList()
+		local out = {}
+		for _, sec in ipairs((DATA.schema and DATA.schema.sections) or {}) do
+			for _, f in ipairs(sec.fields) do
+				if ST.set.draft[f.id] ~= nil or ST.set.resets[f.id] then table.insert(out, f) end
+			end
+		end
+		return out
+	end
+
+	local function fieldRow(parent, order, f, presetIsCustom)
+		local row = box(parent, order, nil, C.BORDER_SUBTLE)
+		row.BackgroundColor3 = C.BG_ITEM
+		local v = current(f)
+		local changed = ST.set.draft[f.id] ~= nil or ST.set.resets[f.id]
+		local differs = toText(f, v) ~= toText(f, f.default)
+		local title = (changed and "✏️ " or "") .. tostring(f.label)
+		text(row, 1, title, f.danger and RED or (changed and GOLD or C.TEXT_WHITE), TM, true)
+		if f.desc then text(row, 2, f.desc, C.TEXT_DIM, TS) end
+		if f.sev and not presetIsCustom then
+			text(row, 3, "◆ Choisi par la Sévérité tant qu'elle n'est pas « Custom » : ta valeur ne s'applique pas.", ORANGE, TS)
+		end
+
+		if f.t == "bool" then
+			chips(row, 4, { { id = true, label = "✅ OUI" }, { id = false, label = "⛔ NON" } }, v == true,
+				v and GREEN or RED, function(nv) setDraft(f, nv) ; screenAC() end, 2)
+		elseif f.t == "choice" then
+			chips(row, 4, (function()
+				local o = {}
+				for _, x in ipairs(f.options or {}) do table.insert(o, { id = x.v, label = x.l }) end
+				return o
+			end)(), v, CYAN, function(nv) setDraft(f, nv) ; screenAC() end, math.min(4, #(f.options or {})))
+		elseif f.t == "number" then
+			local c = frame(row, 4, IS_MOBILE and 30 or 34)
+			local function stepBtn(x, txt, delta)
+				local w = Instance.new("Frame")
+				w.Size = UDim2.new(0.2, -4, 1, 0) ; w.Position = UDim2.new(x, 0, 0, 0)
+				w.BackgroundTransparency = 1 ; w.ZIndex = 12 ; w.Parent = c
+				local b = actionButton(w, { color = C.BG_LIGHT, strokeColor = C.BORDER_BRIGHT, text = txt,
+					textSize = IS_MOBILE and 14 or 17, radius = 7, zIndex = 13 })
+				b.MouseButton1Click:Connect(function()
+					local nv = math.clamp((tonumber(v) or 0) + delta, f.min or -1e9, f.max or 1e9)
+					nv = math.floor(nv * 100 + 0.5) / 100
+					setDraft(f, nv) ; screenAC()
+				end)
+			end
+			stepBtn(0, "−", -(f.step or 1))
+			local tb = Instance.new("TextBox")
+			tb.Size = UDim2.new(0.56, -4, 1, 0) ; tb.Position = UDim2.new(0.22, 0, 0, 0)
+			tb.BackgroundColor3 = C.BG_DARK ; tb.BorderSizePixel = 0 ; tb.Font = FONT
+			tb.Text = tostring(v) ; tb.TextColor3 = changed and GOLD or CYAN ; tb.TextSize = TM
+			tb.ClearTextOnFocus = false ; tb.ZIndex = 12 ; tb.Parent = c
+			corner(tb, 7) ; stroke(tb, CYAN, 1)
+			tb.FocusLost:Connect(function()
+				local n = tonumber((tb.Text:gsub(",", "."):gsub("[^%d%.%-]", "")))
+				if n then
+					n = math.clamp(n, f.min or -1e9, f.max or 1e9)
+					setDraft(f, n) ; screenAC()
+				else
+					tb.Text = tostring(v)
+				end
+			end)
+			stepBtn(0.8, "+", f.step or 1)
+			text(row, 5, string.format("Limites : %s à %s", tostring(f.min), tostring(f.max)), C.TEXT_DIM, TS)
+		else
+			local tb = Instance.new("TextBox")
+			tb.Size = UDim2.new(1, 0, 0, 0) ; tb.AutomaticSize = Enum.AutomaticSize.Y
+			tb.BackgroundColor3 = C.BG_DARK ; tb.BorderSizePixel = 0 ; tb.Font = Enum.Font.Gotham
+			tb.Text = (f.t == "text") and tostring(v or "") or toText(f, v)
+			tb.TextColor3 = changed and GOLD or C.TEXT_WHITE ; tb.TextSize = TS
+			tb.TextWrapped = true ; tb.MultiLine = (f.t == "text") ; tb.ClearTextOnFocus = false
+			tb.TextXAlignment = Enum.TextXAlignment.Left ; tb.TextYAlignment = Enum.TextYAlignment.Top
+			tb.LayoutOrder = 4 ; tb.ZIndex = 12 ; tb.Parent = row
+			corner(tb, 7) ; stroke(tb, CYAN, 1)
+			local p = Instance.new("UIPadding") ; p.PaddingLeft = UDim.new(0, 8) ; p.PaddingRight = UDim.new(0, 8)
+			p.PaddingTop = UDim.new(0, 6) ; p.PaddingBottom = UDim.new(0, 6) ; p.Parent = tb
+			tb.FocusLost:Connect(function()
+				local nv = tb.Text
+				if f.t == "list" or f.t == "numlist" then
+					local o = {}
+					for part in string.gmatch(nv, "[^,\n]+") do
+						local x = part:gsub("^%s+", ""):gsub("%s+$", "")
+						if x ~= "" then table.insert(o, f.t == "numlist" and (tonumber(x) or x) or x) end
+					end
+					nv = o
+				elseif f.t == "map" then
+					local o = {}
+					for part in string.gmatch(nv, "[^,\n]+") do
+						local k, n = part:match("^%s*(.-)%s*=%s*([%d%.]+)%s*$")
+						if k and k ~= "" then o[k] = tonumber(n) end
+					end
+					nv = o
+				end
+				setDraft(f, nv) ; screenAC()
+			end)
+			if f.t ~= "text" then text(row, 5, "Sépare les éléments par des virgules.", C.TEXT_DIM, TS) end
+		end
+		if differs then
+			local dTxt = toText(f, f.default)
+			if #dTxt > 60 then dTxt = dTxt:sub(1, 60) .. "…" end
+			local c = frame(row, 6, IS_MOBILE and 24 or 28)
+			local b = actionButton(c, { color = C.BG_DARK, strokeColor = C.BORDER_SUBTLE,
+				text = "↺ Revenir à la valeur du fichier (" .. dTxt .. ")", textColor = C.TEXT_GREY,
+				textSize = TS, radius = 7, zIndex = 13 })
+			b.MouseButton1Click:Connect(function()
+				ST.set.draft[f.id] = nil ; ST.set.resets[f.id] = true ; screenAC()
+			end)
+		end
+		return row
+	end
+
+	local function askSave()
+		local pend = pendingList()
+		if #pend == 0 then toast("Aucune modification", true) return end
+		local lines = {}
+		for _, f in ipairs(pend) do
+			local old, new = toText(f, f.value), toText(f, current(f))
+			if #old > 40 then old = old:sub(1, 40) .. "…" end
+			if #new > 40 then new = new:sub(1, 40) .. "…" end
+			table.insert(lines, string.format("%s : %s → %s%s", f.label, old, new, ST.set.resets[f.id] and " (valeur du fichier)" or ""))
+		end
+		table.insert(lines, "S'applique tout de suite sur TOUS tes serveurs.")
+		confirmPage({ title = "💾 Enregistrer " .. #pend .. " réglage(s)", color = GOLD, confirmText = "💾 Oui, enregistrer",
+			lines = lines,
+			onConfirm = function()
+				local values, resets = {}, {}
+				for id, v in pairs(ST.set.draft) do values[id] = v end
+				for id in pairs(ST.set.resets) do table.insert(resets, id) end
+				call("setvalues", { values = values, reset = resets }, function(res)
+					toast(res and res.msg or "Erreur", res and res.ok == true)
+					if res and res.ok then
+						ST.set.draft, ST.set.resets = {}, {}
+						DATA.schema = nil ; DATA.home = nil
+					end
+					screenAC()
+				end)
+			end })
+	end
+
+	local function renderSettings(body)
+		local S = ST.set
+		local d = DATA.schema
+		if not d then
+			local st = status(body, 1)
+			call("schema", {}, function(res)
+				if not st.Parent then return end
+				if not (res and res.ok) then st.Text = "❌ Lecture impossible. Appuie sur 🔄." return end
+				DATA.schema = res
+				rerender()
+			end)
+			return
+		end
+		note(body, 1, "📖 TOUS les réglages de l'anti-cheat sont ici, rangés par sections. Touche une section pour "
+			.. "l'ouvrir. Tes changements sont en jaune ✏️ et ne s'appliquent qu'après « 💾 Enregistrer » (une page "
+			.. "de confirmation récapitule tout).\n\n📄 Ces réglages viennent aussi du fichier ANTICHEAT_CONFIG "
+			.. "(VERSION " .. tostring(d.fileVersion) .. ") : ce que tu enregistres ici reste actif tant que tu ne "
+			.. "montes pas VERSION dans le fichier.", C.TEXT_GREY)
+		local pend = pendingList()
+		if #pend > 0 then
+			buttonRow(body, 2, {
+				{ text = "💾 Enregistrer " .. #pend .. " modif(s)", color = GOLD, textColor = BLACK, fn = askSave },
+				{ text = "↩️ Tout annuler", color = C.BG_LIGHT, fn = function()
+					S.draft, S.resets = {}, {} ; screenAC()
+				end },
+			}, IS_MOBILE and 36 or 42)
+		end
+		searchBox(body, 3, "🔍 Chercher un réglage (ex : warning, vol, jetpack)…", S.search, function(t)
+			S.search = t ; screenAC()
+		end, GOLD)
+
+		local presetCustom = false
+		for _, sec in ipairs(d.sections) do
+			for _, f in ipairs(sec.fields) do
+				if f.adv == "Preset" then presetCustom = (current(f) == "custom") end
+			end
+		end
+
+		local q = (S.search or ""):lower()
+		local order = 10
+		for _, sec in ipairs(d.sections) do
+			order = order + 1
+			local matches = {}
+			for _, f in ipairs(sec.fields) do
+				if #q == 0 or (tostring(f.label) .. " " .. tostring(f.desc or "")):lower():find(q, 1, true) then
+					table.insert(matches, f)
+				end
+			end
+			if #matches > 0 then
+				local nChanged = 0
+				for _, f in ipairs(sec.fields) do
+					if S.draft[f.id] ~= nil or S.resets[f.id] then nChanged = nChanged + 1 end
+				end
+				local open = (#q > 0) or S.open[sec.id] == true
+				local essential = sec.id == "essentiel"
+				local hdr = frame(body, order * 2, IS_MOBILE and 38 or 46)
+				local hb, hl = actionButton(hdr, { color = essential and RED or C.BG_DARK,
+					strokeColor = essential and RED or (nChanged > 0 and GOLD or C.BORDER_BRIGHT),
+					text = (open and "▼  " or "▶  ") .. sec.title .. "  (" .. #sec.fields .. ")"
+						.. (nChanged > 0 and ("  ✏️" .. nChanged) or ""),
+					textColor = C.TEXT_WHITE, textSize = IS_MOBILE and 11 or 14, radius = 9, zIndex = 13 })
+				hl.TextXAlignment = Enum.TextXAlignment.Left
+				local hp = Instance.new("UIPadding") ; hp.PaddingLeft = UDim.new(0, 12) ; hp.Parent = hl
+				hb.MouseButton1Click:Connect(function() S.open[sec.id] = not S.open[sec.id] ; screenAC() end)
+				if open then
+					local holder = frame(body, order * 2 + 1) ; list(holder, 6)
+					if sec.intro then text(holder, 0, sec.intro, C.TEXT_DIM, TS) end
+					for i, f in ipairs(matches) do fieldRow(holder, i, f, presetCustom) end
+				end
+			end
+		end
+		if #pend > 0 then
+			button(body, 9999, "💾 Enregistrer " .. #pend .. " modif(s)", GOLD, askSave, IS_MOBILE and 36 or 42, BLACK)
+		end
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 🖥️ L'ÉCRAN
+	--════════════════════════════════════════════════════════════════
+	screenAC = function()
+		currentScreen = "anticheat"
+		local body = buildScreen("🛡️ ANTI-CHEAT", true, RED, nil, function()
+			--  🔄 relit tout depuis le serveur
+			DATA.home, DATA.feed, DATA.cand, DATA.schema, DATA.restricted = nil, nil, nil, nil, nil
+			DATA.files = {} ; ST.cardData = nil
+			screenAC()
+		end)
+		acTabBar(body, -3, {
+			{ id = "home", label = "🏠 Accueil" }, { id = "feed", label = "📡 Fil récent" },
+			{ id = "players", label = "👥 Joueurs" },
+		}, ST.tab, RED, function(id) ST.tab = id ; screenAC() end)
+		acTabBar(body, -2, {
+			{ id = "restricted", label = "🚫 Restreints" }, { id = "card", label = "🔍 Fiche" },
+			{ id = "settings", label = "⚙️ Réglages" },
+		}, ST.tab, RED, function(id) ST.tab = id ; screenAC() end)
+		local ok, err = pcall(function()
+			if ST.tab == "feed" then renderFeed(body)
+			elseif ST.tab == "players" then renderPlayers(body)
+			elseif ST.tab == "restricted" then renderRestricted(body)
+			elseif ST.tab == "card" then renderCard(body)
+			elseif ST.tab == "settings" then renderSettings(body)
+			else renderHome(body) end
+		end)
+		if not ok then
+			warn("[Anti-cheat panel] " .. tostring(err))
+			note(body, 1, "❌ Erreur d'affichage : " .. tostring(err), RED)
+		end
+	end
+
+	--════════════════════════════════════════════════════════════════
+	-- 🔌 ACCUEIL DU PANEL : un seul bouton « 🛡️ ANTI-CHEAT »
+	--════════════════════════════════════════════════════════════════
+	for i = #ACTIONS, 1, -1 do
+		local a = ACTIONS[i]
+		if a.id == "ugcban" or a.id == "acmodes" then table.remove(ACTIONS, i)
+		elseif a.id == "acboards" then a.name = "🛡️ ANTI-CHEAT" end
+	end
+	screenACBoards = function() screenAC() end
+	local previousOpenAction = openAction
+	openAction = function(a)
+		if a and (a.id == "acboards" or a.id == "ugcban" or a.id == "acmodes") then
+			if ST.tab == "card" and not ST.card then ST.tab = "home" end
+			screenAC()
+			return
+		end
+		if previousOpenAction then return previousOpenAction(a) end
+	end
+	print("✅ Bloc 16 chargé — 🛡️ ANTI-CHEAT (écran unique)")
+end)()
+
 
 print("✅ ADMIN PANEL CLIENT chargé (Mobile: " .. tostring(IS_MOBILE) .. ")")

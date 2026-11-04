@@ -716,6 +716,15 @@ local function applyPreset()
 	end
 	print("🛡️ [AntiFlyTP] Preset appliqué : " .. string.upper(name))
 end
+--  📸 Copie des réglages « fichier » (avant la sévérité) : sert de base quand
+--     le panel change un réglage avancé (voir applyAdvanced plus bas).
+local function deepCopy(t)
+	if type(t) ~= "table" then return t end
+	local o = {}
+	for k, v in pairs(t) do o[k] = deepCopy(v) end
+	return o
+end
+local PRISTINE = deepCopy(CONFIG)
 applyPreset()
 
 --════════════════════════════════════════════════════════════════════════════
@@ -1153,6 +1162,14 @@ do
 				end
 				old.firstSeen = old.firstSeen or os.time()
 				old.lastSeen  = os.time()
+				--  🆕 Dernier signal retenu, en clair (pour le panel)
+				if r.lastAt then
+					old.lastAt     = r.lastAt
+					old.lastType   = r.lastType
+					old.lastDetail = r.lastDetail
+					old.lastCtx    = r.lastCtx
+				end
+				if r.warnActive ~= nil then old.warnActive = r.warnActive end
 				return old
 			end)
 		end)
@@ -1456,6 +1473,81 @@ game:BindToClose(function()
 		task.wait(1)
 	end
 end)
+
+--════════════════════════════════════════════════════════════════════════════
+-- 📰 JOURNAL PARTAGÉ DES DÉTECTIONS (fil « récent » du panel, tous serveurs)
+--    Chaque détection RETENUE, chaque warning et chaque sanction y sont écrits
+--    avec une explication en clair (ce qu'il a fait, où, avec quoi, pourquoi
+--    la machine y croit). Écrit par lots toutes les 30 s : zéro latence en jeu.
+--    On garde les 300 derniers événements.
+--════════════════════════════════════════════════════════════════════════════
+local FeedLog = {}
+do
+	local store
+	local pendingEv = {}
+	local cacheList, cacheAt = {}, -1000
+	local KEEP = 300
+	local function getStore()
+		if store then return store end
+		local ok, st = pcall(function() return DataStoreService:GetDataStore("AntiCheat_FeedLog_v1") end)
+		if ok then store = st end
+		return store
+	end
+	function FeedLog.push(ev)
+		if type(ev) ~= "table" then return end
+		ev.t = ev.t or os.time()
+		ev.server = ev.server or string.sub(game.JobId ~= "" and game.JobId or "studio", 1, 8)
+		table.insert(pendingEv, ev)
+		table.insert(cacheList, 1, ev)
+		while #cacheList > KEEP do table.remove(cacheList) end
+	end
+	local function flush()
+		if #pendingEv == 0 then return end
+		local s = getStore() ; if not s then return end
+		local batch = pendingEv
+		pendingEv = {}
+		local ok, res = pcall(function()
+			return s:UpdateAsync("recent", function(old)
+				old = (type(old) == "table") and old or {}
+				for _, ev in ipairs(batch) do table.insert(old, ev) end
+				table.sort(old, function(a, b) return (a.t or 0) > (b.t or 0) end)
+				while #old > KEEP do table.remove(old) end
+				return old
+			end)
+		end)
+		if ok and type(res) == "table" then
+			cacheList, cacheAt = res, os.clock()
+		else
+			for _, ev in ipairs(batch) do table.insert(pendingEv, ev) end
+		end
+	end
+	function FeedLog.get(n)
+		n = math.clamp(tonumber(n) or 100, 1, KEEP)
+		if os.clock() - cacheAt > 15 then
+			local s = getStore()
+			if s then
+				local ok, res = pcall(function() return s:GetAsync("recent") end)
+				if ok then
+					local list = (type(res) == "table") and res or {}
+					--  ce serveur ajoute ce qu'il n'a pas encore écrit
+					for _, ev in ipairs(pendingEv) do table.insert(list, ev) end
+					table.sort(list, function(a, b) return (a.t or 0) > (b.t or 0) end)
+					cacheList, cacheAt = list, os.clock()
+				end
+			end
+		end
+		local out = {}
+		for i = 1, math.min(n, #cacheList) do out[i] = cacheList[i] end
+		return out
+	end
+	task.spawn(function()
+		while true do
+			task.wait(30)
+			pcall(flush)
+		end
+	end)
+	game:BindToClose(function() pcall(flush) end)
+end
 
 --════════════════════════════════════════════════════════════════════════════
 -- 📡 REMOTE DE NOTIFICATION
@@ -2236,6 +2328,13 @@ end
 
 local function issueWarning(player, st, vType, details, confidence, factors)
 	local userId = player.UserId
+	local function journal(kind, count, max)
+		FeedLog.push({ kind = kind, uid = userId, name = player.Name, type = vType,
+			details = details, conf = math.floor(tonumber(confidence) or 0),
+			warnings = count, max = max, shadow = acShadow() or nil })
+		local fi = TestLog.players[userId]
+		if fi then fi.warnActive = count end
+	end
 	local shadow = acShadow()
 	local mode   = acMode()
 	confidence = tonumber(confidence) or 0
@@ -2257,6 +2356,8 @@ local function issueWarning(player, st, vType, details, confidence, factors)
 		end
 
 		TestLog.recordWarning(player, count, action, vType, details)
+		journal(action == "restrict" and "sanction" or "warning", count,
+			(mode == "ugc") and acWarningsToRestrict() or CONFIG.Punishment.BanAtWarning)
 		warn(string.format("🧪 [SHADOW] SERAIT-%s | WARNING %d | %s (%d) | %s | %s",
 			string.upper(action), count, player.Name, userId, vType, details or ""))
 		return
@@ -2300,12 +2401,14 @@ local function issueWarning(player, st, vType, details, confidence, factors)
 				factors    = factors,
 			})
 			TestLog.recordWarning(player, count, "restrict", vType, details)
+			journal(okR and "sanction" or "warning", count, threshold)
 			if okR then
 				log(string.format("Privation d'UGC appliquée à %s après %d warnings",
 					player.Name, count))
 			end
 		else
 			TestLog.recordWarning(player, count, "notify", vType, details)
+			journal("warning", count, threshold)
 			--  💬 Carte rouge « warning officiel », texte pris dans le panel.
 			--     `warnEnabled = false` la coupe complètement : le warning est
 			--     toujours compté et persisté, le joueur n'en est simplement
@@ -2367,6 +2470,7 @@ local function issueWarning(player, st, vType, details, confidence, factors)
 	end
 
 	TestLog.recordWarning(player, count, action, vType, details)
+	journal(action == "ban" and "sanction" or "warning", count, banAt)
 
 	if action == "ban" then
 		banPlayer(player, count, vType, details)
@@ -2573,6 +2677,41 @@ end
 --════════════════════════════════════════════════════════════════════════════
 -- 🚨 ENREGISTREMENT D'UNE VIOLATION
 --════════════════════════════════════════════════════════════════════════════
+--  📍 Le CONTEXTE d'une détection, en clair : où, avec quoi, dans quel état.
+local function contextOf(player, st)
+	local now = os.clock()
+	local c = {}
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		local p = hrp.Position
+		c.pos = string.format("%.0f, %.0f, %.0f", p.X, p.Y, p.Z)
+		local v = hrp.AssemblyLinearVelocity
+		c.speed = math.floor(Vector3.new(v.X, 0, v.Z).Magnitude + 0.5)
+		c.vy = math.floor(v.Y + 0.5)
+	end
+	local tools = {}
+	if char then
+		for _, t in ipairs(char:GetChildren()) do
+			if t:IsA("Tool") then table.insert(tools, t.Name) end
+		end
+	end
+	c.tool = (#tools > 0) and table.concat(tools, ", ") or "aucun"
+	c.arena = isInArena(player) == true
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then c.walk = math.floor(hum.WalkSpeed + 0.5) end
+	local notes = {}
+	if now < (st.launchUntil or 0) + 3 then table.insert(notes, "propulsé juste avant") end
+	if now < (st.ragdollUntil or 0) + 3 then table.insert(notes, "sortait d'un ragdoll") end
+	if now < (st.graceUntil or 0) + 3 then table.insert(notes, "tolérance « " .. tostring(st.graceReason) .. " » à peine finie") end
+	if (st.floorSpeed or 0) > 1 then table.insert(notes, "sur un sol qui bouge") end
+	if player:GetAttribute("Ziplining") or (char and char:GetAttribute("Ziplining")) then
+		table.insert(notes, "attribut tyrolienne loin d'une corde")
+	end
+	c.notes = (#notes > 0) and table.concat(notes, " · ") or nil
+	return c
+end
+
 local function registerViolation(player, st, vType, details, ctx)
 	local now = os.clock()
 	local shadow = acShadow()
@@ -2592,6 +2731,28 @@ local function registerViolation(player, st, vType, details, ctx)
 	st.everDetected = true
 
 	TestLog.recordDetection(player, vType, details, conf, factors, counted)
+
+	--  📰 Journal partagé + dernier signal du dossier (détections RETENUES seulement)
+	if counted then
+		local cx = contextOf(player, st)
+		local why = {}
+		for _, f in ipairs(factors or {}) do
+			if #why >= 5 then break end
+			table.insert(why, string.format("%+d %s", tonumber(f.delta) or 0, tostring(f.label)))
+		end
+		FeedLog.push({
+			kind = "detection", uid = player.UserId, name = player.Name,
+			type = vType, details = details, conf = conf, ctx = cx, why = why,
+			warnings = st.warnings or 0,
+		})
+		local fi = TestLog.players[player.UserId]
+		if fi then
+			fi.lastAt, fi.lastType, fi.lastDetail = os.time(), vType, details
+			fi.lastCtx = string.format("pos %s · outil : %s%s%s", cx.pos or "?", cx.tool,
+				cx.arena and " · arène" or "", cx.notes and (" · " .. cx.notes) or "")
+			fi.warnActive = st.warnings or 0
+		end
+	end
 
 	----------------------------------------------------------------
 	-- 🎯 SIGNAL ÉCARTÉ
@@ -3288,20 +3449,160 @@ task.spawn(function()
 	end
 end)
 
---  Rechargement à chaud quand tu changes le mode depuis le panel.
+--════════════════════════════════════════════════════════════════════════════
+-- ⚙️ RÉGLAGES AVANCÉS MODIFIÉS DEPUIS LE PANEL
+--    Le panel envoie une table plate { ["Fly.MaxHoverTime"] = 3, … }.
+--    On repart TOUJOURS des valeurs du fichier (PRISTINE), on applique les
+--    changements du panel, puis la sévérité (sauf "custom").
+--════════════════════════════════════════════════════════════════════════════
+local function getPath(t, key)
+	for part in string.gmatch(key, "[^%.]+") do
+		if type(t) ~= "table" then return nil end
+		t = t[part]
+	end
+	return t
+end
+local function setPath(t, key, v)
+	local parts = {}
+	for part in string.gmatch(key, "[^%.]+") do table.insert(parts, part) end
+	for i = 1, #parts - 1 do
+		if type(t[parts[i]]) ~= "table" then t[parts[i]] = {} end
+		t = t[parts[i]]
+	end
+	t[parts[#parts]] = v
+end
+local function namesOf(map)
+	local out = {}
+	for k in pairs(map or {}) do table.insert(out, tostring(k)) end
+	table.sort(out)
+	return out
+end
+local function fusionProfile(src)
+	for _, p in pairs((src.LegitTools or {}).FusionTools or {}) do
+		local gp = p.GravityProfile or {}
+		return { Speed = p.Speed or 60, MaxHoverTime = gp.MaxHoverTime or 8,
+			AscentFlat = gp.AscentFlat or 130, MaxUpSpeed = gp.MaxUpSpeed or 140 }
+	end
+	return { Speed = 60, MaxHoverTime = 8, AscentFlat = 130, MaxUpSpeed = 140 }
+end
+
+--  Valeur « fichier » d'une clé avancée (affichée comme défaut dans le panel).
+local function advancedDefault(key)
+	local P = PRISTINE
+	if key == "LegitTools.FlyTools" then return namesOf(P.LegitTools.FlyTools) end
+	if key == "LegitTools.GravityTools" then return namesOf(P.LegitTools.GravityTools) end
+	if key == "LegitTools.FusionTools" then return namesOf(P.LegitTools.FusionTools) end
+	if key:sub(1, 7) == "Fusion." then return fusionProfile(P)[key:sub(8)] end
+	return deepCopy(getPath(P, key))
+end
+
+local function applyAdvanced(adv)
+	for k, v in pairs(PRISTINE) do CONFIG[k] = deepCopy(v) end
+	local fusion = fusionProfile(PRISTINE)
+	local fusionNames
+	if type(adv) == "table" then
+		for key, val in pairs(adv) do
+			if key == "LegitTools.FlyTools" or key == "LegitTools.GravityTools"
+				or key == "LegitTools.FusionTools" then
+				-- traité plus bas (listes de noms)
+			elseif key:sub(1, 7) == "Fusion." then
+				fusion[key:sub(8)] = val
+			else
+				setPath(CONFIG, key, deepCopy(val))
+			end
+		end
+		local LT = CONFIG.LegitTools
+		if type(adv["LegitTools.FlyTools"]) == "table" then
+			LT.FlyTools = {}
+			for _, n in ipairs(adv["LegitTools.FlyTools"]) do
+				LT.FlyTools[n] = { MaxSpeed = (LT.FlyToolDefaultProfile or {}).MaxSpeed or 200 }
+			end
+		end
+		if type(adv["LegitTools.GravityTools"]) == "table" then
+			LT.GravityTools = {}
+			for _, n in ipairs(adv["LegitTools.GravityTools"]) do LT.GravityTools[n] = true end
+		end
+		fusionNames = adv["LegitTools.FusionTools"]
+	end
+	if type(fusionNames) ~= "table" then fusionNames = namesOf(PRISTINE.LegitTools.FusionTools) end
+	CONFIG.LegitTools.FusionTools = {}
+	for _, n in ipairs(fusionNames) do
+		CONFIG.LegitTools.FusionTools[n] = { Speed = fusion.Speed, GravityProfile = {
+			MaxHoverTime = fusion.MaxHoverTime, AscentFlat = fusion.AscentFlat,
+			MaxUpSpeed = fusion.MaxUpSpeed } }
+	end
+	applyPreset()
+	--  ce qui est calculé une seule fois au démarrage est recalculé
+	MOVER_SET = {}
+	for _, cn in ipairs(CONFIG.Launchers.MoverClasses or {}) do MOVER_SET[cn] = true end
+	whitelistSet = {}
+	for _, id in ipairs(CONFIG.Whitelist.UserIds or {}) do
+		local n = tonumber(id)
+		if n then whitelistSet[n] = true end
+	end
+end
+
+--  Rechargement à chaud quand tu changes un réglage depuis le panel.
 task.spawn(function()
 	local ev = ServerStorage:WaitForChild("ACConfigChanged", 60)
-	if not ev then return end
-	ev.Event:Connect(function(c)
-		log(string.format("Config rechargée → mode=%s | shadow=%s",
-			tostring(c and c.mode), tostring(c and c.shadow)))
-	end)
+	if ev then
+		ev.Event:Connect(function(c)
+			local ok, err = pcall(applyAdvanced, type(c) == "table" and c.advanced or nil)
+			if not ok then warn("🛡️ Réglages avancés non appliqués : " .. tostring(err)) end
+			log(string.format("Config rechargée → mode=%s | test=%s",
+				tostring(c and c.mode), tostring(c and c.shadow)))
+		end)
+	end
+	--  La config a pu être lue AVANT qu'on écoute : on l'applique une fois.
+	for _ = 1, 30 do
+		if _G.ACConfig and _G.ACConfig.Get then
+			local ok, c = pcall(_G.ACConfig.Get)
+			if ok and type(c) == "table" and c._loaded then
+				pcall(applyAdvanced, c.advanced)
+				return
+			end
+		end
+		task.wait(1)
+	end
 end)
+
+--  🗂️ Fiche complète d'un joueur pour le panel (cache 45 s par joueur).
+local fileCache = {}
+local function playerFile(userId)
+	userId = tonumber(userId)
+	if not userId then return nil end
+	local c = fileCache[userId]
+	if c and os.clock() - c.at < 45 then return c.data end
+	local stats = StatsStore.getPlayer(userId)
+	local okW, wd = pcall(function() return warningsStore:GetAsync("aft_" .. userId) end)
+	local hist = (okW and type(wd) == "table") and activeHistory(wd, os.time()) or {}
+	local data = {
+		stats = stats,
+		warnings = #hist,
+		warnHistory = hist,
+		warnReadFail = not okW,
+	}
+	fileCache[userId] = { at = os.clock(), data = data }
+	return data
+end
 
 --════════════════════════════════════════════════════════════════════════════
 -- 🧰 API PUBLIQUE  (surface identique à l'ancienne version : ton panel marche)
 --════════════════════════════════════════════════════════════════════════════
 _G.AntiFlyTP = {
+	--  📰 Journal partagé + fiche + candidats (panel anti-cheat)
+	FeedPush      = function(ev) FeedLog.push(ev) end,
+	GetFeedLog    = function(n) return FeedLog.get(n) end,
+	GetPlayerFile = function(userId) return playerFile(userId) end,
+	ForgetFile    = function(userId) fileCache[tonumber(userId) or 0] = nil end,
+	GetCandidates = function(n)
+		return {
+			det  = StatsStore.getRank("detections", n),
+			warn = StatsStore.getRealRank("warnings", n),
+			warnShadow = StatsStore.getRank("warnings", n),
+		}
+	end,
+	AdvancedDefault = function(key) return advancedDefault(key) end,
 	AddGrace      = function(t, s, r) giveGrace(t, s, r) end,
 	MarkTeleport  = function(t, s) giveGrace(t, s or 5, "MarkTeleport") end,
 	RegisterSafePart = function(part)

@@ -40,15 +40,17 @@ Tous les fichiers sont faits à partir de ta version actual_version_1.0.
   - un changement dans le **fichier** demande de monter `VERSION` de 1 puis de publier. Au démarrage, le fichier écrase alors le panel.
 - Pour les sections 📄 ⑧ à ⑩, il suffit de publier.
 
-## Panel admin (écran 🚨 ANTI-CHEAT)
+## Panel admin : un seul écran « 🛡️ ANTI-CHEAT »
 
-- **Classements, 📡 Récent, 🎯 Risque** : tous les joueurs y sont, comme avant. Un joueur restreint est marqué :
-  - 🚫 devant son nom ;
-  - une ligne violette ;
-  - l'étiquette **RESTREINT** sous son avatar ;
-  - « 🚫 RESTREINT (privé d'UGC) » en début de ligne.
+Les anciens boutons « 🚫 UGC BAN » et « ⚙️ MODES & MSG » disparaissent de l'accueil du panel. Tout est dans **🛡️ ANTI-CHEAT** :
 
-  Cette information est lue dans le registre des sanctions, jamais devinée.
-- **Bouton « 🚫 Masquer les restreints et compléter la liste »** : il retire les restreints et charge les joueurs suivants du classement pour garder une liste pleine (jusqu'à 200). Touche-le de nouveau pour les réafficher.
-- **Onglet 🚫 Restreints** : tous les sanctionnés, avec une recherche et la raison exacte.
-- **⚙️ Réglages** : chaque valeur numérique est une case. Touche-la, tape le nombre voulu (ex : **100** warnings), puis Entrée. Le nombre de warnings va de 1 à 1000.
+| Onglet | Contenu |
+|---|---|
+| 🏠 Accueil | L'état (actif ou mode test), le **nombre de warnings avant la restriction** modifiable en direct, les chiffres des 24 dernières heures, les derniers événements, le mode d'emploi |
+| 📡 Fil récent | Tout ce qui s'est passé, tous serveurs confondus. Chaque entrée explique : ce qu'il a fait, où (position), avec quoi (outil, vitesse, arène), pourquoi la machine y croit (certitude et facteurs), son dossier (warnings / seuil, détections sur 24 h, points, restreint ou non) et les boutons Fiche / Restreindre / Lever / Remise à zéro. Filtres : type d'événement, type de triche, certitude, en ligne, masquer les restreints, recherche |
+| 👥 Joueurs | Tous les suspects, avec 12 tris : dernière détection, proches de la sanction, warnings, certitude moyenne et max, détections totales et sur 24 h, points / UGC finançables, risque, bruit (signaux écartés), nouveaux suspects, nom. Filtres : type de triche, restreints ou non, en ligne, recherche |
+| 🚫 Restreints | Tous les sanctionnés, avec la raison exacte. 6 tris et une recherche |
+| 🔍 Fiche | Tout sur un joueur : warnings actifs, historique expliqué, ce que la machine a vu, sanction, actions |
+| ⚙️ Réglages | **Absolument tous les réglages** (173), en 17 sections repliables, avec « ⭐ L'ESSENTIEL » en premier. Recherche, valeurs modifiées en jaune, bouton « ↺ valeur du fichier », enregistrement avec page récapitulative |
+
+Toute action importante (restreindre, lever, remise à zéro, enregistrer, passer en mode test) ouvre une **page de confirmation**. Elle explique ce qui va se passer, et le bouton ne s'active qu'au bout de 2 secondes.

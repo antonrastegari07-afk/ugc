@@ -529,6 +529,393 @@ _G.AC_ADMIN_IDS = ADMIN_IDS
 --════════════════════════════════════════════════════════════════════════════
 -- ⚙️ CHARGEMENT / SAUVEGARDE DE LA CONFIG
 --════════════════════════════════════════════════════════════════════════════
+--════════════════════════════════════════════════════════════════════════════
+-- 🗂️ LISTE DE TOUS LES RÉGLAGES (affichée dans le panel ⚙️, par sections)
+--    Chaque réglage : où il est rangé, son type, ses limites, son explication.
+--    Le panel n'invente rien : il affiche cette liste, et le serveur refuse
+--    toute valeur hors limites.
+--    t = "bool" | "number" | "choice" | "text" | "list" | "numlist" | "map"
+--    adv = réglage de détection (appliqué en direct par l'anti-fly)
+--    sev = valeur choisie par la Sévérité tant qu'elle n'est pas « custom »
+--════════════════════════════════════════════════════════════════════════════
+local SCHEMA = {
+	{ id = "essentiel", title = "⭐ L'ESSENTIEL", open = true,
+		intro = "Les 5 réglages qui comptent vraiment. Tout le reste peut rester tel quel.",
+		fields = {
+			{ id = "ugc.warn", path = { "modes", "ugc", "warningsToPunish" }, t = "number", min = 1, max = 1000, step = 1,
+				label = "🚨 Warnings avant la restriction",
+				desc = "Combien de warnings un joueur doit recevoir avant d'être privé d'UGC. Tape n'importe quel nombre de 1 à 1000. Rappel : 1 warning = plusieurs détections sûres et rapprochées (voir « Strikes »)." },
+			{ id = "shadow", path = { "shadow" }, t = "bool",
+				label = "🧪 Mode test (personne n'est sanctionné)",
+				desc = "ACTIVÉ : tout est mesuré et noté, mais AUCUNE sanction n'est appliquée. Le panel montre ce qui SERAIT arrivé. COUPÉ : les sanctions sont réelles." },
+			{ id = "mode", path = { "mode" }, t = "choice",
+				options = { { v = "ugc", l = "🚫 Privation d'UGC" }, { v = "ban", l = "🔨 Ban" } },
+				label = "Type de sanction",
+				desc = "Privation d'UGC : le joueur garde ses points et continue de jouer, mais ne peut plus obtenir d'UGC (réversible en un clic). Ban : il est éjecté du jeu." },
+			{ id = "silent", path = { "silent" }, t = "bool",
+				label = "🤫 Le joueur ne voit rien de ses warnings",
+				desc = "Aucune carte, aucun retour en arrière, aucun kick d'avertissement. Il ne l'apprend qu'au moment de la sanction." },
+			{ id = "expiry", path = { "warningExpiryDays" }, t = "number", min = 0, max = 3650, step = 5,
+				label = "⏳ Un warning disparaît après (jours)",
+				desc = "Chaque warning s'efface tout seul ce nombre de jours après avoir été reçu. 0 = jamais. Sert à effacer un faux warning isolé." },
+		} },
+
+	{ id = "ugc", title = "🚫 SANCTION : PRIVATION D'UGC",
+		intro = "Ce qui se passe quand un joueur atteint le nombre de warnings (si le type de sanction est « Privation d'UGC »).",
+		fields = {
+			{ id = "ugc.hours", path = { "modes", "ugc", "durationHours" }, t = "number", min = 0, max = 8760, step = 12,
+				label = "Durée de la privation (heures)", desc = "0 = jusqu'à ce qu'un admin la lève. Sinon, levée automatique après ce nombre d'heures." },
+			{ id = "ugc.notify", path = { "modes", "ugc", "notifyOnPunish" }, t = "bool",
+				label = "Message « UGC désactivées » à la sanction", desc = "Affiché UNE fois au joueur (à sa prochaine connexion s'il n'était pas en jeu)." },
+			{ id = "ugc.reveal", path = { "modes", "ugc", "revealOnlyWhenAffordable" }, t = "bool",
+				label = "Remontrer la sanction seulement à l'achat", desc = "Ensuite, il ne revoit le message QUE s'il essaie d'acheter une UGC qu'il pourrait se payer. Sans assez de points : « Not enough points », sans proposition Robux." },
+			{ id = "ugc.remind", path = { "modes", "ugc", "remindOnJoin" }, t = "bool",
+				label = "Rappeler à chaque connexion", desc = "Remontre le message à chaque connexion. Laisse coupé pour qu'il ne le voie qu'à l'achat." },
+			{ id = "ugc.kick", path = { "modes", "ugc", "kickOnPunish" }, t = "bool",
+				label = "Kicker une fois à la sanction", desc = "Il peut revenir tout de suite. Coupé conseillé." },
+			{ id = "ugc.gifts", path = { "modes", "ugc", "blockGifts" }, t = "bool",
+				label = "Bloquer les dons d'UGC", desc = "Empêche un complice de lui offrir une UGC." },
+			{ id = "ugc.rebirth", path = { "modes", "ugc", "blockRebirth" }, t = "bool",
+				label = "Bloquer le rebirth", desc = "Empêche un joueur restreint de faire un rebirth." },
+		} },
+
+	{ id = "preuve", title = "🎯 NIVEAU DE PREUVE",
+		intro = "Chaque détection reçoit une certitude de 0 à 99 %. Ces seuils décident ce qui compte.",
+		fields = {
+			{ id = "conf.count", path = { "minConfidenceCount" }, t = "number", min = 0, max = 99, step = 5,
+				label = "Compter une détection à partir de (%)", desc = "En dessous : notée dans le journal du serveur, mais ne compte pas." },
+			{ id = "conf.warn", path = { "minConfidenceWarn" }, t = "number", min = 0, max = 99, step = 5,
+				label = "Donner un warning à partir de (%)", desc = "Moyenne minimale des détections qui forment un warning." },
+			{ id = "conf.sanction", path = { "minConfidenceSanction" }, t = "number", min = 0, max = 99, step = 5,
+				label = "Sanctionner à partir de (%)", desc = "Certitude du dossier requise pour la sanction automatique. Ne descends pas sous 80." },
+			{ id = "admins", path = { "analyzeAdmins" }, t = "bool",
+				label = "Analyser les admins comme tout le monde", desc = "Conseillé : c'est ton meilleur test de faux positifs." },
+		} },
+
+	{ id = "ban", title = "🔨 MODE BAN",
+		intro = "Utilisé seulement si le type de sanction est « Ban ».",
+		fields = {
+			{ id = "ban.warn", path = { "modes", "ban", "warningsToPunish" }, t = "number", min = 1, max = 1000, step = 1,
+				label = "Warnings avant le ban", desc = "De 1 à 1000." },
+			{ id = "ban.days", path = { "modes", "ban", "banDays" }, t = "number", min = 0, max = 3650, step = 1,
+				label = "Durée du ban (jours)", desc = "0 = définitif." },
+			{ id = "ban.kick", path = { "modes", "ban", "kickBeforeBan" }, t = "bool",
+				label = "Kick d'avertissement avant le ban", desc = "Ignoré tant que « le joueur ne voit rien » est actif." },
+			{ id = "ban.ugc", path = { "modes", "ban", "alsoRestrictUGC" }, t = "bool",
+				label = "Priver aussi d'UGC", desc = "Utile si le ban est temporaire." },
+			{ id = "ban.notify", path = { "modes", "ban", "notifyBeforeKick" }, t = "bool",
+				label = "Afficher la raison avant d'éjecter", desc = "Le joueur lit la raison 4 s avant le kick." },
+			{ id = "ban.wipe", path = { "modes", "ban", "wipePoints" }, t = "bool", danger = true,
+				label = "⚠️ Remettre les points à 0", desc = "IRRÉVERSIBLE. Laisse coupé." },
+		} },
+
+	{ id = "test", title = "🧪 MODE TEST",
+		intro = "Ce qui se passe pendant le mode test (quand il est activé).",
+		fields = {
+			{ id = "test.correct", path = { "modes", "test", "correctPosition" }, t = "bool",
+				label = "Ramener quand même le joueur en arrière", desc = "Coupé : le tricheur ne sait pas qu'il est mesuré." },
+			{ id = "test.cards", path = { "modes", "test", "notifyPlayer" }, t = "bool",
+				label = "Montrer les cartes d'avertissement", desc = "Coupé : observation totalement silencieuse." },
+			{ id = "test.log", path = { "modes", "test", "logToConsole" }, t = "bool",
+				label = "Écrire chaque décision dans la console", desc = "Les lignes 🧪 [SHADOW] dans la console serveur (F9)." },
+			{ id = "test.store", path = { "modes", "test", "separateStore" }, t = "bool",
+				label = "Warnings de test séparés des vrais", desc = "À garder actif." },
+			{ id = "test.days", path = { "modes", "test", "suggestAfterDays" }, t = "number", min = 1, max = 90, step = 1,
+				label = "Rappel « tu peux couper le mode test » après (jours)", desc = "Purement informatif." },
+		} },
+
+	{ id = "messages", title = "💬 MESSAGES AUX JOUEURS",
+		intro = "Variables utilisables : {player} {typefr} {type} {warnings} {max} {left} {confidence} {game}. \\n = retour à la ligne.",
+		fields = {
+			{ id = "msg.restrictTitle", path = { "messages", "restrictTitle" }, t = "text", max = 120, label = "Titre du message de privation" },
+			{ id = "msg.support", path = { "supportMessage" }, t = "text", max = 1200, label = "Texte du message de privation" },
+			{ id = "msg.shopBlockedTitle", path = { "messages", "shopBlockedTitle" }, t = "text", max = 120, label = "Achat refusé : titre" },
+			{ id = "msg.shopBlockedBody", path = { "messages", "shopBlockedBody" }, t = "text", max = 1200, label = "Achat refusé : texte" },
+			{ id = "msg.shopUnverifiedTitle", path = { "messages", "shopUnverifiedTitle" }, t = "text", max = 120, label = "Vérification impossible : titre" },
+			{ id = "msg.shopUnverifiedBody", path = { "messages", "shopUnverifiedBody" }, t = "text", max = 1200, label = "Vérification impossible : texte" },
+			{ id = "msg.banTitle", path = { "messages", "banTitle" }, t = "text", max = 120, label = "Ban : titre" },
+			{ id = "msg.banBody", path = { "messages", "banBody" }, t = "text", max = 1200, label = "Ban : texte" },
+			{ id = "msg.warnEnabled", path = { "messages", "warnEnabled" }, t = "bool", label = "Carte rouge à chaque warning", desc = "Sans effet tant que « le joueur ne voit rien » est actif." },
+			{ id = "msg.warnTitle", path = { "messages", "warnTitle" }, t = "text", max = 120, label = "Carte rouge : titre" },
+			{ id = "msg.warnBody", path = { "messages", "warnBody" }, t = "text", max = 1200, label = "Carte rouge : texte" },
+			{ id = "msg.nudgeEnabled", path = { "messages", "nudgeEnabled" }, t = "bool", label = "Carte orange à chaque détection", desc = "Sans effet tant que « le joueur ne voit rien » est actif." },
+			{ id = "msg.nudgeAfter", path = { "messages", "nudgeAfterDetections" }, t = "number", min = 1, max = 20, step = 1, label = "Carte orange après N détections" },
+			{ id = "msg.nudgeCooldown", path = { "messages", "nudgeCooldown" }, t = "number", min = 0, max = 300, step = 5, label = "Secondes entre deux cartes orange" },
+			{ id = "msg.nudgeTitle", path = { "messages", "nudgeTitle" }, t = "text", max = 120, label = "Carte orange : titre" },
+			{ id = "msg.nudgeBody", path = { "messages", "nudgeBody" }, t = "text", max = 1200, label = "Carte orange : texte" },
+			{ id = "msg.showConf", path = { "messages", "showConfidenceToPlayer" }, t = "bool", label = "Montrer la certitude (%) au joueur", desc = "Déconseillé : un tricheur saurait de combien ralentir." },
+		} },
+
+	{ id = "severite", title = "🎚️ SÉVÉRITÉ DE LA DÉTECTION",
+		intro = "« lenient » = très tolérant · « balanced » = conseillé · « strict » = sévère · « custom » = tes propres valeurs. Tant que ce n'est pas « custom », les réglages marqués ◆ sont choisis par la sévérité.",
+		fields = {
+			{ adv = "Preset", t = "choice", options = { { v = "lenient", l = "Tolérant" }, { v = "balanced", l = "Conseillé" }, { v = "strict", l = "Sévère" }, { v = "custom", l = "Custom" } },
+				label = "Sévérité" },
+			{ adv = "Enabled", t = "bool", label = "Analyse active", desc = "Coupé : plus rien n'est mesuré." },
+			{ adv = "VerboseLogs", t = "bool", label = "Messages détaillés dans la console" },
+			{ adv = "Sampling.Interval", t = "number", min = 0.1, max = 1, step = 0.05, label = "Fréquence de mesure (s)" },
+			{ adv = "Sampling.MaxUsableDelta", t = "number", min = 0.3, max = 3, step = 0.05, label = "Écart max entre deux mesures (s)", desc = "Au-delà, on considère que le serveur a laggé et on ne juge pas." },
+		} },
+
+	{ id = "vol", title = "🕊️ DÉTECTION DU VOL",
+		fields = {
+			{ adv = "Fly.Enabled", t = "bool", label = "Détecter le vol" },
+			{ adv = "Fly.DetectHover", t = "bool", label = "Vol stationnaire (immobile en l'air)" },
+			{ adv = "Fly.DetectAscent", t = "bool", label = "Longue montée sans appui", desc = "Bruyant dans un obby : coupé conseillé." },
+			{ adv = "Fly.DetectUpSpeed", t = "bool", label = "Montée trop rapide", desc = "Bruyant dans un obby : coupé conseillé." },
+			{ adv = "Fly.MaxHoverTime", t = "number", min = 0.5, max = 30, step = 0.5, sev = true, label = "Temps max immobile en l'air (s)" },
+			{ adv = "Fly.HoverBandY", t = "number", min = 1, max = 30, step = 1, sev = true, label = "Vitesse verticale max pour « immobile »" },
+			{ adv = "Fly.HoverMinHeight", t = "number", min = 2, max = 100, step = 1, sev = true, label = "Hauteur min au-dessus du sol (studs)" },
+			{ adv = "Fly.AscentMultiplier", t = "number", min = 1, max = 10, step = 0.1, label = "Montée : × hauteur de saut" },
+			{ adv = "Fly.AscentFlatBonus", t = "number", min = 0, max = 200, step = 1, sev = true, label = "Montée : marge (studs)" },
+			{ adv = "Fly.MaxUpSpeedMultiplier", t = "number", min = 1, max = 10, step = 0.1, label = "Montée rapide : × vitesse de saut" },
+			{ adv = "Fly.MaxUpSpeedFlat", t = "number", min = 0, max = 200, step = 1, sev = true, label = "Montée rapide : marge (studs/s)" },
+			{ adv = "Fly.UpSpeedSamples", t = "number", min = 1, max = 40, step = 1, sev = true, label = "Montée rapide : mesures d'affilée" },
+			{ adv = "Fly.TreatClimbingAsGround", t = "bool", label = "Grimper (échelles) = au sol" },
+			{ adv = "Fly.TreatSwimmingAsGround", t = "bool", label = "Nager = au sol" },
+			{ adv = "Fly.GroundRayDistance", t = "number", min = 1, max = 30, step = 0.5, label = "Distance de détection du sol (studs)" },
+		} },
+
+	{ id = "tp", title = "🌀 DÉTECTION DE TÉLÉPORTATION",
+		fields = {
+			{ adv = "Teleport.Enabled", t = "bool", label = "Détecter les téléportations" },
+			{ adv = "Teleport.MaxPredictionError", t = "number", min = 10, max = 500, step = 5, sev = true, label = "Écart horizontal toléré (studs)" },
+			{ adv = "Teleport.MaxVerticalError", t = "number", min = 10, max = 500, step = 5, sev = true, label = "Écart vertical toléré (studs)" },
+			{ adv = "Teleport.MinTeleportDistance", t = "number", min = 5, max = 300, step = 1, sev = true, label = "Distance min d'un saut suspect (studs)" },
+			{ adv = "Teleport.IgnoreIfVelocityConsistent", t = "bool", label = "Ignorer si la vitesse explique le déplacement" },
+			{ adv = "Teleport.VelocityConsistencyRatio", t = "number", min = 0.1, max = 1, step = 0.05, label = "Part du déplacement à expliquer par la vitesse" },
+			{ adv = "Teleport.SafeDestinationRadius", t = "number", min = 0, max = 200, step = 1, label = "Rayon autour des destinations autorisées (studs)" },
+			{ adv = "Teleport.SafePartNames", t = "list", label = "Destinations toujours autorisées (noms de parts)", desc = "Séparées par des virgules. Ex : FirstSpawn, TpRebirth, Portail2" },
+			{ adv = "Teleport.SafePartPatterns", t = "list", label = "Destinations autorisées (motifs Lua)" },
+			{ adv = "Teleport.SafeIncludeSpawnLocations", t = "bool", label = "Les SpawnLocation sont autorisées" },
+			{ adv = "Teleport.CheckpointDestinations", t = "choice", options = { { v = "always", l = "Toujours" }, { v = "limited", l = "Limité" }, { v = "never", l = "Jamais" } }, label = "Arrivée près d'un checkpoint" },
+			{ adv = "Teleport.MaxCheckpointTeleportsPerMinute", t = "number", min = 0, max = 60, step = 1, label = "Checkpoints max par minute (si « Limité »)" },
+			{ adv = "Teleport.CheckpointPattern", t = "text", max = 80, label = "Nom des checkpoints (motif Lua)" },
+		} },
+
+	{ id = "vitesse", title = "💨 DÉTECTION DE VITESSE",
+		fields = {
+			{ adv = "Speed.Enabled", t = "bool", label = "Détecter la vitesse anormale" },
+			{ adv = "Speed.Tolerance", t = "number", min = 1, max = 10, step = 0.1, sev = true, label = "Tolérance (× vitesse de marche)" },
+			{ adv = "Speed.FlatBonus", t = "number", min = 0, max = 200, step = 1, sev = true, label = "Marge (studs/s)" },
+			{ adv = "Speed.SustainedSamples", t = "number", min = 1, max = 80, step = 1, sev = true, label = "Mesures d'affilée (× 0,25 s)" },
+			{ adv = "Speed.MinBaselineWalkSpeed", t = "number", min = 1, max = 100, step = 1, label = "Vitesse de marche de référence min" },
+		} },
+
+	{ id = "strikes", title = "⚖️ DÉTECTIONS → WARNING",
+		intro = "Combien de détections retenues font UN warning.",
+		fields = {
+			{ adv = "Punishment.StrikesPerWarning", t = "number", min = 1, max = 100, step = 1, sev = true, label = "Détections pour 1 warning" },
+			{ adv = "Punishment.StrikeDecaySeconds", t = "number", min = 10, max = 3600, step = 10, sev = true, label = "Une détection s'oublie après (s de calme)" },
+			{ adv = "Punishment.EscalationCooldown", t = "number", min = 0, max = 60, step = 1, sev = true, label = "Écart min entre deux détections comptées (s)" },
+			{ adv = "Punishment.PassiveDecay", t = "bool", label = "Les détections s'oublient toutes seules" },
+			{ adv = "Punishment.StrikeWeights.FLY_HOVER", t = "number", min = 0, max = 10, step = 1, label = "Poids : vol stationnaire" },
+			{ adv = "Punishment.StrikeWeights.FLY_STATE", t = "number", min = 0, max = 10, step = 1, label = "Poids : état « Flying »" },
+			{ adv = "Punishment.StrikeWeights.FLY_ASCENT", t = "number", min = 0, max = 10, step = 1, label = "Poids : montée sans appui" },
+			{ adv = "Punishment.StrikeWeights.FLY_UPSPEED", t = "number", min = 0, max = 10, step = 1, label = "Poids : montée rapide" },
+			{ adv = "Punishment.StrikeWeights.TELEPORT", t = "number", min = 0, max = 10, step = 1, label = "Poids : téléportation" },
+			{ adv = "Punishment.StrikeWeights.SPEED", t = "number", min = 0, max = 10, step = 1, label = "Poids : vitesse" },
+			{ adv = "Punishment.UseRobloxBanAPI", t = "bool", label = "Mode ban : utiliser le ban officiel Roblox" },
+		} },
+
+	{ id = "certitude", title = "🧮 CALCUL DE LA CERTITUDE (expert)",
+		intro = "Combien chaque indice fait monter ou descendre la certitude. Ne touche pas sans raison.",
+		fields = {
+			{ adv = "Confidence.Enabled", t = "bool", label = "Calculer une certitude", desc = "Coupé : toute détection vaut 100 %. Déconseillé." },
+			{ adv = "Confidence.Base.FLY_STATE", t = "number", min = 0, max = 99, step = 1, label = "Base : état « Flying »" },
+			{ adv = "Confidence.Base.FLY_HOVER", t = "number", min = 0, max = 99, step = 1, label = "Base : vol stationnaire" },
+			{ adv = "Confidence.Base.TELEPORT", t = "number", min = 0, max = 99, step = 1, label = "Base : téléportation" },
+			{ adv = "Confidence.Base.FLY_UPSPEED", t = "number", min = 0, max = 99, step = 1, label = "Base : montée rapide" },
+			{ adv = "Confidence.Base.FLY_ASCENT", t = "number", min = 0, max = 99, step = 1, label = "Base : montée sans appui" },
+			{ adv = "Confidence.Base.SPEED", t = "number", min = 0, max = 99, step = 1, label = "Base : vitesse" },
+			{ adv = "Confidence.MarginMax", t = "number", min = 0, max = 50, step = 1, label = "Bonus max : dépasse largement le seuil" },
+			{ adv = "Confidence.DurationMax", t = "number", min = 0, max = 50, step = 1, label = "Bonus max : dure longtemps" },
+			{ adv = "Confidence.CleanContext", t = "number", min = 0, max = 50, step = 1, label = "Bonus : rien n'explique la mesure" },
+			{ adv = "Confidence.RepeatPer", t = "number", min = 0, max = 30, step = 1, label = "Bonus par répétition (1 min)" },
+			{ adv = "Confidence.RepeatMax", t = "number", min = 0, max = 60, step = 1, label = "Bonus max de répétition" },
+			{ adv = "Confidence.DiversityPer", t = "number", min = 0, max = 30, step = 1, label = "Bonus par type différent (5 min)" },
+			{ adv = "Confidence.DiversityMax", t = "number", min = 0, max = 60, step = 1, label = "Bonus max de diversité" },
+			{ adv = "Confidence.HistoryBonus", t = "number", min = 0, max = 50, step = 1, label = "Bonus : warnings déjà au dossier" },
+			{ adv = "Confidence.NoGroundSeconds", t = "number", min = 1, max = 120, step = 1, label = "Sans toucher le sol depuis (s)…" },
+			{ adv = "Confidence.NoGroundBonus", t = "number", min = 0, max = 50, step = 1, label = "…bonus" },
+			{ adv = "Confidence.PenaltyLongDt", t = "number", min = 0, max = 60, step = 1, label = "Pénalité : serveur qui lag" },
+			{ adv = "Confidence.PenaltyRecentGrace", t = "number", min = 0, max = 60, step = 1, label = "Pénalité : tolérance à peine finie" },
+			{ adv = "Confidence.PenaltyRecentSpawn", t = "number", min = 0, max = 60, step = 1, label = "Pénalité : vient d'apparaître" },
+			{ adv = "Confidence.PenaltyRecentForce", t = "number", min = 0, max = 60, step = 1, label = "Pénalité : force anti-gravité récente" },
+			{ adv = "Confidence.PenaltyRecentLaunch", t = "number", min = 0, max = 60, step = 1, label = "Pénalité : propulsé récemment" },
+			{ adv = "Confidence.PenaltyRecentRagdoll", t = "number", min = 0, max = 60, step = 1, label = "Pénalité : sortait d'un ragdoll" },
+			{ adv = "Confidence.PenaltyFirstEver", t = "number", min = 0, max = 60, step = 1, label = "Pénalité : 1ʳᵉ détection de la session" },
+			{ adv = "Confidence.RecentWindow", t = "number", min = 1, max = 120, step = 1, label = "« Récent » = moins de (s)" },
+			{ adv = "Confidence.Ceiling", t = "number", min = 50, max = 99, step = 1, label = "Plafond de certitude (%)" },
+		} },
+
+	{ id = "outils", title = "🧰 OUTILS AUTORISÉS",
+		intro = "Noms EXACTS des outils (séparés par des virgules). À compléter si tu ajoutes un outil qui fait voler ou accélère.",
+		fields = {
+			{ adv = "LegitTools.FlyTools", t = "list", label = "Outils qui font voler", desc = "Ex : Jetpack" },
+			{ adv = "LegitTools.FlyToolMarkers", t = "list", label = "…ou outils qui contiennent ces pièces" },
+			{ adv = "LegitTools.FlyToolDefaultProfile.MaxSpeed", t = "number", min = 10, max = 1000, step = 10, label = "Vitesse max avec un outil de vol" },
+			{ adv = "LegitTools.GravityTools", t = "list", label = "Coils de gravité" },
+			{ adv = "LegitTools.GravityProfile.MaxHoverTime", t = "number", min = 1, max = 60, step = 1, label = "Gravité : temps max en l'air (s)" },
+			{ adv = "LegitTools.GravityProfile.AscentFlat", t = "number", min = 0, max = 500, step = 5, label = "Gravité : montée permise (studs)" },
+			{ adv = "LegitTools.GravityProfile.MaxUpSpeed", t = "number", min = 0, max = 500, step = 5, label = "Gravité : vitesse de montée permise" },
+			{ adv = "LegitTools.SpeedTools", t = "map", label = "Coils de vitesse (Nom=vitesse)", desc = "Ex : SpeedCoil=60, Speed Coil=60" },
+			{ adv = "LegitTools.FusionTools", t = "list", label = "Coils fusion (vitesse + gravité)" },
+			{ adv = "Fusion.Speed", t = "number", min = 0, max = 500, step = 5, label = "Fusion : vitesse" },
+			{ adv = "Fusion.MaxHoverTime", t = "number", min = 1, max = 60, step = 1, label = "Fusion : temps max en l'air (s)" },
+			{ adv = "Fusion.AscentFlat", t = "number", min = 0, max = 500, step = 5, label = "Fusion : montée permise (studs)" },
+			{ adv = "Fusion.MaxUpSpeed", t = "number", min = 0, max = 500, step = 5, label = "Fusion : vitesse de montée permise" },
+			{ adv = "LegitTools.ToolTrailingGrace", t = "number", min = 0, max = 30, step = 1, label = "Tolérance après avoir rangé l'outil (s)" },
+			{ adv = "LegitTools.DetectAntiGravityForce", t = "bool", label = "Reconnaître un coil à sa force (même renommé)" },
+			{ adv = "LegitTools.AntiGravityGrace", t = "number", min = 0, max = 30, step = 1, label = "Tolérance après la force anti-gravité (s)" },
+		} },
+
+	{ id = "systemes", title = "🌍 SYSTÈMES DU JEU",
+		intro = "Ce que tes scripts font aux joueurs et qui ne doit JAMAIS être détecté.",
+		fields = {
+			{ adv = "LegitAttributes.FullBypass", t = "list", label = "Attributs qui suspendent l'analyse", desc = "Posés par tes scripts sur le joueur ou le personnage." },
+			{ adv = "LegitAttributes.WatchForTrailing", t = "list", label = "Attributs qui donnent une tolérance quand ils changent" },
+			{ adv = "LegitAttributes.TrailingGrace", t = "number", min = 0, max = 60, step = 1, label = "Tolérance quand un attribut change (s)" },
+			{ adv = "Launchers.AutoGraceOnMover", t = "bool", label = "Tolérance quand un launcher pousse le joueur" },
+			{ adv = "Launchers.MoverGrace", t = "number", min = 0, max = 60, step = 1, label = "Tolérance après une propulsion (s)" },
+			{ adv = "Launchers.MoverClasses", t = "list", label = "Objets de propulsion reconnus" },
+			{ adv = "Launchers.VelocitySpikeThreshold", t = "number", min = 20, max = 2000, step = 10, label = "Vitesse qui signale une propulsion (studs/s)" },
+			{ adv = "Launchers.VelocitySpikeGrace", t = "number", min = 0, max = 60, step = 1, label = "Tolérance après cette vitesse (s)" },
+			{ adv = "Ragdoll.SkipWhileRagdolled", t = "bool", label = "Ne pas mesurer pendant un ragdoll" },
+			{ adv = "Ragdoll.GraceAfter", t = "number", min = 0, max = 60, step = 1, label = "Tolérance après un ragdoll (s)" },
+			{ adv = "Arena.SkipTeleport", t = "bool", label = "Arène : ignorer les téléportations" },
+			{ adv = "Arena.SkipSpeed", t = "bool", label = "Arène : ignorer la vitesse" },
+			{ adv = "Arena.FlyMode", t = "choice", options = { { v = "normal", l = "Normal" }, { v = "relaxed", l = "Tolérant" }, { v = "off", l = "Coupé" } }, label = "Arène : détection du vol" },
+			{ adv = "Arena.RelaxedHoverTime", t = "number", min = 1, max = 60, step = 1, label = "Arène tolérante : temps max en l'air (s)" },
+			{ adv = "Arena.RelaxedAscentFlat", t = "number", min = 0, max = 500, step = 5, label = "Arène tolérante : montée permise (studs)" },
+			{ adv = "MovementBoost.Enabled", t = "bool", label = "PvP : tenir compte du slide / double saut" },
+			{ adv = "MovementBoost.SlideSpeed", t = "number", min = 0, max = 300, step = 1, label = "PvP : vitesse du slide" },
+			{ adv = "MovementBoost.SpeedMargin", t = "number", min = 0, max = 100, step = 1, label = "PvP : marge de vitesse" },
+			{ adv = "MovementBoost.SwitchGrace", t = "number", min = 0, max = 60, step = 1, label = "PvP : tolérance au changement (s)" },
+			{ adv = "ServerMoves.Enabled", t = "bool", label = "Reconnaître les téléportations faites par le serveur" },
+			{ adv = "Floor.Enabled", t = "bool", label = "Tapis roulants / plateformes : vitesse du sol ajoutée" },
+			{ adv = "Floor.Memory", t = "number", min = 0, max = 10, step = 0.5, label = "Mémoire de la vitesse du sol (s)" },
+			{ adv = "Zipline.Prefix", t = "text", max = 40, label = "Tyrolienne : début du nom du modèle" },
+			{ adv = "Zipline.Rope", t = "text", max = 40, label = "Tyrolienne : nom de la corde" },
+			{ adv = "Zipline.MaxDist", t = "number", min = 2, max = 100, step = 1, label = "Tyrolienne : distance max à la corde (studs)" },
+			{ adv = "ScaleHoverWithGravity", t = "bool", label = "Gravité basse (Admin Abuse) : plus de temps en l'air" },
+			{ adv = "GlobalToleranceTrail", t = "number", min = 0, max = 60, step = 1, label = "Tolérance après une météo Admin Abuse (s)" },
+		} },
+
+	{ id = "tolerances", title = "⏳ TOLÉRANCES",
+		intro = "Secondes pendant lesquelles on ne mesure pas après un événement normal.",
+		fields = {
+			{ adv = "Grace.SpawnSeconds", t = "number", min = 0, max = 120, step = 1, label = "Après l'apparition" },
+			{ adv = "Grace.DeathSeconds", t = "number", min = 0, max = 60, step = 1, label = "Après une mort" },
+			{ adv = "Grace.ProductPurchaseSeconds", t = "number", min = 0, max = 60, step = 1, label = "Après un achat Robux" },
+			{ adv = "Grace.AdminActionSeconds", t = "number", min = 0, max = 60, step = 1, label = "Après une action admin (GO TO, BRING…)" },
+			{ adv = "Grace.RemoteHookSeconds", t = "number", min = 0, max = 60, step = 1, label = "Après un remote listé ci-dessous" },
+			{ adv = "Grace.MinDelayBetweenRemoteGraces", t = "number", min = 0, max = 120, step = 1, label = "Écart min entre deux tolérances de remote" },
+			{ adv = "Grace.LandingSeconds", t = "number", min = 0, max = 10, step = 0.1, label = "Après un atterrissage" },
+			{ adv = "Hooks.HookAdminAction", t = "bool", label = "Tolérance sur les actions du panel admin" },
+			{ adv = "Hooks.HookProductPurchases", t = "bool", label = "Tolérance sur les achats Robux" },
+			{ adv = "Hooks.RemoteGraceNames", t = "list", label = "Remotes qui donnent une tolérance (noms)" },
+		} },
+
+	{ id = "exceptions", title = "👮 EXCEPTIONS",
+		intro = "La liste des admins du panel anti-cheat reste dans le fichier ANTICHEAT_CONFIG (sécurité : un admin ne peut pas en ajouter un autre depuis le jeu).",
+		fields = {
+			{ adv = "Whitelist.UserIds", t = "numlist", label = "Comptes JAMAIS analysés (UserId)", desc = "Séparés par des virgules. Ex : un compte de test." },
+		} },
+}
+
+--  Index des réglages + nettoyage d'une valeur selon son type.
+local FIELDS = {}
+for _, sec in ipairs(SCHEMA) do
+	for _, fld in ipairs(sec.fields) do
+		if fld.adv then fld.id = "adv:" .. fld.adv end
+		FIELDS[fld.id] = fld
+	end
+end
+
+local function splitList(v)
+	if type(v) == "table" then return v end
+	if type(v) ~= "string" then return nil end
+	local out = {}
+	for part in string.gmatch(v, "[^,\n]+") do
+		local p = part:gsub("^%s+", ""):gsub("%s+$", "")
+		if p ~= "" then table.insert(out, p) end
+	end
+	return out
+end
+
+local function cleanValue(fld, v)
+	local t = fld.t
+	if t == "bool" then
+		return (type(v) == "boolean") and v or nil
+	elseif t == "number" then
+		v = tonumber(v)
+		if not v or v ~= v then return nil end
+		v = math.clamp(v, fld.min or -1e9, fld.max or 1e9)
+		local step = fld.step or 1
+		if step >= 1 and step == math.floor(step) then v = math.floor(v + 0.5)
+		else v = math.floor(v * 100 + 0.5) / 100 end
+		return v
+	elseif t == "choice" then
+		for _, o in ipairs(fld.options or {}) do if o.v == v then return v end end
+		return nil
+	elseif t == "text" then
+		if type(v) ~= "string" then return nil end
+		return (v:gsub("[<>]", "")):sub(1, fld.max or 200)
+	elseif t == "list" or t == "numlist" then
+		local l = splitList(v)
+		if type(l) ~= "table" then return nil end
+		local out = {}
+		for _, x in ipairs(l) do
+			if #out >= 60 then break end
+			if t == "numlist" then
+				local n = tonumber(x)
+				if n then table.insert(out, math.floor(n)) end
+			elseif type(x) == "string" or type(x) == "number" then
+				table.insert(out, tostring(x):sub(1, 60))
+			end
+		end
+		return out
+	elseif t == "map" then
+		local out = {}
+		if type(v) == "string" then
+			for part in string.gmatch(v, "[^,\n]+") do
+				local k, n = part:match("^%s*(.-)%s*=%s*([%d%.]+)%s*$")
+				if k and k ~= "" and tonumber(n) then out[k:sub(1, 60)] = tonumber(n) end
+			end
+		elseif type(v) == "table" then
+			for k, n in pairs(v) do
+				if type(k) == "string" and tonumber(n) then out[k:sub(1, 60)] = tonumber(n) end
+			end
+		else
+			return nil
+		end
+		return out
+	end
+	return nil
+end
+
+local function getAt(t, path)
+	for _, k in ipairs(path) do
+		if type(t) ~= "table" then return nil end
+		t = t[k]
+	end
+	return t
+end
+local function setAt(t, path, v)
+	for i = 1, #path - 1 do
+		if type(t[path[i]]) ~= "table" then t[path[i]] = {} end
+		t = t[path[i]]
+	end
+	t[path[#path]] = v
+end
+local function deepCopyU(t)
+	if type(t) ~= "table" then return t end
+	local o = {}
+	for k, v in pairs(t) do o[k] = deepCopyU(v) end
+	return o
+end
+
 local function sanitizeConfig(raw)
 	local out = {}
 	for k, v in pairs(DEFAULTS) do out[k] = v end
@@ -646,6 +1033,19 @@ local function sanitizeConfig(raw)
 
 	--  Version du fichier ANTICHEAT_CONFIG d'où vient cette config.
 	out.fileVersion = tonumber(raw.fileVersion)
+
+	--  ⚙️ Réglages de détection modifiés depuis le panel (seulement ceux de
+	--     la liste, chacun vérifié selon son type et ses limites).
+	out.advanced = {}
+	if type(raw.advanced) == "table" then
+		for key, v in pairs(raw.advanced) do
+			local fld = FIELDS["adv:" .. tostring(key)]
+			if fld then
+				local cv = cleanValue(fld, v)
+				if cv ~= nil then out.advanced[key] = cv end
+			end
+		end
+	end
 
 	--  Un titre vide casserait l'affichage : on retombe sur le défaut.
 	for _, k in ipairs({ "nudgeTitle", "warnTitle", "restrictTitle",
@@ -1713,6 +2113,209 @@ adminGet.OnServerInvoke = function(player, wantList, forceFresh)
 	return res
 end
 
+
+--════════════════════════════════════════════════════════════════════════════
+-- 🛡️ ÉCRAN ANTI-CHEAT DU PANEL : accueil, fil, joueurs, fiches, réglages
+--════════════════════════════════════════════════════════════════════════════
+local AC_ACTIONS = {}
+
+local function AF() return _G.AntiFlyTP end
+local function threshold()
+	local m = (type(cfg.modes) == "table") and cfg.modes[cfg.mode or "ugc"] or nil
+	return (m and m.warningsToPunish) or cfg.warningsToRestrict or 1
+end
+local function shallow(t) local o = {} for k, v in pairs(t) do o[k] = v end return o end
+
+--  Événements du journal, copiés et marqués (restreint / en ligne).
+local function feedEvents(n)
+	local af = AF()
+	local list = (af and af.GetFeedLog) and af.GetFeedLog(n or 300) or {}
+	local set = UGCRestrict.RestrictedIdSet()
+	local out = {}
+	for _, ev in ipairs(list) do
+		if type(ev) == "table" then
+			local e = shallow(ev)
+			e.restricted = set[tonumber(e.uid) or 0] == true
+			e.online = Players:GetPlayerByUserId(tonumber(e.uid) or 0) ~= nil
+			table.insert(out, e)
+		end
+	end
+	return out
+end
+
+--  Réglages + valeurs actuelles + valeurs du fichier, section par section.
+AC_ACTIONS.schema = function()
+	local af = AF()
+	local adv = (type(cfg.advanced) == "table") and cfg.advanced or {}
+	local out = {}
+	for _, sec in ipairs(SCHEMA) do
+		local s2 = { id = sec.id, title = sec.title, intro = sec.intro, open = sec.open, fields = {} }
+		for _, fld in ipairs(sec.fields) do
+			local f2 = shallow(fld)
+			if fld.adv then
+				local def = (af and af.AdvancedDefault) and af.AdvancedDefault(fld.adv) or nil
+				f2.default = def
+				if adv[fld.adv] ~= nil then f2.value = adv[fld.adv] else f2.value = def end
+			else
+				f2.default = getAt(DEFAULTS, fld.path)
+				f2.value = getAt(cfg, fld.path)
+				if f2.value == nil then f2.value = f2.default end
+			end
+			table.insert(s2.fields, f2)
+		end
+		table.insert(out, s2)
+	end
+	return { ok = true, sections = out, preset = adv.Preset or (af and af.AdvancedDefault and af.AdvancedDefault("Preset")),
+		fileVersion = FILE_VERSION, loaded = cfgLoaded }
+end
+
+--  Enregistre des réglages : { values = { [id] = valeur }, reset = { id, … } }
+AC_ACTIONS.setvalues = function(player, payload)
+	local newCfg = deepCopyU(cfg)
+	newCfg.advanced = (type(newCfg.advanced) == "table") and newCfg.advanced or {}
+	local n, bad = 0, {}
+	for id, v in pairs(type(payload.values) == "table" and payload.values or {}) do
+		local fld = FIELDS[id]
+		local cv = fld and cleanValue(fld, v)
+		if cv ~= nil then
+			if fld.adv then newCfg.advanced[fld.adv] = cv else setAt(newCfg, fld.path, cv) end
+			if id == "ugc.warn" then newCfg.warningsToRestrict = cv end
+			n = n + 1
+		else
+			table.insert(bad, tostring(fld and fld.label or id))
+		end
+	end
+	for _, id in ipairs(type(payload.reset) == "table" and payload.reset or {}) do
+		local fld = FIELDS[id]
+		if fld then
+			if fld.adv then newCfg.advanced[fld.adv] = nil
+			else setAt(newCfg, fld.path, deepCopyU(getAt(DEFAULTS, fld.path))) end
+			if id == "ugc.warn" then newCfg.warningsToRestrict = getAt(DEFAULTS, fld.path) end
+			n = n + 1
+		end
+	end
+	if n == 0 then
+		return { ok = false, msg = (#bad > 0) and ("Valeur refusée : " .. table.concat(bad, ", ")) or "Rien à enregistrer" }
+	end
+	local ok, msg = saveConfig(newCfg, player.Name)
+	return { ok = ok, msg = ok and string.format("✅ %d réglage(s) enregistré(s) sur tous les serveurs", n) or msg,
+		refused = bad }
+end
+
+--  Page d'accueil : l'essentiel en un coup d'œil.
+AC_ACTIONS.home = function()
+	local now = os.time()
+	local evs = feedEvents(300)
+	local det, warns, sanc, players = 0, 0, 0, {}
+	for _, e in ipairs(evs) do
+		if (e.t or 0) >= now - 86400 then
+			if e.kind == "detection" then det = det + 1 ; players[e.uid] = true
+			elseif e.kind == "warning" then warns = warns + 1
+			elseif e.kind == "sanction" then sanc = sanc + 1 end
+		end
+	end
+	local nP = 0 for _ in pairs(players) do nP = nP + 1 end
+	local nR = 0 for _ in pairs(UGCRestrict.RestrictedIdSet()) do nR = nR + 1 end
+	local recent = {}
+	for i = 1, math.min(6, #evs) do recent[i] = evs[i] end
+	local m = (type(cfg.modes) == "table") and cfg.modes.ugc or {}
+	return { ok = true, recent = recent,
+		stats = { det24 = det, players24 = nP, warn24 = warns, sanc24 = sanc, restricted = nR },
+		state = { mode = cfg.mode, shadow = cfg.shadow == true, silent = cfg.silent ~= false,
+			threshold = threshold(), expiry = cfg.warningExpiryDays, reveal = m.revealOnlyWhenAffordable ~= false,
+			loaded = cfgLoaded, fileVersion = FILE_VERSION } }
+end
+
+--  Fil récent (tout le journal, le panel filtre).
+AC_ACTIONS.feedlog = function(_, payload)
+	return { ok = true, events = feedEvents(tonumber(payload.limit) or 300), threshold = threshold() }
+end
+
+--  Liste des joueurs à surveiller : classements + journal, fusionnés.
+AC_ACTIONS.candidates = function(_, payload)
+	local n = math.clamp(tonumber(payload.limit) or 100, 10, 200)
+	local af = AF()
+	local map, now = {}, os.time()
+	local function get(uid)
+		uid = tonumber(uid)
+		if not uid then return nil end
+		map[uid] = map[uid] or { userId = uid, det = 0, warn = 0, det24 = 0 }
+		return map[uid]
+	end
+	if af and af.GetCandidates then
+		local ok, c = pcall(af.GetCandidates, n)
+		if ok and type(c) == "table" then
+			for _, e in ipairs(c.det or {}) do local m = get(e.userId) ; if m then m.det = tonumber(e.value) or 0 end end
+			local wl = cfg.shadow and c.warnShadow or c.warn
+			for _, e in ipairs(wl or {}) do local m = get(e.userId) ; if m then m.warn = tonumber(e.value) or 0 end end
+		end
+	end
+	for _, e in ipairs(feedEvents(300)) do
+		local m = get(e.uid)
+		if m then
+			m.name = m.name or e.name
+			if (e.t or 0) > (m.lastAt or 0) and e.kind == "detection" then
+				m.lastAt, m.lastType, m.lastDetail = e.t, e.type, e.details
+			end
+			if e.kind == "detection" and (e.t or 0) >= now - 86400 then m.det24 = m.det24 + 1 end
+		end
+	end
+	local list = {}
+	for _, m in pairs(map) do table.insert(list, m) end
+	UGCRestrict.Annotate(list)
+	for _, m in ipairs(list) do m.online = Players:GetPlayerByUserId(m.userId) ~= nil end
+	return { ok = true, entries = list, threshold = threshold() }
+end
+
+--  Détail de plusieurs joueurs (par paquets de 12) : warnings exacts,
+--  certitude, dernier signal, points, raison de la sanction.
+AC_ACTIONS.file = function(_, payload)
+	local ids = {}
+	for _, v in ipairs(type(payload.ids) == "table" and payload.ids or {}) do
+		local n = tonumber(v)
+		if n and #ids < 12 then table.insert(ids, n) end
+	end
+	local af = AF()
+	local res = UGCRestrict.ResolveBatch(ids)
+	local set = UGCRestrict.RestrictedIdSet()
+	local out = {}
+	for _, uid in ipairs(ids) do
+		local r = res[tostring(uid)] or {}
+		local e = { userId = uid, name = r.name, points = r.points, online = r.online == true,
+			restricted = set[uid] == true }
+		local okF, fl = false, nil
+		if af and af.GetPlayerFile then okF, fl = pcall(af.GetPlayerFile, uid) end
+		if okF and type(fl) == "table" then
+			e.warnings = fl.warnings
+			local hist = {}
+			for i = #(fl.warnHistory or {}), math.max(1, #(fl.warnHistory or {}) - 4), -1 do
+				local h = fl.warnHistory[i]
+				if h then table.insert(hist, { t = h.t, type = h.type, details = h.details }) end
+			end
+			e.warnHistory = hist
+			local st = fl.stats
+			if type(st) == "table" then
+				e.total, e.ignored = st.total or 0, st.detIgnored or 0
+				e.confAvg = ((st.confCount or 0) > 0) and math.floor(st.confSum / st.confCount) or 0
+				e.confMax = st.confMax or 0
+				e.detByType = st.detByType
+				e.lastAt, e.lastType, e.lastDetail, e.lastCtx = st.lastAt, st.lastType, st.lastDetail, st.lastCtx
+				e.firstSeen = st.firstSeen
+			end
+		end
+		if e.restricted then
+			local rec = readRecord(uid, false)
+			if type(rec) == "table" then
+				local why = rec.reasonText or rec.details or rec.reason or ""
+				e.restrictWhy = tostring(why):match("^[^\n]*") or tostring(why)
+				e.restrictAt, e.restrictBy, e.restrictAuto = rec.at, rec.by, rec.auto == true
+			end
+		end
+		table.insert(out, e)
+	end
+	return { ok = true, files = out, threshold = threshold() }
+end
+
 adminAction.OnServerInvoke = function(player, action, payload)
 	if not isAdmin(player.UserId) then return { ok = false, msg = "Accès refusé" } end
 	if type(action) ~= "string" then return { ok = false, msg = "Requête invalide" } end
@@ -1723,6 +2326,8 @@ adminAction.OnServerInvoke = function(player, action, payload)
 	local COOLDOWN = {
 		lookup = 0.5, add = 0.8, remove = 0.8,
 		clearstats = 0.8, setconfig = 0.35, reload = 2,
+		schema = 0.4, setvalues = 0.8, home = 0.8, feedlog = 0.8,
+		candidates = 1, file = 0.15,
 	}
 	if not rateOk(player.UserId, action, COOLDOWN[action] or 0.5) then
 		return { throttled = true, msg = nil }
@@ -1730,6 +2335,13 @@ adminAction.OnServerInvoke = function(player, action, payload)
 
 	payload = (type(payload) == "table") and payload or {}
 	local byName = player.Name
+
+	if AC_ACTIONS[action] then
+		local ok, res = pcall(AC_ACTIONS[action], player, payload)
+		if ok then return res end
+		warn("🚫 [UGCRestrict] action " .. action .. " : " .. tostring(res))
+		return { ok = false, msg = "Erreur serveur (" .. action .. ")" }
+	end
 
 	----------------------------------------------------------------
 	if action == "lookup" then
@@ -1781,6 +2393,20 @@ adminAction.OnServerInvoke = function(player, action, payload)
 					return _G.AntiFlyTP.GetTestPlayerPersisted(userId)
 				end))
 				or nil,
+			--  🆕 Warnings actifs exacts + son historique dans le journal partagé
+			file = (_G.AntiFlyTP and _G.AntiFlyTP.GetPlayerFile)
+				and select(2, pcall(_G.AntiFlyTP.GetPlayerFile, userId)) or nil,
+			events = (function()
+				local out = {}
+				for _, e in ipairs(feedEvents(300)) do
+					if tonumber(e.uid) == userId then
+						table.insert(out, e)
+						if #out >= 30 then break end
+					end
+				end
+				return out
+			end)(),
+			threshold = threshold(),
 		}
 
 		----------------------------------------------------------------
@@ -1793,7 +2419,15 @@ adminAction.OnServerInvoke = function(player, action, payload)
 			reason  = "admin",
 			details = tostring(payload.note or "Privation manuelle depuis le panel"),
 		})
-		if ok then invalidateList() end
+		if ok then
+			invalidateList()
+			if AF() and AF().FeedPush then
+				local nm = nil
+				pcall(function() nm = Players:GetNameFromUserIdAsync(userId) end)
+				AF().FeedPush({ kind = "manual", uid = userId, name = nm, by = byName,
+					details = "Restreint à la main par " .. byName .. " — " .. tostring(payload.note or "") })
+			end
+		end
 		return { ok = ok, msg = msg }
 
 		----------------------------------------------------------------
@@ -1801,7 +2435,15 @@ adminAction.OnServerInvoke = function(player, action, payload)
 		local userId = tonumber(payload.userId)
 		if not userId then return { ok = false, msg = "UserID invalide" } end
 		local ok, msg = UGCRestrict.Remove(userId, byName)
-		if ok then invalidateList() end
+		if ok then
+			invalidateList()
+			if AF() and AF().FeedPush then
+				local nm = nil
+				pcall(function() nm = Players:GetNameFromUserIdAsync(userId) end)
+				AF().FeedPush({ kind = "lift", uid = userId, name = nm, by = byName,
+					details = "Sanction levée par " .. byName })
+			end
+		end
 		return { ok = ok, msg = msg }
 
 		----------------------------------------------------------------
@@ -1814,6 +2456,7 @@ adminAction.OnServerInvoke = function(player, action, payload)
 			pcall(function()
 				if _G.AntiFlyTP.ClearTestPlayer then _G.AntiFlyTP.ClearTestPlayer(userId) end
 				if _G.AntiFlyTP.ResetWarnings  then _G.AntiFlyTP.ResetWarnings(userId) end
+				if _G.AntiFlyTP.ForgetFile     then _G.AntiFlyTP.ForgetFile(userId) end
 			end)
 		end
 		return { ok = true, msg = "Stats anti-cheat remises à zéro" }
