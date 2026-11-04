@@ -22986,7 +22986,7 @@ end)()
 	--════════════════════════════════════════════════════════════════
 	local ST = {
 		tab = "home",
-		feed = { kind = "all", fam = "all", online = false, hideR = false, minConf = 0, search = "", show = 30 },
+		feed = { kind = "all", fam = "all", online = false, hideR = false, minConf = 0, search = "", show = 30, open = {} },
 		pl = { sort = "last", desc = true, fam = "all", status = "all", online = false, search = "", show = 30 },
 		rs = { sort = "recent", search = "" },
 		card = nil, cardData = nil, cardLoading = false, cardSearch = "",
@@ -23491,6 +23491,139 @@ end)()
 		return b, fill
 	end
 
+
+	--════════════════════════════════════════════════════════════════
+	-- 👤 UNE ENTRÉE PAR JOUEUR (le fil regroupe tous ses événements)
+	--════════════════════════════════════════════════════════════════
+	--  events : liste triée du plus récent au plus ancien. Renvoie la liste
+	--  des joueurs, triée par leur événement le plus récent.
+	local function groupByPlayer(events)
+		local map, order = {}, {}
+		for _, e in ipairs(events or {}) do
+			local uid = tonumber(e.uid)
+			if uid then
+				local g = map[uid]
+				if not g then
+					g = { uid = uid, name = e.name, events = {}, restricted = e.restricted, online = e.online,
+						det = 0, warn = 0, sanc = 0, admin = 0, fams = {}, confMax = 0 }
+					map[uid] = g
+					table.insert(order, g)
+				end
+				g.name = g.name or e.name
+				table.insert(g.events, e)
+				if e.kind == "detection" then
+					g.det = g.det + 1
+					local lbl = TYPE_LABEL[e.type] or tostring(e.type)
+					g.fams[lbl] = (g.fams[lbl] or 0) + 1
+					g.lastDet = g.lastDet or e
+				elseif e.kind == "warning" then g.warn = g.warn + 1 ; g.maxWarn = math.max(g.maxWarn or 0, tonumber(e.warnings) or 0)
+				elseif e.kind == "sanction" then g.sanc = g.sanc + 1
+				else g.admin = g.admin + 1 end
+				g.confMax = math.max(g.confMax, tonumber(e.conf) or 0)
+			end
+		end
+		return order
+	end
+
+	local function eventLine(e)
+		local k = KIND[e.kind] or { tostring(e.kind or "?") }
+		local what = (TYPE_LABEL[e.type] or tostring(e.type or ""))
+		if e.kind == "warning" then
+			what = string.format("⚠️ Warning %s/%s (%s)", tostring(e.warnings or "?"), tostring(e.max or "?"), what)
+		elseif e.kind == "sanction" then
+			what = "🚫 PRIVÉ D'UGC (" .. what .. ")"
+		elseif e.kind == "manual" or e.kind == "lift" then
+			what = tostring(e.details or k[1])
+		elseif e.details and e.details ~= "" then
+			what = what .. " — " .. e.details
+		end
+		return string.format("• %s · %s%s", fmtAgo(e.t), what, e.conf and (" (" .. tostring(e.conf) .. " %)") or "")
+	end
+
+	local function groupEntry(parent, order, g, compact)
+		local col = g.restricted and PURPLE or (g.sanc > 0 and PURPLE or (g.warn > 0 and RED or ORANGE))
+		local b = box(parent, order, nil, col)
+		if g.restricted then b.BackgroundColor3 = Color3.fromRGB(40, 24, 56) end
+		local f = DATA.files[g.uid]
+		local last = g.events[1]
+		playerHead(b, 1, g.uid, g.name or (f and f.name), g.restricted, g.online,
+			string.format("%d événement(s)\n%s", #g.events, fmtAgo(last and last.t)), col)
+
+		--  Résumé de tout ce qu'il a fait
+		local fams = {}
+		for lbl, n in pairs(g.fams) do table.insert(fams, lbl .. " ×" .. n) end
+		table.sort(fams)
+		local sum = {}
+		if g.det > 0 then table.insert(sum, "🔎 " .. g.det .. " détection(s)") end
+		if g.warn > 0 then table.insert(sum, "⚠️ " .. g.warn .. " warning(s)") end
+		if g.sanc > 0 then table.insert(sum, "🚫 sanctionné") end
+		if g.admin > 0 then table.insert(sum, "👮 " .. g.admin .. " action(s) admin") end
+		if g.confMax > 0 then table.insert(sum, "🎯 jusqu'à " .. g.confMax .. " %") end
+		text(b, 2, table.concat(sum, "  ·  ") .. ((#fams > 0) and ("\n" .. table.concat(fams, "  ·  ")) or ""), C.TEXT_WHITE, TS, true)
+		if compact then return b end
+
+		--  Sa dernière détection, en détail (ce qu'il a fait, où, avec quoi, pourquoi)
+		local e = g.lastDet
+		if e then
+			text(b, 3, "📝 Dernière détection (" .. fmtAgo(e.t) .. ") : " .. (TYPE_LABEL[e.type] or tostring(e.type))
+				.. ((e.details and e.details ~= "") and (" — " .. e.details) or ""), C.TEXT_WHITE, TS)
+			local cx = e.ctx
+			if type(cx) == "table" then
+				local parts = {}
+				if cx.pos then table.insert(parts, "📍 " .. cx.pos) end
+				table.insert(parts, "🧰 outil : " .. tostring(cx.tool or "aucun"))
+				if cx.speed then table.insert(parts, string.format("💨 %s studs/s (vertical %s)", cx.speed, tostring(cx.vy or 0))) end
+				if cx.walk then table.insert(parts, "🚶 marche " .. cx.walk) end
+				if cx.arena then table.insert(parts, "🥊 en arène") end
+				text(b, 4, table.concat(parts, "  ·  "), C.TEXT_GREY, TS)
+				if cx.notes then text(b, 5, "ℹ️ " .. cx.notes, GOLD, TS) end
+			end
+			if e.conf then
+				local why = (type(e.why) == "table" and #e.why > 0) and ("\n   " .. table.concat(e.why, "\n   ")) or ""
+				text(b, 6, string.format("🎯 Certitude %d %%%s", tonumber(e.conf) or 0, why), confColor(e.conf), TS)
+			end
+		end
+
+		--  Tout ce qu'il a fait (5 derniers, ou tout si ouvert)
+		local open = ST.feed.open[g.uid] == true
+		local lines = {}
+		for i, x in ipairs(g.events) do
+			if not open and i > 5 then break end
+			table.insert(lines, eventLine(x))
+		end
+		text(b, 7, "🧾 Historique :\n" .. table.concat(lines, "\n"), C.TEXT_GREY, TS)
+		if #g.events > 5 then
+			local c = frame(b, 8, IS_MOBILE and 24 or 28)
+			local tb = actionButton(c, { color = C.BG_ITEM, strokeColor = C.BORDER_SUBTLE,
+				text = open and "▲ Réduire" or ("▼ Voir les " .. #g.events .. " événements"),
+				textColor = C.TEXT_GREY, textSize = TS, radius = 7, zIndex = 13 })
+			tb.MouseButton1Click:Connect(function() ST.feed.open[g.uid] = not open ; screenAC() end)
+		end
+
+		--  Son dossier (rempli quand la fiche arrive)
+		local dossier = text(b, 9, "🗂️ Dossier : chargement…", C.TEXT_DIM, TS)
+		local function fill()
+			local fl = DATA.files[g.uid]
+			if not fl or not dossier.Parent then return end
+			local th = (DATA.feed and DATA.feed.threshold) or "?"
+			dossier.Text = string.format("🗂️ Dossier : ⚠️ %s/%s warnings actifs  ·  📊 %s détection(s) au total  ·  💎 %s (%s)%s",
+				tostring(fl.warnings or 0), tostring(th), tostring(fl.total or "?"),
+				fl.points and fmtNum(fl.points) or "?", ugcPow(fl.points),
+				fl.restricted and ("  ·  🚫 restreint : " .. tostring(fl.restrictWhy or "")) or "")
+			dossier.TextColor3 = fl.restricted and PURPLE or C.TEXT_GREY
+		end
+		fill()
+		local acts = { { text = "🔍 Fiche", color = CYAN, textColor = BLACK, fn = function() openCard(g.uid) end } }
+		if g.restricted then
+			table.insert(acts, { text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(g.uid, g.name) end })
+		else
+			table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(g.uid, g.name) end })
+		end
+		table.insert(acts, { text = "🧹 Ses warnings à 0", color = C.BG_LIGHT, fn = function() askReset(g.uid, g.name) end })
+		buttonRow(b, 10, acts)
+		return b, fill
+	end
+
 	--════════════════════════════════════════════════════════════════
 	-- 🏠 ACCUEIL
 	--════════════════════════════════════════════════════════════════
@@ -23620,9 +23753,10 @@ end)()
 			st.det24 or 0, st.players24 or 0, st.warn24 or 0, st.sanc24 or 0, st.restricted or 0), C.TEXT_WHITE, TM)
 
 		--  Dernières détections
-		local r = box(body, 5, "📡 Derniers événements", CYAN, "Touche « Voir tout le fil » pour le détail complet de chaque entrée.")
-		if #(d.recent or {}) == 0 then text(r, 2, "✅ Rien de récent.", GREEN, TS) end
-		for i, e in ipairs(d.recent or {}) do feedEntry(r, 1 + i, e, true) end
+		local r = box(body, 5, "📡 Derniers joueurs détectés", CYAN, "Une ligne par joueur. Touche « Voir tout le fil » pour le détail complet.")
+		local groups = groupByPlayer(d.recent)
+		if #groups == 0 then text(r, 2, "✅ Rien de récent.", GREEN, TS) end
+		for i = 1, math.min(5, #groups) do groupEntry(r, 1 + i, groups[i], true) end
 		button(r, 20, "📡 Voir tout le fil →", CYAN, function() ST.tab = "feed" ; screenAC() end, nil, BLACK)
 
 		--  Mode d'emploi
@@ -23643,9 +23777,9 @@ end)()
 	--════════════════════════════════════════════════════════════════
 	local function renderFeed(body)
 		local F = ST.feed
-		note(body, 1, "Tout ce que l'anti-cheat a retenu, tous serveurs confondus, du plus récent au plus ancien : "
-			.. "détections sûres, warnings, sanctions et actions des admins. Chaque entrée explique ce que le joueur "
-			.. "a fait, où, avec quoi, et pourquoi la machine y croit.", CYAN)
+		note(body, 1, "UNE entrée par joueur, du plus récent au plus ancien, tous serveurs confondus. Chaque entrée "
+			.. "résume tout ce qu'il a fait (détections, warnings, sanctions), détaille sa dernière détection "
+			.. "(quoi, où, avec quoi, pourquoi la machine y croit) et liste son historique.", CYAN)
 		chips(body, 2, {
 			{ id = "all", label = "Tout" }, { id = "detection", label = "🔎 Détections" },
 			{ id = "warning", label = "⚠️ Warnings" }, { id = "sanction", label = "🚫 Sanctions" },
@@ -23677,8 +23811,8 @@ end)()
 			return
 		end
 		local q = (F.search or ""):lower()
-		local shown, ids, fills = 0, {}, {}
-		local matched = 0
+		--  On garde les événements qui passent les filtres, puis UNE entrée par joueur.
+		local kept = {}
 		for _, e in ipairs(d.events or {}) do
 			local ok = true
 			if F.kind == "admin" then ok = (e.kind == "manual" or e.kind == "lift")
@@ -23690,21 +23824,20 @@ end)()
 			if ok and #q > 0 then
 				ok = tostring(e.name or ""):lower():find(q, 1, true) ~= nil or tostring(e.uid) == q
 			end
-			if ok then
-				matched = matched + 1
-				if shown < F.show then
-					shown = shown + 1
-					local _, fill = feedEntry(holder, shown, e, false)
-					if fill then
-						fills[#fills + 1] = fill
-						if not DATA.files[tonumber(e.uid) or 0] then ids[#ids + 1] = tonumber(e.uid) end
-					end
-				end
-			end
+			if ok then table.insert(kept, e) end
 		end
-		if matched == 0 then text(holder, 1, "✅ Rien ne correspond à ces filtres.", C.TEXT_GREY, TM) end
-		if matched > shown then
-			button(holder, 9999, string.format("⬇️ Afficher plus (%d sur %d)", shown, matched), C.BG_LIGHT, function()
+		local groups = groupByPlayer(kept)
+		text(holder, 0, string.format("👤 %d joueur(s) · %d événement(s)", #groups, #kept), C.TEXT_DIM, TS)
+		if #groups == 0 then text(holder, 1, "✅ Rien ne correspond à ces filtres.", C.TEXT_GREY, TM) end
+		local ids, fills = {}, {}
+		for i = 1, math.min(#groups, F.show) do
+			local g = groups[i]
+			local _, fill = groupEntry(holder, i, g, false)
+			if fill then fills[#fills + 1] = fill end
+			if not DATA.files[g.uid] then ids[#ids + 1] = g.uid end
+		end
+		if #groups > F.show then
+			button(holder, 9999, string.format("⬇️ Afficher plus (%d sur %d joueurs)", F.show, #groups), C.BG_LIGHT, function()
 				F.show = F.show + 30 ; screenAC()
 			end)
 		end

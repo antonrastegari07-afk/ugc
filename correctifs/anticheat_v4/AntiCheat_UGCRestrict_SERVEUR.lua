@@ -2232,7 +2232,8 @@ AC_ACTIONS.home = function()
 	local nP = 0 for _ in pairs(players) do nP = nP + 1 end
 	local nR = 0 for _ in pairs(UGCRestrict.RestrictedIdSet()) do nR = nR + 1 end
 	local recent = {}
-	for i = 1, math.min(6, #evs) do recent[i] = evs[i] end
+	--  assez d'événements pour regrouper les 5 derniers joueurs côté panel
+	for i = 1, math.min(80, #evs) do recent[i] = evs[i] end
 	local m = (type(cfg.modes) == "table") and cfg.modes.ugc or {}
 	return { ok = true, recent = recent,
 		stats = { det24 = det, players24 = nP, warn24 = warns, sanc24 = sanc, restricted = nR },
