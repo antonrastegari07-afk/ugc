@@ -22986,7 +22986,7 @@ end)()
 	--════════════════════════════════════════════════════════════════
 	local ST = {
 		tab = "home",
-		feed = { kind = "all", fam = "all", online = false, hideR = false, minConf = 0, search = "", show = 30, open = {} },
+		feed = { kind = "all", fam = "all", online = false, hideR = false, minConf = 0, search = "", show = 30, open = {}, detail = {} },
 		pl = { sort = "last", desc = true, fam = "all", status = "all", online = false, search = "", show = 30 },
 		rs = { sort = "recent", search = "" },
 		card = nil, cardData = nil, cardLoading = false, cardSearch = "",
@@ -23540,6 +23540,36 @@ end)()
 		return string.format("• %s · %s%s", fmtAgo(e.t), what, e.conf and (" (" .. tostring(e.conf) .. " %)") or "")
 	end
 
+	--  🔎 TOUTES les infos d'un événement (mêmes infos pour chaque détection / warning)
+	local function eventDetailText(e)
+		local L = {}
+		local k = KIND[e.kind] or { tostring(e.kind or "?") }
+		table.insert(L, "🏷️ " .. k[1] .. " · " .. dateOf(e.t) .. (e.server and ("  ·  serveur " .. tostring(e.server)) or "")
+			.. (e.shadow and "  ·  🧪 mode sans sanction" or ""))
+		if e.type then table.insert(L, "📝 Ce qu'il a fait : " .. (TYPE_LABEL[e.type] or tostring(e.type))) end
+		if e.details and e.details ~= "" then table.insert(L, "   " .. tostring(e.details)) end
+		if e.kind == "warning" or e.kind == "sanction" then
+			table.insert(L, string.format("⚠️ Warnings à ce moment : %s / %s", tostring(e.warnings or "?"), tostring(e.max or "?")))
+		elseif e.warnings then
+			table.insert(L, "⚠️ Warnings à ce moment : " .. tostring(e.warnings))
+		end
+		local cx = e.ctx
+		if type(cx) == "table" then
+			table.insert(L, "📍 Position : " .. tostring(cx.pos or "?"))
+			table.insert(L, "🧰 Outil en main : " .. tostring(cx.tool or "aucun"))
+			if cx.speed then table.insert(L, string.format("💨 Vitesse : %s studs/s (verticale %s)", cx.speed, tostring(cx.vy or 0))) end
+			if cx.walk then table.insert(L, "🚶 Vitesse de marche : " .. cx.walk) end
+			table.insert(L, cx.arena and "🥊 En arène PvP" or "🏃 Hors arène")
+			if cx.notes then table.insert(L, "ℹ️ " .. cx.notes) end
+		end
+		if e.conf then
+			table.insert(L, string.format("🎯 Certitude : %d %%", tonumber(e.conf) or 0))
+			for _, w in ipairs(type(e.why) == "table" and e.why or {}) do table.insert(L, "   " .. tostring(w)) end
+		end
+		if e.by then table.insert(L, "👮 Par : " .. tostring(e.by)) end
+		return table.concat(L, "\n")
+	end
+
 	local function groupEntry(parent, order, g, compact)
 		local col = g.restricted and PURPLE or (g.sanc > 0 and PURPLE or (g.warn > 0 and RED or ORANGE))
 		local b = box(parent, order, nil, col)
@@ -23584,14 +23614,36 @@ end)()
 			end
 		end
 
-		--  Tout ce qu'il a fait (5 derniers, ou tout si ouvert)
+		--  Tout ce qu'il a fait (5 derniers, ou tout si ouvert) — chaque ligne a
+		--  son bouton 🔎 qui affiche TOUTES ses infos.
 		local open = ST.feed.open[g.uid] == true
-		local lines = {}
+		local hist = frame(b, 7) ; list(hist, 3)
+		text(hist, 0, "🧾 Historique (🔎 = tous les détails) :", C.TEXT_WHITE, TS, true)
 		for i, x in ipairs(g.events) do
 			if not open and i > 5 then break end
-			table.insert(lines, eventLine(x))
+			local key = tostring(x.uid) .. "|" .. tostring(x.t) .. "|" .. tostring(x.kind) .. "|" .. tostring(x.type) .. "|" .. i
+			local row = frame(hist, i * 2, IS_MOBILE and 24 or 26)
+			local lb = Instance.new("TextLabel")
+			lb.Size = UDim2.new(1, -(IS_MOBILE and 40 or 48), 1, 0)
+			lb.BackgroundTransparency = 1 ; lb.Font = Enum.Font.Gotham
+			lb.Text = eventLine(x) ; lb.TextColor3 = (KIND[x.kind] or { "", C.TEXT_GREY })[2]
+			lb.TextSize = TS ; lb.TextXAlignment = Enum.TextXAlignment.Left
+			lb.TextTruncate = Enum.TextTruncate.AtEnd ; lb.ZIndex = 12 ; lb.Parent = row
+			local dc = Instance.new("Frame")
+			dc.AnchorPoint = Vector2.new(1, 0) ; dc.Position = UDim2.new(1, 0, 0, 0)
+			dc.Size = UDim2.new(0, IS_MOBILE and 36 or 44, 1, 0)
+			dc.BackgroundTransparency = 1 ; dc.ZIndex = 12 ; dc.Parent = row
+			local shownD = ST.feed.detail[key] == true
+			local db = actionButton(dc, { color = shownD and CYAN or C.BG_LIGHT, strokeColor = CYAN,
+				text = shownD and "▲" or "🔎", textColor = shownD and BLACK or C.TEXT_WHITE,
+				textSize = TS, radius = 6, zIndex = 13 })
+			db.MouseButton1Click:Connect(function() ST.feed.detail[key] = not shownD ; screenAC() end)
+			if shownD then
+				local d = box(hist, i * 2 + 1, nil, CYAN)
+				d.BackgroundColor3 = C.BG_ITEM
+				text(d, 1, eventDetailText(x), C.TEXT_GREY, TS)
+			end
 		end
-		text(b, 7, "🧾 Historique :\n" .. table.concat(lines, "\n"), C.TEXT_GREY, TS)
 		if #g.events > 5 then
 			local c = frame(b, 8, IS_MOBILE and 24 or 28)
 			local tb = actionButton(c, { color = C.BG_ITEM, strokeColor = C.BORDER_SUBTLE,
@@ -24463,6 +24515,5 @@ end)()
 	end
 	print("✅ Bloc 16 chargé — 🛡️ ANTI-CHEAT (écran unique)")
 end)()
-
 
 print("✅ ADMIN PANEL CLIENT chargé (Mobile: " .. tostring(IS_MOBILE) .. ")")
