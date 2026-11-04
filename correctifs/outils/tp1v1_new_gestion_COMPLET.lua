@@ -174,6 +174,13 @@ end
 --  La faux de Jack (JackScythe) n'est jamais touchée : elle reste en PvP.
 --════════════════════════════════════════════════════════════════════════════
 local arenaStash = {}   -- [uid] = { Tool, … }  (Parent = nil)
+--  🆕 StarterGear : pendant l'arène, il ne contient QUE les armes PvP.
+--     Roblox recopie le StarterGear dans le sac à chaque réapparition :
+--     avant, il recopiait les coils / le jetpack de l'obby (visibles une
+--     demi-seconde avant les armes). Maintenant il recopie directement les
+--     armes : le joueur réapparaît avec ses armes, tout de suite.
+local gearStash = {}    -- [uid] = { Tool, … } outils de l'obby sortis du StarterGear
+local playerSavedGear = {}
 
 local function isArenaTool(t)
 	return t:GetAttribute("ArenaWeapon") == true or t:GetAttribute("JackScythe") ~= nil
@@ -190,7 +197,24 @@ local function stashTool(player, tool)
 	table.insert(playerSavedTools[uid], tool.Name)
 end
 
+local function stashGear(player, tool)
+	if not (tool and tool:IsA("Tool")) or isArenaTool(tool) then return end
+	local uid = player.UserId
+	gearStash[uid] = gearStash[uid] or {}
+	for _, t in ipairs(gearStash[uid]) do if t == tool then return end end
+	table.insert(gearStash[uid], tool)
+	tool.Parent = nil
+	playerSavedGear[uid] = playerSavedGear[uid] or {}
+	table.insert(playerSavedGear[uid], tool.Name)
+end
+
 local function stashAll(player)
+	local sg = player:FindFirstChild("StarterGear")
+	if sg then
+		for _, t in ipairs(sg:GetChildren()) do
+			if t:IsA("Tool") and not isArenaTool(t) then stashGear(player, t) end
+		end
+	end
 	for _, holder in ipairs({ player:FindFirstChildOfClass("Backpack"), player.Character }) do
 		if holder then
 			for _, t in ipairs(holder:GetChildren()) do
@@ -209,7 +233,47 @@ local function savePlayerTools(player)
 	end
 end
 
+local function keepAfterArena(tool, now)
+	local exp = tonumber(tool:GetAttribute("AdminLoanExpiresAt")) or tonumber(tool:GetAttribute("CarryExpiresAt"))
+	if exp and exp <= now then return false end                          -- prêt terminé pendant le PvP
+	local aa = tool:GetAttribute("AAEventTool")
+	if aa ~= nil then                                                    -- Admin Abuse terminé entre-temps
+		local AA = _G.AdminAbuse
+		local active = AA and AA.Active and AA.Active()
+		local run = AA and AA.RunId and tostring(AA.RunId())
+		if not active or (run and run ~= tostring(aa)) then return false end
+	end
+	return true
+end
+
+local function restoreGear(player)
+	local uid = player.UserId
+	local list = gearStash[uid]
+	gearStash[uid] = nil
+	playerSavedGear[uid] = nil
+	local sg = player:FindFirstChild("StarterGear")
+	--  les armes PvP sortent du StarterGear
+	if sg then
+		for _, t in ipairs(sg:GetChildren()) do
+			if t:IsA("Tool") and t:GetAttribute("ArenaWeapon") == true then t:Destroy() end
+		end
+	end
+	if not list then return end
+	if not sg then for _, t in ipairs(list) do pcall(function() t:Destroy() end) end return end
+	local have, now = {}, os.time()
+	for _, t in ipairs(sg:GetChildren()) do if t:IsA("Tool") then have[t.Name] = true end end
+	for _, tool in ipairs(list) do
+		if have[tool.Name] or not keepAfterArena(tool, now) then
+			pcall(function() tool:Destroy() end)
+		else
+			have[tool.Name] = true
+			tool.Parent = sg
+		end
+	end
+end
+
 local function restorePlayerTools(player)
+	restoreGear(player)
 	local uid = player.UserId
 	local list = arenaStash[uid]
 	arenaStash[uid] = nil
@@ -255,16 +319,26 @@ end
 
 --  Pendant l'arène, tout outil non-PvP qui arrive (copie de StarterGear au
 --  respawn, gamepass, Daily, prêt admin…) est mis de côté immédiatement.
-local function watchHolder(player, holder)
+local function inArenaState(player)
+	local st = playerStates[player.UserId]
+	return st == true or st == "entering"
+end
+local function watchHolder(player, holder, isGear)
+	local function take(t)
+		if t.Parent ~= holder or not inArenaState(player) then return end
+		if isGear then stashGear(player, t) else stashTool(player, t) end
+	end
 	holder.ChildAdded:Connect(function(t)
 		if not t:IsA("Tool") or isArenaTool(t) then return end
-		if playerStates[player.UserId] ~= true and playerStates[player.UserId] ~= "entering" then return end
-		task.defer(function()
-			if t.Parent == holder and (playerStates[player.UserId] == true or playerStates[player.UserId] == "entering") then
-				stashTool(player, t)
-			end
-		end)
+		if not inArenaState(player) then return end
+		task.defer(take, t)
 	end)
+	--  ce qui est déjà dedans (un sac neuf arrive parfois déjà rempli)
+	if inArenaState(player) then
+		for _, t in ipairs(holder:GetChildren()) do
+			if t:IsA("Tool") and not isArenaTool(t) then task.defer(take, t) end
+		end
+	end
 end
 local function watchPlayerTools(player)
 	local function onBackpack(c) if c:IsA("Backpack") then watchHolder(player, c) end end
@@ -272,11 +346,16 @@ local function watchPlayerTools(player)
 	player.ChildAdded:Connect(onBackpack)
 	if player.Character then watchHolder(player, player.Character) end
 	player.CharacterAdded:Connect(function(char) watchHolder(player, char) end)
+	task.spawn(function()
+		local sg = player:FindFirstChild("StarterGear") or player:WaitForChild("StarterGear", 15)
+		if sg then watchHolder(player, sg, true) end
+	end)
 end
 Players.PlayerAdded:Connect(watchPlayerTools)
 for _, p in ipairs(Players:GetPlayers()) do watchPlayerTools(p) end
 
 _G.GetArenaSavedTools = function(uid) return playerSavedTools[uid] end
+_G.GetArenaSavedGear = function(uid) return playerSavedGear[uid] end
 
 local function giveGuns(player)
 	local bp = player:FindFirstChild("Backpack")
@@ -361,10 +440,25 @@ local function giveGuns(player)
 		end
 	end
 
+	--  StarterGear : les anciennes armes partent, les outils de l'obby sont mis de côté
+	local sg = player:FindFirstChild("StarterGear")
+	if sg then
+		for _, item in ipairs(sg:GetChildren()) do
+			if item:IsA("Tool") then
+				if item:GetAttribute("ArenaWeapon") == true then item:Destroy()
+				elseif not item:GetAttribute("JackScythe") then stashGear(player, item) end
+			end
+		end
+	end
 	for _, name in ipairs(orderedGuns) do
 		local tool = cloneGun(name)
 		if tool then
 			tool:SetAttribute("ArenaWeapon", true)   -- arme du PvP (détruite à la sortie)
+			--  une copie dans le StarterGear : Roblox la redonne tout de suite à chaque réapparition
+			if sg then
+				local g = tool:Clone()
+				g.Parent = sg
+			end
 			tool.Parent = bp
 		end
 	end
@@ -687,6 +781,9 @@ Players.PlayerRemoving:Connect(function(player)
 	task.delay(30, function()
 		if not Players:GetPlayerByUserId(uid) then
 			playerSavedTools[uid] = nil
+			playerSavedGear[uid] = nil
+			for _, t in ipairs(gearStash[uid] or {}) do pcall(function() t:Destroy() end) end
+			gearStash[uid] = nil
 			local l = arenaStash[uid]
 			arenaStash[uid] = nil
 			for _, t in ipairs(l or {}) do pcall(function() t:Destroy() end) end
@@ -706,8 +803,18 @@ Players.PlayerAdded:Connect(function(player)
 		if playerStates[uid] and _G.PlayersInArena[uid] then
 			task.wait(0.1)
 			assignRandomArenaSpawn(player)
-			task.wait(0.4)
-			giveGuns(player)
+			--  les armes arrivent toutes seules par le StarterGear ; on ne les
+			--  redonne que s'il en manque (StarterGear vide, ancien serveur…)
+			local bp = player:FindFirstChildOfClass("Backpack")
+			local hasGuns = false
+			for _, holder in ipairs({ bp, char }) do
+				if holder then
+					for _, t in ipairs(holder:GetChildren()) do
+						if t:IsA("Tool") and t:GetAttribute("ArenaWeapon") == true then hasGuns = true end
+					end
+				end
+			end
+			if not hasGuns then giveGuns(player) end
 			sanitizeCoilEffects(player)
 			applyArenaHealth(player, char)   -- ⬅ AJOUTÉ (6/6) : le respawn repart à 100 → on remet 200
 			print("♻️ " .. player.Name .. " a respawn dans l'arène avec un nouveau spawn aléatoire")

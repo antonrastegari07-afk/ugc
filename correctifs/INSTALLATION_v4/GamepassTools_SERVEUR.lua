@@ -86,11 +86,12 @@ end
 local function giveOne(player, name)
 	local tpl = ServerStorage:FindFirstChild(name)
 	if not (tpl and tpl:IsA("Tool")) then warn("⚠️ [GamepassTools] Outil introuvable dans ServerStorage : " .. name) return end
+	--  En arène : rien (l'arène rend ses outils à la sortie)
+	if inArena(player) then return end
 	--  StarterGear : revient à chaque réapparition
 	local sg = player:FindFirstChild("StarterGear")
 	if sg and not has(sg, name) then tpl:Clone().Parent = sg end
-	--  Sac : tout de suite (sauf s'il l'a déjà dans le sac OU en main, ou s'il est en arène)
-	if inArena(player) then return end
+	--  Sac : tout de suite (sauf s'il l'a déjà dans le sac OU en main)
 	local bp = player:FindFirstChildOfClass("Backpack")
 	if bp and not has(bp, name) and not has(player.Character, name) then tpl:Clone().Parent = bp end
 end
