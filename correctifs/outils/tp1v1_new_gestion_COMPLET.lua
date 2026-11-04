@@ -188,6 +188,16 @@ end
 
 local function stashTool(player, tool)
 	if not (tool and tool:IsA("Tool")) or isArenaTool(tool) then return end
+	--  ⚠️ Outil TENU EN MAIN : on le range d'abord dans le sac et on laisse son
+	--     script finir son « Unequipped » (il annule la vitesse, l'anti-gravité…).
+	--     Sinon le script est coupé net et l'EFFET RESTE sur le joueur.
+	local holder = tool.Parent
+	if holder and holder:IsA("Model") then
+		local hum = holder:FindFirstChildOfClass("Humanoid")
+		if hum then pcall(function() hum:UnequipTools() end) end
+		task.wait() ; task.wait()
+		if not tool.Parent then return end
+	end
 	local uid = player.UserId
 	arenaStash[uid] = arenaStash[uid] or {}
 	for _, t in ipairs(arenaStash[uid]) do if t == tool then return end end
@@ -227,6 +237,12 @@ end
 local function savePlayerTools(player)
 	local uid = player.UserId
 	playerSavedTools[uid] = playerSavedTools[uid] or {}
+	--  range l'outil tenu AVANT tout : son effet s'arrête proprement
+	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if hum then
+		pcall(function() hum:UnequipTools() end)
+		task.wait(0.1)
+	end
 	stashAll(player)
 	if #playerSavedTools[uid] > 0 then
 		print("✅ Tools mis de côté pour " .. player.Name .. ": " .. table.concat(playerSavedTools[uid], ", "))
@@ -681,6 +697,7 @@ enterArenaEvent.OnServerEvent:Connect(function(player)
 
 	if teleportToArena(player) then
 		giveGuns(player)
+		sanitizeCoilEffects(player)   -- filet de sécurité : aucun effet de coil ne reste
 		applyArenaHealth(player)   -- ⬅ AJOUTÉ (3/6) : 200 PV
 
 		playerStates[uid] = true

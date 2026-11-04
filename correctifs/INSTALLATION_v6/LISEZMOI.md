@@ -42,3 +42,15 @@ Ces fichiers contiennent aussi tout le v5 (détails, dossier réorganisé, corre
 Réglages en haut du bloc « 🧭 ZONES » dans Admin_client :
 - `ZONE_BUG_PLAYERS = 3` : nombre de joueurs différents à partir duquel une zone est un bug probable ;
 - `ZONE_RADIUS = 24` : rayon d'une zone ignorée, en studs.
+
+## 🔧 Correctif PvP : effet d'un coil qui restait en entrant dans l'arène
+
+| # | Où | Fichier |
+|---|---|---|
+| 5 | ServerScriptService ▸ **tp1v1_new_gestion** | `tp1v1_new_gestion_COMPLET.lua` (remplacer tout) |
+
+**La cause** : l'outil tenu en main était mis de côté sans être rangé d'abord. Son script était coupé avant d'avoir pu annuler son effet (vitesse, anti-gravité…).
+
+**Maintenant** :
+- l'outil est d'abord rangé, son script annule l'effet, et seulement ensuite il est mis de côté ;
+- en plus, les effets de coil sont nettoyés à l'entrée par le bouton (avant, ils ne l'étaient que par l'autre chemin d'entrée).
