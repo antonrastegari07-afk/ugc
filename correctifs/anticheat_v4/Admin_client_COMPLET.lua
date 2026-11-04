@@ -24516,4 +24516,149 @@ end)()
 	print("✅ Bloc 16 chargé — 🛡️ ANTI-CHEAT (écran unique)")
 end)()
 
+--════════════════════════════════════════════════════════════════════════════
+-- 🗑️ BLOC 17 — FEEDBACK : « Supprimer TOUS les feedbacks » (avec confirmation)
+--    Un bouton rouge en bas de l'écran 💬 FEEDBACK (onglet « All feedback »).
+--    Il ouvre une page de confirmation :
+--      • elle dit exactement ce qui va être effacé ;
+--      • case « vider aussi les favoris » (décochée par défaut) ;
+--      • il faut TAPER le mot SUPPRIMER, et le bouton ne s'active qu'après 3 s.
+--════════════════════════════════════════════════════════════════════════════
+;(function()
+	local RED   = Color3.fromRGB(235, 60, 65)
+	local RED_D = Color3.fromRGB(140, 25, 30)
+	local TS    = IS_MOBILE and 10 or 12
+	local TM    = IS_MOBILE and 11 or 14
+
+	local function lbl(parent, order, txt, color, size, bold)
+		local l = Instance.new("TextLabel")
+		l.Size = UDim2.new(1, 0, 0, 0) ; l.AutomaticSize = Enum.AutomaticSize.Y
+		l.BackgroundTransparency = 1 ; l.Font = bold and FONT or Enum.Font.Gotham
+		l.Text = txt ; l.TextColor3 = color or C.TEXT_GREY ; l.TextSize = size or TS
+		l.TextWrapped = true ; l.TextXAlignment = Enum.TextXAlignment.Left
+		l.LayoutOrder = order ; l.ZIndex = 12 ; l.Parent = parent
+		return l
+	end
+	local function boxIn(parent, order, color)
+		local f = Instance.new("Frame")
+		f.Size = UDim2.new(1, 0, 0, 0) ; f.AutomaticSize = Enum.AutomaticSize.Y
+		f.BackgroundColor3 = C.BG_DARK ; f.BorderSizePixel = 0
+		f.LayoutOrder = order ; f.ZIndex = 11 ; f.Parent = parent
+		corner(f, 10) ; stroke(f, color, 1.5) ; padding(f, IS_MOBILE and 8 or 10)
+		local l = Instance.new("UIListLayout") ; l.Padding = UDim.new(0, 6)
+		l.SortOrder = Enum.SortOrder.LayoutOrder ; l.Parent = f
+		return f
+	end
+	local function btn(parent, order, txt, color, fn, textColor)
+		local c = Instance.new("Frame")
+		c.Size = UDim2.new(1, 0, 0, IS_MOBILE and 36 or 42) ; c.BackgroundTransparency = 1
+		c.LayoutOrder = order ; c.ZIndex = 12 ; c.Parent = parent
+		local b, l = actionButton(c, { color = color, strokeColor = color, text = txt,
+			textColor = textColor or C.TEXT_WHITE, textSize = IS_MOBILE and 11 or 14, radius = 9, zIndex = 13 })
+		b.MouseButton1Click:Connect(fn)
+		return b, l
+	end
+
+	local function confirmClearAll()
+		currentScreen = "feedback_clear"
+		local back = function() screenFeedback(true) end
+		local body = buildScreen("⚠️ CONFIRMATION", true, RED, back)
+		local b = boxIn(body, 1, RED)
+		lbl(b, 1, "🗑️ Supprimer TOUS les feedbacks", RED, IS_MOBILE and 14 or 17, true)
+		lbl(b, 2, "Ce qui va se passer :", C.TEXT_WHITE, TM, true)
+		lbl(b, 3, "• TOUS les feedbacks envoyés par les joueurs sont effacés définitivement, sur tous les serveurs.", C.TEXT_GREY, TS)
+		lbl(b, 4, "• ⚠️ IRRÉVERSIBLE : impossible de les récupérer ensuite.", RED, TS, true)
+		lbl(b, 5, "• Les feedbacks envoyés pendant la suppression sont gardés.", C.TEXT_GREY, TS)
+		lbl(b, 6, "• Les quêtes « donner un feedback » des joueurs ne sont pas touchées.", C.TEXT_GREY, TS)
+
+		local alsoFav = false
+		local cbWrap = Instance.new("Frame")
+		cbWrap.Size = UDim2.new(1, 0, 0, IS_MOBILE and 40 or 46) ; cbWrap.BackgroundTransparency = 1
+		cbWrap.LayoutOrder = 7 ; cbWrap.ZIndex = 12 ; cbWrap.Parent = b
+		local cb, cbl = actionButton(cbWrap, { color = C.BG_ITEM, strokeColor = RED, text = "",
+			textColor = C.TEXT_WHITE, textSize = TS, radius = 8, zIndex = 13 })
+		cbl.TextWrapped = true
+		local function paint() cbl.Text = (alsoFav and "☑️  " or "⬜  ") .. "Vider aussi les ⭐ favoris (" .. #FAV.items .. ")" end
+		paint()
+		cb.MouseButton1Click:Connect(function() alsoFav = not alsoFav ; paint() end)
+
+		lbl(b, 8, "Pour confirmer, tape SUPPRIMER ci-dessous :", C.TEXT_WHITE, TS, true)
+		local wrap = Instance.new("Frame")
+		wrap.Size = UDim2.new(1, 0, 0, IS_MOBILE and 34 or 40) ; wrap.BackgroundTransparency = 1
+		wrap.LayoutOrder = 9 ; wrap.ZIndex = 12 ; wrap.Parent = b
+		local box = Instance.new("TextBox")
+		box.Size = UDim2.fromScale(1, 1) ; box.BackgroundColor3 = C.BG_ITEM ; box.BorderSizePixel = 0
+		box.Font = FONT ; box.PlaceholderText = "SUPPRIMER" ; box.PlaceholderColor3 = C.TEXT_DIM
+		box.Text = "" ; box.TextColor3 = RED ; box.TextSize = TM ; box.ClearTextOnFocus = false
+		box.ZIndex = 13 ; box.Parent = wrap
+		corner(box, 8) ; stroke(box, RED, 1)
+
+		local okBtn, okLbl = btn(body, 2, "⏳ Lis bien… (3)", C.BG_LIGHT, function() end)
+		local armed, sent = false, false
+		okBtn.MouseButton1Click:Connect(function()
+			if not armed or sent then return end
+			if box.Text:upper():gsub("%s", "") ~= "SUPPRIMER" then
+				toast("Tape SUPPRIMER pour confirmer", false)
+				return
+			end
+			sent = true
+			okLbl.Text = "⏳ Suppression en cours…"
+			task.spawn(function()
+				local fn = ReplicatedStorage:FindFirstChild("AdminFeedbackClearAll")
+				local res
+				if fn then
+					local ok, r = pcall(function() return fn:InvokeServer("SUPPRIMER") end)
+					res = ok and r or nil
+				end
+				local msg = res and res.msg or "❌ Serveur pas à jour (FeedbackSystem_Server)"
+				if alsoFav then
+					local fav = ReplicatedStorage:FindFirstChild("AdminFavoriteAction")
+					if fav then
+						pcall(function() fav:InvokeServer("clearall", { confirm = "OUI" }) end)
+						FAV.items, FAV.map = {}, {}
+						msg = msg .. " · ⭐ favoris vidés"
+					end
+				end
+				toast(msg, res and res.ok == true)
+				fbState.entries, fbState.cursor, fbState.hasMore = {}, nil, false
+				screenFeedback(true)
+			end)
+		end)
+		task.spawn(function()
+			for s = 3, 1, -1 do
+				if not okLbl.Parent then return end
+				okLbl.Text = "⏳ Lis bien… (" .. s .. ")"
+				task.wait(1)
+			end
+			if okLbl.Parent then
+				armed = true
+				okBtn.BackgroundColor3 = RED
+				okLbl.Text = "🗑️ Oui, supprimer TOUS les feedbacks"
+			end
+		end)
+		btn(body, 3, "↩️ Annuler, ne rien supprimer", C.BG_LIGHT, back)
+	end
+
+	--  Le bouton, ajouté en bas de l'écran 💬 FEEDBACK (onglet « All feedback »)
+	local original = screenFeedback
+	screenFeedback = function(...)
+		local r = table.pack(original(...))
+		if currentScreen == "feedback" and fbState.tab ~= "fav" then
+			local body
+			for _, ch in ipairs(window:GetChildren()) do
+				if ch:IsA("ScrollingFrame") then body = ch end
+			end
+			if body then
+				local zone = boxIn(body, 100000, RED)
+				lbl(zone, 1, "🗑️ ZONE DANGEREUSE", RED, TM, true)
+				lbl(zone, 2, "Efface tous les feedbacks d'un coup (une page de confirmation s'ouvre d'abord).", C.TEXT_DIM, TS)
+				btn(zone, 3, "🗑️ Supprimer TOUS les feedbacks", RED_D, confirmClearAll)
+			end
+		end
+		return table.unpack(r, 1, r.n)
+	end
+	print("✅ Bloc 17 chargé — 🗑️ suppression de tous les feedbacks")
+end)()
+
+
 print("✅ ADMIN PANEL CLIENT chargé (Mobile: " .. tostring(IS_MOBILE) .. ")")
