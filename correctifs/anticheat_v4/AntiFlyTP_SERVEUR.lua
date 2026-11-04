@@ -2338,12 +2338,39 @@ local function recentSignals(userId, max)
 	return out
 end
 
-local function issueWarning(player, st, vType, details, confidence, factors)
+--  🔎 Tous les « + / − » de la certitude, en version courte pour le journal
+local function compactFactors(factors)
+	local out = {}
+	for _, f in ipairs(factors or {}) do
+		if #out >= 16 then break end
+		table.insert(out, { d = math.floor(tonumber(f.delta) or 0), l = string.sub(tostring(f.label or "?"), 1, 90) })
+	end
+	return out
+end
+local function whyOf(factors)
+	local why = {}
+	for _, f in ipairs(factors or {}) do
+		if #why >= 5 then break end
+		table.insert(why, string.format("%+d %s", tonumber(f.delta) or 0, tostring(f.label)))
+	end
+	return why
+end
+local function thresholdsNow()
+	return { c = acConf("MinConfidenceCount", 55), w = acConf("MinConfidenceWarn", 70),
+		sp = CONFIG.Punishment.StrikesPerWarning }
+end
+
+local function issueWarning(player, st, vType, details, confidence, factors, extra)
 	local userId = player.UserId
+	extra = type(extra) == "table" and extra or {}
 	local function journal(kind, count, max)
+		--  🔎 mêmes infos qu'une détection : où, avec quoi, tous les + / −,
+		--     et les certitudes du lot de détections qui a donné ce warning
 		FeedLog.push({ kind = kind, uid = userId, name = player.Name, type = vType,
 			details = details, conf = math.floor(tonumber(confidence) or 0),
-			warnings = count, max = max, shadow = acShadow() or nil })
+			warnings = count, max = max, shadow = acShadow() or nil,
+			ctx = extra.ctx, why = whyOf(factors), fac = compactFactors(factors),
+			batch = extra.batch, last = extra.conf, need = thresholdsNow() })
 		local fi = TestLog.players[userId]
 		if fi then fi.warnActive = count end
 	end
@@ -2747,15 +2774,11 @@ local function registerViolation(player, st, vType, details, ctx)
 	--  📰 Journal partagé + dernier signal du dossier (détections RETENUES seulement)
 	if counted then
 		local cx = contextOf(player, st)
-		local why = {}
-		for _, f in ipairs(factors or {}) do
-			if #why >= 5 then break end
-			table.insert(why, string.format("%+d %s", tonumber(f.delta) or 0, tostring(f.label)))
-		end
 		FeedLog.push({
 			kind = "detection", uid = player.UserId, name = player.Name,
-			type = vType, details = details, conf = conf, ctx = cx, why = why,
-			warnings = st.warnings or 0,
+			type = vType, details = details, conf = conf, ctx = cx, why = whyOf(factors),
+			fac = compactFactors(factors), need = thresholdsNow(),
+			warnings = st.warnings or 0, strikes = st.strikes or 0, shadow = shadow or nil,
 		})
 		local fi = TestLog.players[player.UserId]
 		if fi then
@@ -2878,7 +2901,8 @@ local function registerViolation(player, st, vType, details, ctx)
 			return
 		end
 
-		issueWarning(player, st, vType, details, math.floor(avg), factors)
+		issueWarning(player, st, vType, details, math.floor(avg), factors,
+			{ ctx = contextOf(player, st), batch = batch, conf = conf })
 	end
 end
 
