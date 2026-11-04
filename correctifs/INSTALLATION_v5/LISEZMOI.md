@@ -13,19 +13,26 @@ Le correctif v4.1 (tp1v1, SessionToolCarry, GamepassTools) reste à installer s'
 
 ## Ce qui change
 
-- **Bouton « 🔎 Détails »**
-  - Où : sur chaque entrée (Fil, Accueil) et sur chaque ligne de l'historique d'un joueur.
-  - Il ouvre une fenêtre **par-dessus le panel**, sans quitter l'écran. On la ferme avec ✕, « Fermer » ou en touchant à côté.
-  - Pour chaque événement (détection, warning, sanction, action d'un admin), on voit toujours les **5 mêmes rubriques** :
-    1. 🏷️ l'événement : date, serveur, mode réel ou sans sanction, qui l'a fait ;
-    2. 📝 ce qu'il a fait : le type, une explication en clair, la mesure ;
-    3. 📍 où et avec quoi : position, outil, vitesse, vitesse de marche, arène, contexte ;
-    4. 🎯 la certitude :
-       - **chaque « + » et chaque « − »** et le total ;
-       - pour un warning, les certitudes du lot de détections et leur moyenne ;
-       - les seuils ;
-    5. 🗂️ son dossier à ce moment-là : warnings, strikes, résultat.
-- **🔍 Fiche** : tout l'historique est affiché **en détail**, événement par événement. Il y en a 10, puis « Voir plus » ; « 🔎 En grand » ouvre un événement par-dessus. « Ce que la machine a vu » montre maintenant tous les « + / − », plus seulement 6.
+**Même format partout** (📡 Fil, 🏠 Accueil, 👥 Joueurs, 🚫 Restreints, 🔍 Fiche) :
+
+- **L'entrée reste petite.** On y voit :
+  - l'en-tête du joueur ;
+  - **une seule ligne de stats** : détections, warnings, certitude max, warnings actifs, UGC finançables ;
+  - les boutons **🔎 Tout voir · 🔍 Fiche · 🚫 Restreindre / ✅ Lever · 🧹 Warnings à 0**.
+- **« 🔎 Tout voir »** ouvre **par-dessus le panel**, sans quitter l'écran, tout le dossier du joueur :
+  - 📊 en bref (warnings, certitude moyenne et max, types, dates, points) ;
+  - 🚫 sa sanction, avec la raison complète ;
+  - ⚠️ ses warnings actifs ;
+  - 📰 **tous ses événements**, chacun en détail ;
+  - 🎯 ce que la machine a vu sur ce serveur, signaux écartés compris.
+- **Chaque événement a les 5 mêmes rubriques** (détection, warning, sanction, action d'un admin) :
+  1. 🏷️ l'événement ;
+  2. 📝 ce qu'il a fait ;
+  3. 📍 où et avec quoi ;
+  4. 🎯 la certitude, avec **chaque « + » et « − »**, le total, le lot de détections d'un warning et les seuils ;
+  5. 🗂️ son dossier à ce moment-là.
+- **🔍 Fiche** : une ligne par événement, avec son bouton « 🔎 Détails », plus « 🔎 Tout voir en détail ».
+- La fenêtre se ferme avec ✕, « Fermer » ou en touchant à côté.
 - **Erreurs « TooManyRequests »** :
   - le serveur garde toujours une réserve de lectures DataStore pour le jeu (chargement et sauvegarde des joueurs) ;
   - le panel lit les fiches plus doucement et redemande plus tard ce qui n'est pas passé ;

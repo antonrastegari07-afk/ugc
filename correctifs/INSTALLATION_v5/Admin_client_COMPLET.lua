@@ -23441,7 +23441,7 @@ end)()
 		TELEPORT    = "Il s'est déplacé d'un coup sur une distance impossible à parcourir.",
 		SPEED       = "Il s'est déplacé plus vite que ce que sa vitesse de marche permet.",
 	}
-	local NONE = "— non enregistré (événement d'avant la mise à jour)"
+	local NONE = "— non enregistré pour cet événement"
 
 	--  Liste des « + / − » : nouveau format (fac) ou ancien (why, 5 max)
 	local function factorsOf(e)
@@ -23563,150 +23563,6 @@ end)()
 		return o
 	end
 
-	--  Fenêtre PAR-DESSUS le panel
-	local detailGui
-	local function closeDetail()
-		if detailGui then detailGui:Destroy() ; detailGui = nil end
-	end
-	window:GetPropertyChangedSignal("Visible"):Connect(function()
-		if not window.Visible then closeDetail() end
-	end)
-	local function openEventDetail(e)
-		closeDetail()
-		local g = Instance.new("ScreenGui")
-		g.Name = "AC_EventDetail" ; g.ResetOnSpawn = false ; g.IgnoreGuiInset = true
-		g.DisplayOrder = 1500 ; g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-		g.Parent = playerGui
-		detailGui = g
-		local dim = Instance.new("TextButton")
-		dim.Size = UDim2.fromScale(1, 1) ; dim.BackgroundColor3 = BLACK ; dim.BackgroundTransparency = 0.4
-		dim.Text = "" ; dim.AutoButtonColor = false ; dim.ZIndex = 1 ; dim.Parent = g
-		dim.MouseButton1Click:Connect(closeDetail)
-
-		local k = KIND[e.kind] or { tostring(e.kind or "?"):upper(), C.TEXT_GREY }
-		local panel = Instance.new("Frame")
-		panel.AnchorPoint = Vector2.new(0.5, 0.5) ; panel.Position = UDim2.fromScale(0.5, 0.5)
-		panel.Size = IS_MOBILE and UDim2.fromScale(0.94, 0.9) or UDim2.fromScale(0.62, 0.86)
-		panel.BackgroundColor3 = C.BG_ITEM ; panel.BorderSizePixel = 0 ; panel.ZIndex = 5 ; panel.Parent = g
-		corner(panel, 14) ; stroke(panel, k[2], 2)
-		local lim = Instance.new("UISizeConstraint") ; lim.MaxSize = Vector2.new(720, 2000) ; lim.Parent = panel
-		local HH = IS_MOBILE and 40 or 48
-		local FH = IS_MOBILE and 42 or 50
-
-		--  En-tête : qui + quoi + ✕
-		local head = Instance.new("TextLabel")
-		head.Size = UDim2.new(1, -(HH + 20), 0, HH) ; head.Position = UDim2.new(0, 12, 0, 0)
-		head.BackgroundTransparency = 1 ; head.Font = FONT ; head.TextSize = TL ; head.TextColor3 = k[2]
-		head.TextXAlignment = Enum.TextXAlignment.Left ; head.TextTruncate = Enum.TextTruncate.AtEnd
-		head.Text = "🔎 " .. tostring(e.name or e.uid or "?") .. "  ·  " .. k[1] ; head.ZIndex = 12 ; head.Parent = panel
-		local xw = Instance.new("Frame")
-		xw.Size = UDim2.new(0, HH - 8, 0, HH - 8) ; xw.Position = UDim2.new(1, -(HH - 2), 0, 4)
-		xw.BackgroundTransparency = 1 ; xw.ZIndex = 12 ; xw.Parent = panel
-		local xb = actionButton(xw, { color = RED_D, strokeColor = RED, text = "✕", textColor = C.TEXT_WHITE,
-			textSize = TM, radius = 8, zIndex = 13 })
-		xb.MouseButton1Click:Connect(closeDetail)
-
-		local sc = Instance.new("ScrollingFrame")
-		sc.Position = UDim2.new(0, 8, 0, HH) ; sc.Size = UDim2.new(1, -16, 1, -(HH + FH + 6))
-		sc.BackgroundTransparency = 1 ; sc.BorderSizePixel = 0 ; sc.ScrollBarThickness = 6
-		sc.CanvasSize = UDim2.new() ; sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		sc.ScrollingDirection = Enum.ScrollingDirection.Y ; sc.ZIndex = 10 ; sc.Parent = panel
-		local pad = Instance.new("UIPadding") ; pad.PaddingRight = UDim.new(0, 10) ; pad.Parent = sc
-		list(sc, 6)
-		for i, s in ipairs(eventSections(e)) do
-			local b = box(sc, i, s.title, s.color)
-			for j, r in ipairs(s.rows) do text(b, j + 1, r[1], r[2], TS) end
-		end
-
-		local foot = Instance.new("Frame")
-		foot.AnchorPoint = Vector2.new(0, 1) ; foot.Position = UDim2.new(0, 8, 1, -6)
-		foot.Size = UDim2.new(1, -16, 0, FH - 6) ; foot.BackgroundTransparency = 1 ; foot.ZIndex = 11 ; foot.Parent = panel
-		local uid = tonumber(e.uid)
-		local items = {}
-		if uid and not (currentScreen == "anticheat" and ST.tab == "card" and ST.card == uid) then
-			table.insert(items, { text = "🔍 Ouvrir sa fiche", color = CYAN, textColor = BLACK,
-				fn = function() closeDetail() ; openCard(uid) end })
-		end
-		table.insert(items, { text = "✕ Fermer", color = C.BG_LIGHT, fn = closeDetail })
-		buttonRow(foot, 1, items, FH - 6)
-	end
-
-	local function feedEntry(parent, order, e, compact)
-		local k = KIND[e.kind] or { tostring(e.kind or "?"):upper(), C.TEXT_GREY }
-		local col = e.restricted and PURPLE or k[2]
-		local b = box(parent, order, nil, col)
-		if e.restricted then b.BackgroundColor3 = Color3.fromRGB(40, 24, 56) end
-		local f = DATA.files[tonumber(e.uid) or 0]
-		playerHead(b, 1, e.uid, e.name or (f and f.name), e.restricted, e.online,
-			k[1] .. "\n" .. fmtAgo(e.t), k[2])
-
-		--  Ce qu'il a fait
-		local what = (TYPE_LABEL[e.type] or tostring(e.type or "")) .. (e.details and e.details ~= "" and (" — " .. e.details) or "")
-		if e.kind == "warning" then
-			what = string.format("⚠️ Warning %s/%s — %s", tostring(e.warnings or "?"), tostring(e.max or "?"), what)
-		elseif e.kind == "sanction" then
-			what = string.format("🚫 PRIVÉ D'UGC après %s warning(s) — %s", tostring(e.warnings or "?"), what)
-		elseif e.kind == "manual" or e.kind == "lift" then
-			what = tostring(e.details or "")
-		end
-		text(b, 2, "📝 " .. what, C.TEXT_WHITE, TS)
-		if compact then
-			buttonRow(b, 3, { { text = "🔎 Tous les détails", color = C.BG_LIGHT, fn = function() openEventDetail(e) end } }, IS_MOBILE and 28 or 32)
-			return b
-		end
-
-		--  Où et avec quoi
-		local cx = e.ctx
-		if type(cx) == "table" then
-			local parts = {}
-			if cx.pos then table.insert(parts, "📍 " .. cx.pos) end
-			table.insert(parts, "🧰 outil : " .. tostring(cx.tool or "aucun"))
-			if cx.speed then table.insert(parts, string.format("💨 %s studs/s (vertical %s)", cx.speed, tostring(cx.vy or 0))) end
-			if cx.walk then table.insert(parts, "🚶 vitesse de marche " .. cx.walk) end
-			if cx.arena then table.insert(parts, "🥊 en arène") end
-			text(b, 3, table.concat(parts, "  ·  "), C.TEXT_GREY, TS)
-			if cx.notes then text(b, 4, "ℹ️ " .. cx.notes, GOLD, TS) end
-		end
-
-		--  Pourquoi la machine y croit
-		if e.conf then
-			local why = (type(e.why) == "table" and #e.why > 0) and ("\n   " .. table.concat(e.why, "\n   ")) or ""
-			text(b, 5, string.format("🎯 Certitude %d %%%s", tonumber(e.conf) or 0, why), confColor(e.conf), TS)
-		end
-
-		--  Son dossier (rempli quand la fiche arrive)
-		local dossier = text(b, 6, "🗂️ Dossier : chargement…", C.TEXT_DIM, TS)
-		local function fill()
-			local fl = DATA.files[tonumber(e.uid) or 0]
-			if not fl or not dossier.Parent then return end
-			local th = (DATA.feed and DATA.feed.threshold) or (DATA.home and DATA.home.state and DATA.home.state.threshold) or "?"
-			local det24 = 0
-			for _, x in ipairs((DATA.feed and DATA.feed.events) or {}) do
-				if x.uid == e.uid and x.kind == "detection" and (x.t or 0) >= os.time() - 86400 then det24 = det24 + 1 end
-			end
-			dossier.Text = string.format("🗂️ Dossier : ⚠️ %s/%s warnings actifs  ·  📊 %d détection(s) sur 24 h, %s au total  ·  💎 %s (%s)%s",
-				tostring(fl.warnings or 0), tostring(th), det24, tostring(fl.total or "?"),
-				fl.points and fmtNum(fl.points) or "?", ugcPow(fl.points),
-				fl.restricted and ("  ·  🚫 restreint : " .. tostring(fl.restrictWhy or "")) or "")
-			dossier.TextColor3 = fl.restricted and PURPLE or C.TEXT_GREY
-		end
-		fill()
-		local uid = tonumber(e.uid)
-		local acts = {
-			{ text = "🔎 Détails", color = C.BG_LIGHT, fn = function() openEventDetail(e) end },
-			{ text = "🔍 Fiche", color = CYAN, textColor = BLACK, fn = function() openCard(uid) end },
-		}
-		if e.restricted then
-			table.insert(acts, { text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(uid, e.name) end })
-		else
-			table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(uid, e.name) end })
-		end
-		table.insert(acts, { text = "🧹 Ses warnings à 0", color = C.BG_LIGHT, fn = function() askReset(uid, e.name) end })
-		buttonRow(b, 7, acts)
-		return b, fill
-	end
-
-
 	--════════════════════════════════════════════════════════════════
 	-- 👤 UNE ENTRÉE PAR JOUEUR (le fil regroupe tous ses événements)
 	--════════════════════════════════════════════════════════════════
@@ -23785,6 +23641,255 @@ end)()
 		return table.concat(L, "\n")
 	end
 
+	--════════════════════════════════════════════════════════════════
+	-- 🪟 FENÊTRE PAR-DESSUS LE PANEL (une seule à la fois)
+	--    Partout le même principe : l'entrée reste petite (une ligne de
+	--    stats + des boutons), « 🔎 Tout voir » ouvre TOUT ici, sans
+	--    quitter l'écran du panel.
+	--════════════════════════════════════════════════════════════════
+	local detailGui
+	local function closeDetail()
+		if detailGui then detailGui:Destroy() ; detailGui = nil end
+	end
+	window:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not window.Visible then closeDetail() end
+	end)
+
+	--  build(sc, redraw) remplit la zone qui défile ; foot = boutons du bas
+	local function openOverlay(title, color, build, foot)
+		closeDetail()
+		local g = Instance.new("ScreenGui")
+		g.Name = "AC_Detail" ; g.ResetOnSpawn = false ; g.IgnoreGuiInset = true
+		g.DisplayOrder = 1500 ; g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+		g.Parent = playerGui
+		detailGui = g
+		local dim = Instance.new("TextButton")
+		dim.Size = UDim2.fromScale(1, 1) ; dim.BackgroundColor3 = BLACK ; dim.BackgroundTransparency = 0.4
+		dim.Text = "" ; dim.AutoButtonColor = false ; dim.ZIndex = 1 ; dim.Parent = g
+		dim.MouseButton1Click:Connect(closeDetail)
+
+		local panel = Instance.new("Frame")
+		panel.AnchorPoint = Vector2.new(0.5, 0.5) ; panel.Position = UDim2.fromScale(0.5, 0.5)
+		panel.Size = IS_MOBILE and UDim2.fromScale(0.94, 0.9) or UDim2.fromScale(0.62, 0.86)
+		panel.BackgroundColor3 = C.BG_ITEM ; panel.BorderSizePixel = 0 ; panel.ZIndex = 5 ; panel.Parent = g
+		corner(panel, 14) ; stroke(panel, color, 2)
+		local lim = Instance.new("UISizeConstraint") ; lim.MaxSize = Vector2.new(720, 2000) ; lim.Parent = panel
+		local HH = IS_MOBILE and 40 or 48
+		local FH = IS_MOBILE and 42 or 50
+
+		local head = Instance.new("TextLabel")
+		head.Size = UDim2.new(1, -(HH + 20), 0, HH) ; head.Position = UDim2.new(0, 12, 0, 0)
+		head.BackgroundTransparency = 1 ; head.Font = FONT ; head.TextSize = TL ; head.TextColor3 = color
+		head.TextXAlignment = Enum.TextXAlignment.Left ; head.TextTruncate = Enum.TextTruncate.AtEnd
+		head.Text = title ; head.ZIndex = 12 ; head.Parent = panel
+		local xw = Instance.new("Frame")
+		xw.Size = UDim2.new(0, HH - 8, 0, HH - 8) ; xw.Position = UDim2.new(1, -(HH - 2), 0, 4)
+		xw.BackgroundTransparency = 1 ; xw.ZIndex = 12 ; xw.Parent = panel
+		local xb = actionButton(xw, { color = RED_D, strokeColor = RED, text = "✕", textColor = C.TEXT_WHITE,
+			textSize = TM, radius = 8, zIndex = 13 })
+		xb.MouseButton1Click:Connect(closeDetail)
+
+		local sc = Instance.new("ScrollingFrame")
+		sc.Position = UDim2.new(0, 8, 0, HH) ; sc.Size = UDim2.new(1, -16, 1, -(HH + FH + 6))
+		sc.BackgroundTransparency = 1 ; sc.BorderSizePixel = 0 ; sc.ScrollBarThickness = 6
+		sc.CanvasSize = UDim2.new() ; sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		sc.ScrollingDirection = Enum.ScrollingDirection.Y ; sc.ZIndex = 10 ; sc.Parent = panel
+		local pad = Instance.new("UIPadding") ; pad.PaddingRight = UDim.new(0, 10) ; pad.Parent = sc
+		list(sc, 6)
+		local function redraw()
+			if not sc.Parent then return end
+			for _, c in ipairs(sc:GetChildren()) do
+				if not (c:IsA("UIListLayout") or c:IsA("UIPadding")) then c:Destroy() end
+			end
+			build(sc, redraw)
+		end
+		redraw()
+
+		local ff = Instance.new("Frame")
+		ff.AnchorPoint = Vector2.new(0, 1) ; ff.Position = UDim2.new(0, 8, 1, -6)
+		ff.Size = UDim2.new(1, -16, 0, FH - 6) ; ff.BackgroundTransparency = 1 ; ff.ZIndex = 11 ; ff.Parent = panel
+		local items = {}
+		for _, it in ipairs(foot or {}) do table.insert(items, it) end
+		table.insert(items, { text = "✕ Fermer", color = C.BG_LIGHT, fn = closeDetail })
+		buttonRow(ff, 1, items, FH - 6)
+		return g, redraw
+	end
+
+	--  bouton « sa fiche » (pas si on est déjà sur sa fiche)
+	local function ficheItem(uid)
+		if uid and not (currentScreen == "anticheat" and ST.tab == "card" and ST.card == uid) then
+			return { text = "🔍 Sa fiche", color = CYAN, textColor = BLACK, fn = function() closeDetail() ; openCard(uid) end }
+		end
+	end
+	local function sectionsInto(parent, startOrder, e)
+		for i, s in ipairs(eventSections(e)) do
+			local b = box(parent, startOrder + i, s.title, s.color)
+			for j, r in ipairs(s.rows) do text(b, j + 1, r[1], r[2], TS) end
+		end
+	end
+
+	--  🔎 UN événement, en entier
+	local function openEventDetail(e)
+		local k = KIND[e.kind] or { tostring(e.kind or "?"):upper(), C.TEXT_GREY }
+		openOverlay("🔎 " .. tostring(e.name or e.uid or "?") .. "  ·  " .. k[1], k[2],
+			function(sc) sectionsInto(sc, 0, e) end, { ficheItem(tonumber(e.uid)) })
+	end
+
+	--  « Ce que la machine a vu » (ce serveur) → même format qu'un événement du journal
+	local function liveToEvent(x, uid, name)
+		local fac = {}
+		for _, f in ipairs(x.factors or {}) do table.insert(fac, { d = tonumber(f.delta) or 0, l = tostring(f.label) }) end
+		return { kind = "detection", uid = uid, name = name, type = x.vType or x.kind, details = x.details,
+			conf = x.conf, t = x.t, fac = fac, ctx = x.ctx,
+			server = x.counted and "ce serveur" or "ce serveur · ⚪ signal écarté (n'a rien coûté au joueur)" }
+	end
+
+	--  Une ligne d'événement + son bouton « 🔎 Détails »
+	local function eventRow(parent, order, e, label_)
+		local DW = IS_MOBILE and 72 or 92
+		local row = frame(parent, order, IS_MOBILE and 24 or 26)
+		local lb = Instance.new("TextLabel")
+		lb.Size = UDim2.new(1, -(DW + 6), 1, 0)
+		lb.BackgroundTransparency = 1 ; lb.Font = Enum.Font.Gotham
+		lb.Text = label_ or eventLine(e) ; lb.TextColor3 = (KIND[e.kind] or { "", C.TEXT_GREY })[2]
+		lb.TextSize = TS ; lb.TextXAlignment = Enum.TextXAlignment.Left
+		lb.TextTruncate = Enum.TextTruncate.AtEnd ; lb.ZIndex = 12 ; lb.Parent = row
+		local dc = Instance.new("Frame")
+		dc.AnchorPoint = Vector2.new(1, 0) ; dc.Position = UDim2.new(1, 0, 0, 0)
+		dc.Size = UDim2.new(0, DW, 1, 0) ; dc.BackgroundTransparency = 1 ; dc.ZIndex = 12 ; dc.Parent = row
+		local db = actionButton(dc, { color = C.BG_LIGHT, strokeColor = CYAN,
+			text = "🔎 Détails", textColor = C.TEXT_WHITE, textSize = TS, radius = 6, zIndex = 13 })
+		db.MouseButton1Click:Connect(function() openEventDetail(e) end)
+		return row
+	end
+
+	--  🔎 TOUT le dossier d'un joueur (même fenêtre depuis le Fil, l'Accueil,
+	--     Joueurs, Restreints et la Fiche)
+	local PD = {}   -- [uid] = { at, res } : 30 s de cache
+	local function openPlayerDetail(uid, name)
+		uid = tonumber(uid)
+		if not uid then return end
+		local show = 10
+		local res = (PD[uid] and os.clock() - PD[uid].at < 30) and PD[uid].res or nil
+		local function build(sc, redraw)
+			if not res then status(sc, 1, "⏳ Chargement de tout son dossier…") return end
+			if not res.ok then note(sc, 1, "❌ " .. tostring(res.msg or "Lecture impossible"), RED) return end
+			local fl = type(res.file) == "table" and res.file or {}
+			local st = type(fl.stats) == "table" and fl.stats or {}
+			local th = res.threshold or "?"
+			local evs = res.events or {}
+			local n = { detection = 0, warning = 0, sanction = 0, admin = 0 }
+			local cmax = 0
+			for _, e in ipairs(evs) do
+				local kk = (e.kind == "detection" or e.kind == "warning" or e.kind == "sanction") and e.kind or "admin"
+				n[kk] = n[kk] + 1
+				cmax = math.max(cmax, tonumber(e.conf) or 0)
+			end
+			local avg = ((st.confCount or 0) > 0) and math.floor(st.confSum / st.confCount) or nil
+			local f2 = DATA.files[uid]
+
+			--  1. En bref
+			local s = box(sc, 1, "📊 En bref", CYAN)
+			text(s, 2, string.format(
+				"⚠️ Warnings actifs : %s / %s\n📊 Détections retenues : %s au total  ·  écartées (doute) : %s\n🎯 Certitude : %s en moyenne, %s au maximum\n🧾 Journal récent : %d détection(s), %d warning(s), %d sanction(s), %d action(s) admin\n🕒 Première détection : %s  ·  dernière : %s\n💎 %s",
+				tostring(fl.warnings or 0), tostring(th), tostring(st.total or "?"), tostring(st.detIgnored or "?"),
+				avg and (avg .. " %") or "?", st.confMax and (st.confMax .. " %") or (cmax > 0 and (cmax .. " %") or "?"),
+				n.detection, n.warning, n.sanction, n.admin,
+				st.firstSeen and dateOf(st.firstSeen) or "—", st.lastAt and dateOf(st.lastAt) or "—",
+				(f2 and f2.points) and (fmtNum(f2.points) .. " pts (" .. ugcPow(f2.points) .. ")") or "points : ?"),
+				C.TEXT_WHITE, TS)
+			local bt = {}
+			for t, c in pairs(st.detByType or {}) do table.insert(bt, (TYPE_LABEL[t] or t) .. " ×" .. c) end
+			table.sort(bt)
+			text(s, 3, "Par type : " .. ((#bt > 0) and table.concat(bt, "  ·  ") or "—"), C.TEXT_GREY, TS)
+
+			--  2. Sanction
+			local rec = res.record
+			local r = box(sc, 2, rec and "🚫 PRIVÉ D'UGC" or "✅ Pas de sanction", rec and PURPLE or GREEN)
+			if rec then
+				text(r, 2, string.format("📅 %s  ·  par %s  ·  🎯 %s  ·  🔁 %d achat(s) bloqué(s)", dateOf(rec.at),
+					rec.auto and "l'anti-cheat" or tostring(rec.by or "?"), rec.confidence and (rec.confidence .. " %") or "—",
+					rec.attempts or 0), C.TEXT_GREY, TS)
+				if (rec.leaks or 0) > 0 then text(r, 3, "🚨 " .. rec.leaks .. " UGC reçue(s) malgré la sanction", RED, TS) end
+				text(r, 4, rec.noticeShown and "👁️ Il a vu le message de sanction" or "👁️ Il n'a pas encore vu le message", C.TEXT_DIM, TS)
+				text(r, 5, "📝 RAISON\n" .. tostring(rec.reasonText or rec.details or rec.reason or "?"), C.TEXT_WHITE, TS)
+			else
+				text(r, 2, "Il peut acheter des UGC normalement.", C.TEXT_GREY, TS)
+			end
+
+			--  3. Warnings actifs
+			local hist = fl.warnHistory or {}
+			local wb = box(sc, 3, "⚠️ Warnings actifs (" .. #hist .. ")", ORANGE, "Chacun s'efface tout seul après le délai réglé dans ⚙️.")
+			if #hist == 0 then text(wb, 2, "✅ Aucun warning actif.", GREEN, TS) end
+			for i = #hist, 1, -1 do
+				local h = hist[i]
+				text(wb, 2 + (#hist - i), string.format("• %s — %s %s", dateOf(h.t), TYPE_LABEL[h.type] or tostring(h.type),
+					tostring(h.details or "")), C.TEXT_GREY, TS)
+			end
+
+			--  4. Tous les événements, en détail
+			local eb = box(sc, 4, "📰 Tous ses événements (" .. #evs .. ", tous serveurs)", CYAN,
+				"Du plus récent au plus ancien, chacun avec les mêmes 5 rubriques.")
+			if #evs == 0 then text(eb, 2, "Rien dans le journal récent.", C.TEXT_DIM, TS) end
+			for i, e in ipairs(evs) do
+				if i > show then break end
+				local k = KIND[e.kind] or { tostring(e.kind or "?"):upper(), C.TEXT_GREY }
+				local b2 = box(eb, 1 + i, nil, k[2])
+				b2.BackgroundColor3 = C.BG_ITEM
+				text(b2, 1, string.format("#%d  %s", i, eventLine(e)), k[2], TM, true)
+				eventInline(b2, 2, e)
+			end
+			if #evs > show then
+				button(eb, 1000, "▼ Voir " .. math.min(10, #evs - show) .. " de plus (" .. (#evs - show) .. " restants)",
+					C.BG_LIGHT, function() show = show + 10 ; redraw() end, IS_MOBILE and 30 or 34)
+			end
+
+			--  5. Ce que la machine a vu sur ce serveur (même les signaux écartés)
+			local live = type(res.live) == "table" and res.live or nil
+			if live and type(live.recent) == "table" and #live.recent > 0 then
+				local lb = box(sc, 5, "🎯 Ce que la machine a vu (ce serveur, signaux écartés compris)", ORANGE)
+				for i, x in ipairs(live.recent) do
+					if i > 10 then break end
+					local e = liveToEvent(x, uid, res.name)
+					local b2 = box(lb, 1 + i, nil, x.counted and ORANGE or C.BORDER_SUBTLE)
+					b2.BackgroundColor3 = C.BG_ITEM
+					text(b2, 1, string.format("%s %s — %s %%  (%s)", x.counted and "✅ retenu" or "⚪ écarté",
+						TYPE_LABEL[e.type] or tostring(e.type), tostring(x.conf or "?"), fmtAgo(x.t)), x.counted and ORANGE or C.TEXT_DIM, TM, true)
+					eventInline(b2, 2, e)
+				end
+			end
+		end
+		local foot = {}
+		local fi = ficheItem(uid)
+		if fi then table.insert(foot, fi) end
+		local g, redraw = openOverlay("🔎 " .. tostring(name or uid) .. "  ·  tout son dossier", CYAN, build, foot)
+		if not res then
+			call("lookup", { target = uid, deep = false }, function(r)
+				res = r or { ok = false, msg = "Pas de réponse du serveur" }
+				if res.ok then PD[uid] = { at = os.clock(), res = res } end
+				if detailGui == g then redraw() end
+			end)
+		end
+	end
+
+	--  Rangée de boutons commune à toutes les entrées
+	local function entryButtons(parent, order, uid, name, restricted, full)
+		local acts = {
+			{ text = "🔎 Tout voir", color = GOLD, textColor = BLACK, fn = function() openPlayerDetail(uid, name) end },
+			{ text = "🔍 Fiche", color = CYAN, textColor = BLACK, fn = function() openCard(uid) end },
+		}
+		if full then
+			if restricted then
+				table.insert(acts, { text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(uid, name) end })
+			else
+				table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(uid, name) end })
+			end
+			table.insert(acts, { text = "🧹 Warnings à 0", color = C.BG_LIGHT, fn = function() askReset(uid, name) end })
+		end
+		buttonRow(parent, order, acts)
+	end
+
+	--  👤 UNE ENTRÉE PAR JOUEUR : en-tête + UNE ligne de stats + boutons
 	local function groupEntry(parent, order, g, compact)
 		local col = g.restricted and PURPLE or (g.sanc > 0 and PURPLE or (g.warn > 0 and RED or ORANGE))
 		local b = box(parent, order, nil, col)
@@ -23793,97 +23898,22 @@ end)()
 		local last = g.events[1]
 		playerHead(b, 1, g.uid, g.name or (f and f.name), g.restricted, g.online,
 			string.format("%d événement(s)\n%s", #g.events, fmtAgo(last and last.t)), col)
-
-		--  Résumé de tout ce qu'il a fait
-		local fams = {}
-		for lbl, n in pairs(g.fams) do table.insert(fams, lbl .. " ×" .. n) end
-		table.sort(fams)
-		local sum = {}
-		if g.det > 0 then table.insert(sum, "🔎 " .. g.det .. " détection(s)") end
-		if g.warn > 0 then table.insert(sum, "⚠️ " .. g.warn .. " warning(s)") end
-		if g.sanc > 0 then table.insert(sum, "🚫 sanctionné") end
-		if g.admin > 0 then table.insert(sum, "👮 " .. g.admin .. " action(s) admin") end
-		if g.confMax > 0 then table.insert(sum, "🎯 jusqu'à " .. g.confMax .. " %") end
-		text(b, 2, table.concat(sum, "  ·  ") .. ((#fams > 0) and ("\n" .. table.concat(fams, "  ·  ")) or ""), C.TEXT_WHITE, TS, true)
-		if compact then return b end
-
-		--  Sa dernière détection, en détail (ce qu'il a fait, où, avec quoi, pourquoi)
-		local e = g.lastDet
-		if e then
-			text(b, 3, "📝 Dernière détection (" .. fmtAgo(e.t) .. ") : " .. (TYPE_LABEL[e.type] or tostring(e.type))
-				.. ((e.details and e.details ~= "") and (" — " .. e.details) or ""), C.TEXT_WHITE, TS)
-			local cx = e.ctx
-			if type(cx) == "table" then
-				local parts = {}
-				if cx.pos then table.insert(parts, "📍 " .. cx.pos) end
-				table.insert(parts, "🧰 outil : " .. tostring(cx.tool or "aucun"))
-				if cx.speed then table.insert(parts, string.format("💨 %s studs/s (vertical %s)", cx.speed, tostring(cx.vy or 0))) end
-				if cx.walk then table.insert(parts, "🚶 marche " .. cx.walk) end
-				if cx.arena then table.insert(parts, "🥊 en arène") end
-				text(b, 4, table.concat(parts, "  ·  "), C.TEXT_GREY, TS)
-				if cx.notes then text(b, 5, "ℹ️ " .. cx.notes, GOLD, TS) end
-			end
-			if e.conf then
-				local why = (type(e.why) == "table" and #e.why > 0) and ("\n   " .. table.concat(e.why, "\n   ")) or ""
-				text(b, 6, string.format("🎯 Certitude %d %%%s", tonumber(e.conf) or 0, why), confColor(e.conf), TS)
-			end
-		end
-
-		--  Tout ce qu'il a fait (5 derniers, ou tout si ouvert) — chaque ligne a
-		--  son bouton 🔎 qui affiche TOUTES ses infos.
-		local open = ST.feed.open[g.uid] == true
-		local DW = IS_MOBILE and 72 or 92
-		local hist = frame(b, 7) ; list(hist, 3)
-		text(hist, 0, "🧾 Historique — « 🔎 Détails » ouvre TOUT (les + / −, où, avec quoi…) par-dessus :", C.TEXT_WHITE, TS, true)
-		for i, x in ipairs(g.events) do
-			if not open and i > 5 then break end
-			local row = frame(hist, i * 2, IS_MOBILE and 24 or 26)
-			local lb = Instance.new("TextLabel")
-			lb.Size = UDim2.new(1, -(DW + 6), 1, 0)
-			lb.BackgroundTransparency = 1 ; lb.Font = Enum.Font.Gotham
-			lb.Text = eventLine(x) ; lb.TextColor3 = (KIND[x.kind] or { "", C.TEXT_GREY })[2]
-			lb.TextSize = TS ; lb.TextXAlignment = Enum.TextXAlignment.Left
-			lb.TextTruncate = Enum.TextTruncate.AtEnd ; lb.ZIndex = 12 ; lb.Parent = row
-			local dc = Instance.new("Frame")
-			dc.AnchorPoint = Vector2.new(1, 0) ; dc.Position = UDim2.new(1, 0, 0, 0)
-			dc.Size = UDim2.new(0, DW, 1, 0)
-			dc.BackgroundTransparency = 1 ; dc.ZIndex = 12 ; dc.Parent = row
-			local db = actionButton(dc, { color = C.BG_LIGHT, strokeColor = CYAN,
-				text = "🔎 Détails", textColor = C.TEXT_WHITE, textSize = TS, radius = 6, zIndex = 13 })
-			db.MouseButton1Click:Connect(function() openEventDetail(x) end)
-		end
-		if #g.events > 5 then
-			local c = frame(b, 8, IS_MOBILE and 24 or 28)
-			local tb = actionButton(c, { color = C.BG_ITEM, strokeColor = C.BORDER_SUBTLE,
-				text = open and "▲ Réduire" or ("▼ Voir les " .. #g.events .. " événements"),
-				textColor = C.TEXT_GREY, textSize = TS, radius = 7, zIndex = 13 })
-			tb.MouseButton1Click:Connect(function() ST.feed.open[g.uid] = not open ; screenAC() end)
-		end
-
-		--  Son dossier (rempli quand la fiche arrive)
-		local dossier = text(b, 9, "🗂️ Dossier : chargement…", C.TEXT_DIM, TS)
+		local base = {}
+		if g.det > 0 then table.insert(base, "🔎 " .. g.det .. " détect.") end
+		if g.warn > 0 then table.insert(base, "⚠️ " .. g.warn .. " warn.") end
+		if g.sanc > 0 then table.insert(base, "🚫 sanctionné") end
+		if g.admin > 0 then table.insert(base, "👮 " .. g.admin .. " admin") end
+		if g.confMax > 0 then table.insert(base, "🎯 max " .. g.confMax .. " %") end
+		local line = text(b, 2, table.concat(base, "  ·  "), C.TEXT_WHITE, TS, true)
 		local function fill()
 			local fl = DATA.files[g.uid]
-			if not fl or not dossier.Parent then return end
+			if not fl or not line.Parent then return end
 			local th = (DATA.feed and DATA.feed.threshold) or "?"
-			dossier.Text = string.format("🗂️ Dossier : ⚠️ %s/%s warnings actifs  ·  📊 %s détection(s) au total  ·  💎 %s (%s)%s",
-				tostring(fl.warnings or 0), tostring(th), tostring(fl.total or "?"),
-				fl.points and fmtNum(fl.points) or "?", ugcPow(fl.points),
-				fl.restricted and ("  ·  🚫 restreint : " .. tostring(fl.restrictWhy or "")) or "")
-			dossier.TextColor3 = fl.restricted and PURPLE or C.TEXT_GREY
+			line.Text = table.concat(base, "  ·  ") .. string.format("  ·  🗂️ %s/%s actifs  ·  💎 %s",
+				tostring(fl.warnings or 0), tostring(th), fl.points and ugcPow(fl.points) or "?")
 		end
 		fill()
-		local acts = {
-			{ text = "🔎 Détails", color = C.BG_LIGHT, fn = function() openEventDetail(g.lastDet or g.events[1]) end },
-			{ text = "🔍 Fiche", color = CYAN, textColor = BLACK, fn = function() openCard(g.uid) end },
-		}
-		if g.restricted then
-			table.insert(acts, { text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(g.uid, g.name) end })
-		else
-			table.insert(acts, { text = "🚫 Restreindre", color = RED, fn = function() askRestrict(g.uid, g.name) end })
-		end
-		table.insert(acts, { text = "🧹 Ses warnings à 0", color = C.BG_LIGHT, fn = function() askReset(g.uid, g.name) end })
-		buttonRow(b, 10, acts)
+		entryButtons(b, 3, g.uid, g.name, g.restricted, not compact)
 		return b, fill
 	end
 
@@ -24041,8 +24071,8 @@ end)()
 	local function renderFeed(body)
 		local F = ST.feed
 		note(body, 1, "UNE entrée par joueur, du plus récent au plus ancien, tous serveurs confondus. Chaque entrée "
-			.. "résume tout ce qu'il a fait (détections, warnings, sanctions), détaille sa dernière détection "
-			.. "(quoi, où, avec quoi, pourquoi la machine y croit) et liste son historique.", CYAN)
+			.. "tient en une ligne de stats. « 🔎 Tout voir » ouvre par-dessus le panel TOUT son dossier : "
+			.. "chaque détection et chaque warning avec ses + / −, où, avec quoi, et sa sanction.", CYAN)
 		chips(body, 2, {
 			{ id = "all", label = "Tout" }, { id = "detection", label = "🔎 Détections" },
 			{ id = "warning", label = "⚠️ Warnings" }, { id = "sanction", label = "🚫 Sanctions" },
@@ -24225,12 +24255,8 @@ end)()
 			local m, f = x.m, DATA.files[x.m.userId] or {}
 			local w = tonumber(f.warnings) or tonumber(m.warn) or 0
 			local col = x.r and PURPLE or (w >= th and RED or (w > 0 and ORANGE or C.BORDER_SUBTLE))
-			local row = Instance.new("TextButton")
-			row.Size = UDim2.new(1, 0, 0, 0) ; row.AutomaticSize = Enum.AutomaticSize.Y
-			row.BackgroundColor3 = x.r and Color3.fromRGB(40, 24, 56) or C.BG_DARK
-			row.AutoButtonColor = false ; row.Text = "" ; row.BorderSizePixel = 0
-			row.LayoutOrder = i ; row.ZIndex = 11 ; row.Parent = holder
-			corner(row, 10) ; stroke(row, col, x.r and 2 or 1) ; padding(row, IS_MOBILE and 6 or 8) ; list(row, 3)
+			local row = box(holder, i, nil, col)
+			if x.r then row.BackgroundColor3 = Color3.fromRGB(40, 24, 56) end
 			local right
 			local key = P.sort
 			if key == "last" then right = fmtAgo(sortValue(m, "last", th))
@@ -24241,15 +24267,10 @@ end)()
 			elseif key == "near" then right = string.format("%d / %d", w, th)
 			else right = tostring(math.floor(sortValue(m, key, th) + 0.5)) end
 			playerHead(row, 1, m.userId, f.name or m.name, x.r, x.o, "#" .. i .. "\n" .. right, col)
-			text(row, 2, string.format("⚠️ %d/%d warnings  ·  🎯 %s moy. (max %s)  ·  📊 %s détection(s), %d sur 24 h, %s écartée(s)",
+			text(row, 2, string.format("⚠️ %d/%d warn.  ·  🎯 %s moy. (max %s)  ·  📊 %s détect. (%d sur 24 h)  ·  💎 %s",
 				w, th, f.confAvg and (f.confAvg .. " %") or "?", f.confMax and (f.confMax .. " %") or "?",
-				tostring(f.total or m.det or "?"), tonumber(m.det24) or 0, tostring(f.ignored or "?")), C.TEXT_GREY, TS)
-			local last = f.lastDetail and ((TYPE_LABEL[f.lastType] or tostring(f.lastType)) .. " — " .. f.lastDetail)
-				or (m.lastDetail and ((TYPE_LABEL[m.lastType] or tostring(m.lastType)) .. " — " .. m.lastDetail))
-			if last then text(row, 3, "🕒 Dernier : " .. last .. "  (" .. fmtAgo(f.lastAt or m.lastAt) .. ")", C.TEXT_WHITE, TS) end
-			text(row, 4, string.format("💎 %s pts (%s)%s", f.points and fmtNum(f.points) or "?", ugcPow(f.points),
-				x.r and ("  ·  🚫 RESTREINT : " .. tostring(f.restrictWhy or "")) or ""), x.r and PURPLE or C.TEXT_DIM, TS)
-			row.MouseButton1Click:Connect(function() openCard(m.userId) end)
+				tostring(f.total or m.det or "?"), tonumber(m.det24) or 0, f.points and ugcPow(f.points) or "?"), C.TEXT_WHITE, TS, true)
+			entryButtons(row, 3, m.userId, f.name or m.name, x.r, true)
 		end
 		if #rows > P.show then
 			button(holder, 9999, string.format("⬇️ Afficher plus (%d sur %d)", P.show, #rows), C.BG_LIGHT, function()
@@ -24308,17 +24329,11 @@ end)()
 			b.BackgroundColor3 = Color3.fromRGB(40, 24, 56)
 			playerHead(b, 1, r.userId, r.name, true, Players:GetPlayerByUserId(r.userId) ~= nil,
 				(r.auto and "🤖 AUTO" or "👮 MANUEL") .. "\n" .. fmtAgo(r.at), PURPLE)
-			text(b, 2, string.format("📅 %s  ·  par %s  ·  🎯 %s  ·  ⚠️ %d warning(s), %d détection(s) au moment de la sanction",
-				dateOf(r.at), r.auto and "l'anti-cheat" or tostring(r.by or "?"),
-				r.confidence and (r.confidence .. " %") or "—", r.warnings or 0, r.detections or 0), C.TEXT_GREY, TS)
-			text(b, 3, "📝 RAISON\n" .. tostring(r.reasonText or r.details or r.reason or "?"), C.TEXT_WHITE, TS)
-			if (r.attempts or 0) > 0 then text(b, 4, "🔁 " .. r.attempts .. " tentative(s) d'achat bloquée(s)", ORANGE, TS) end
-			if (r.leaks or 0) > 0 then text(b, 5, "🚨 " .. r.leaks .. " UGC reçue(s) malgré la sanction (prompt ouvert par un exécuteur)", RED, TS) end
-			text(b, 6, r.noticeShown and "👁️ Il a vu le message de sanction" or "👁️ Il n'a pas encore vu le message", C.TEXT_DIM, TS)
-			buttonRow(b, 7, {
-				{ text = "🔍 Fiche", color = CYAN, textColor = BLACK, fn = function() openCard(r.userId) end },
-				{ text = "✅ Lever", color = GREEN, textColor = BLACK, fn = function() askLift(r.userId, r.name) end },
-			})
+			text(b, 2, string.format("📅 %s  ·  %s  ·  🎯 %s  ·  ⚠️ %d warn.  ·  🔁 %d achat(s) bloqué(s)%s",
+				fmtAgo(r.at), r.auto and "🤖 anti-cheat" or ("👮 " .. tostring(r.by or "?")),
+				r.confidence and (r.confidence .. " %") or "—", r.warnings or 0, r.attempts or 0,
+				(r.leaks or 0) > 0 and ("  ·  🚨 " .. r.leaks .. " fuite(s)") or ""), C.TEXT_WHITE, TS, true)
+			entryButtons(b, 3, r.userId, r.name, true, true)
 		end
 		if #rows > 60 then text(holder, 9999, "… affine la recherche pour voir les autres.", C.TEXT_DIM, TS) end
 	end
@@ -24392,21 +24407,17 @@ end)()
 		end
 
 		local evs = d.events or {}
-		local eb = box(body, 6, "📰 Son historique détaillé (" .. #evs .. " événement(s), tous serveurs)", CYAN,
-			"Chaque événement avec TOUTES ses infos. « 🔎 En grand » l'ouvre par-dessus le panel.")
-		if #evs == 0 then text(eb, 2, "Rien dans le journal récent.", C.TEXT_DIM, TS) end
+		local eb = box(body, 6, "📰 Son historique (" .. #evs .. " événement(s), tous serveurs)", CYAN,
+			"Une ligne par événement. « 🔎 Détails » ouvre tout (les + / −, où, avec quoi…) par-dessus le panel.")
+		button(eb, 2, "🔎 Tout voir en détail (tout son dossier)", GOLD, function() openPlayerDetail(uid, d.name) end, IS_MOBILE and 32 or 38, BLACK)
+		if #evs == 0 then text(eb, 3, "Rien dans le journal récent.", C.TEXT_DIM, TS) end
 		local showN = ST.cardShow or 10
 		for i, e in ipairs(evs) do
 			if i > showN then break end
-			local k = KIND[e.kind] or { tostring(e.kind or "?"):upper(), C.TEXT_GREY }
-			local eb2 = box(eb, 1 + i, nil, k[2])
-			eb2.BackgroundColor3 = C.BG_ITEM
-			text(eb2, 1, string.format("#%d  %s", i, eventLine(e)), k[2], TM, true)
-			local o = eventInline(eb2, 2, e)
-			buttonRow(eb2, o + 1, { { text = "🔎 En grand", color = C.BG_LIGHT, fn = function() openEventDetail(e) end } }, IS_MOBILE and 28 or 32)
+			eventRow(eb, 3 + i, e)
 		end
 		if #evs > showN then
-			button(eb, 1000, "▼ Voir " .. math.min(10, #evs - showN) .. " événement(s) de plus (" .. (#evs - showN) .. " restants)",
+			button(eb, 1000, "▼ Voir " .. math.min(10, #evs - showN) .. " de plus (" .. (#evs - showN) .. " restants)",
 				C.BG_LIGHT, function() ST.cardShow = showN + 10 ; screenAC() end, IS_MOBILE and 30 or 34)
 		end
 
@@ -24414,15 +24425,11 @@ end)()
 		if type(live) == "table" and type(live.recent) == "table" and #live.recent > 0 then
 			local lb = box(body, 7, "🎯 Ce que la machine a vu (ce serveur)", ORANGE,
 				"« + » fait monter la certitude, « − » la fait descendre. ⚪ = écarté, n'a rien coûté au joueur.")
-			for i, e in ipairs(live.recent) do
-				if i > 8 then break end
-				local lines = { string.format("%s %s — %s %%  (%s)", e.counted and "✅" or "⚪",
-					TYPE_LABEL[e.vType] or tostring(e.vType or e.kind), tostring(e.conf or "?"), fmtAgo(e.t)) }
-				if e.details then table.insert(lines, "   " .. e.details) end
-				for _, f in ipairs(e.factors or {}) do
-					table.insert(lines, string.format("   %+d  %s", tonumber(f.delta) or 0, tostring(f.label)))
-				end
-				text(lb, 1 + i, table.concat(lines, "\n"), e.counted and C.TEXT_GREY or C.TEXT_DIM, TS)
+			for i, x in ipairs(live.recent) do
+				if i > 10 then break end
+				local e = liveToEvent(x, uid, d.name)
+				eventRow(lb, 1 + i, e, string.format("%s %s — %s %%  (%s)", x.counted and "✅" or "⚪",
+					TYPE_LABEL[e.type] or tostring(e.type), tostring(x.conf or "?"), fmtAgo(x.t)))
 			end
 		end
 
