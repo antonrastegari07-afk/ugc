@@ -2751,6 +2751,187 @@ local function contextOf(player, st)
 	return c
 end
 
+--════════════════════════════════════════════════════════════════════════════
+-- 🧭 ZONES SUSPECTES (trouver les BUGS de la map)
+--    Chaque détection (retenue OU écartée) est rangée dans une case de la map
+--    (cube de 24 studs). Quand PLUSIEURS joueurs DIFFÉRENTS déclenchent
+--    l'anti-cheat au MÊME endroit, c'est presque toujours un bug du jeu
+--    (launcher, tapis, porte, plateforme…) et pas des tricheurs.
+--    • Tous serveurs confondus (DataStore AntiCheat_Hotspots_v1, 1 écriture / min)
+--    • Panel ▸ 🛡️ ANTI-CHEAT ▸ 🧭 Zones
+--    • Un admin peut « ignorer » une zone : les détections dedans sont alors
+--      écartées (comme un signal sans certitude) — jamais de warning.
+--════════════════════════════════════════════════════════════════════════════
+local Hotspots = {}
+do
+	local CELL      = 24        -- taille d'une case (studs)
+	local KEEP      = 150       -- cases gardées
+	local MAX_AGE   = 14 * 86400 -- une case sans détection depuis 14 jours est oubliée
+	local MAX_USERS = 25
+	local store
+	local pend = {}             -- [clé] = cumul pas encore écrit
+	local cells, cellsAt = {}, -1000
+	local ignored, ignoredAt = {}, -1000
+	local function getStore()
+		if store then return store end
+		local ok, s = pcall(function() return DataStoreService:GetDataStore("AntiCheat_Hotspots_v1") end)
+		if ok then store = s end
+		return store
+	end
+	local function keyOf(p)
+		return math.floor(p.X / CELL) .. "|" .. math.floor(p.Y / CELL) .. "|" .. math.floor(p.Z / CELL)
+	end
+	local function bump(t, k, n, max)
+		if t[k] == nil then
+			local c = 0
+			for _ in pairs(t) do c = c + 1 end
+			if c >= (max or 10) then return end
+		end
+		t[k] = (t[k] or 0) + (n or 1)
+	end
+	--  fusionne a dans b (b = fiche stockée)
+	local function merge(b, a)
+		b.n  = (b.n or 0) + (a.n or 0)
+		b.c  = (b.c or 0) + (a.c or 0)
+		b.cf = (b.cf or 0) + (a.cf or 0)
+		b.ar = (b.ar or 0) + (a.ar or 0)
+		b.f  = math.min(b.f or a.f or os.time(), a.f or os.time())
+		b.l  = math.max(b.l or 0, a.l or 0)
+		b.x, b.y, b.z = a.x or b.x, a.y or b.y, a.z or b.z
+		b.u, b.ty, b.tl = b.u or {}, b.ty or {}, b.tl or {}
+		for uid, nm in pairs(a.u or {}) do
+			if b.u[uid] == nil then
+				local c = 0
+				for _ in pairs(b.u) do c = c + 1 end
+				if c < MAX_USERS then b.u[uid] = nm end
+				b.uc = (b.uc or c) + 1     -- nombre de joueurs différents (même au-delà de 25)
+			end
+		end
+		b.uc = math.max(b.uc or 0, (function() local c = 0 for _ in pairs(b.u) do c = c + 1 end return c end)())
+		for k, v in pairs(a.ty or {}) do bump(b.ty, k, v, 8) end
+		for k, v in pairs(a.tl or {}) do bump(b.tl, k, v, 8) end
+		return b
+	end
+
+	function Hotspots.record(player, vType, pos, counted, conf, tool, arena)
+		if typeof(pos) ~= "Vector3" then return end
+		local k = keyOf(pos)
+		local e = pend[k] or { n = 0, c = 0, cf = 0, ar = 0, u = {}, ty = {}, tl = {}, f = os.time() }
+		pend[k] = e
+		e.n = e.n + 1
+		if counted then e.c = e.c + 1 end
+		e.cf = e.cf + (tonumber(conf) or 0)
+		if arena then e.ar = e.ar + 1 end
+		e.l = os.time()
+		e.x, e.y, e.z = math.floor(pos.X + 0.5), math.floor(pos.Y + 0.5), math.floor(pos.Z + 0.5)
+		e.u[tostring(player.UserId)] = player.Name
+		bump(e.ty, tostring(vType), 1, 8)
+		bump(e.tl, tostring(tool or "aucun"), 1, 8)
+		--  vue locale immédiate (le panel de CE serveur la voit tout de suite)
+		cells[k] = merge(cells[k] or {}, { n = 1, c = counted and 1 or 0, cf = tonumber(conf) or 0, ar = arena and 1 or 0,
+			u = { [tostring(player.UserId)] = player.Name }, ty = { [tostring(vType)] = 1 }, tl = { [tostring(tool or "aucun")] = 1 },
+			f = os.time(), l = os.time(), x = e.x, y = e.y, z = e.z })
+	end
+
+	local function flush()
+		if next(pend) == nil then return end
+		local s = getStore() ; if not s then return end
+		local batch = pend
+		pend = {}
+		local ok, res = pcall(function()
+			return s:UpdateAsync("cells", function(old)
+				old = type(old) == "table" and old or {}
+				for k, a in pairs(batch) do old[k] = merge(old[k] or {}, a) end
+				--  ménage : on oublie les vieilles cases et on garde les KEEP plus « chaudes »
+				local now, list = os.time(), {}
+				for k, v in pairs(old) do
+					if now - (v.l or 0) <= MAX_AGE then table.insert(list, { k = k, v = v }) end
+				end
+				table.sort(list, function(a, b) return ((a.v.uc or 0) * 10 + (a.v.n or 0)) > ((b.v.uc or 0) * 10 + (b.v.n or 0)) end)
+				local out = {}
+				for i = 1, math.min(KEEP, #list) do out[list[i].k] = list[i].v end
+				return out
+			end)
+		end)
+		if ok and type(res) == "table" then
+			cells, cellsAt = res, os.clock()
+		else
+			for k, a in pairs(batch) do pend[k] = merge(pend[k] or {}, a) end   -- on réessaiera
+		end
+	end
+	local function loadIgnored()
+		local s = getStore() ; if not s then return end
+		local ok, v = pcall(function() return s:GetAsync("ignore") end)
+		if ok then ignored, ignoredAt = (type(v) == "table") and v or {}, os.clock() end
+	end
+
+	function Hotspots.list()
+		if os.clock() - cellsAt > 30 then
+			local s = getStore()
+			if s then
+				local ok, v = pcall(function() return s:GetAsync("cells") end)
+				if ok then
+					local merged = type(v) == "table" and v or {}
+					for k, a in pairs(pend) do merged[k] = merge(merged[k] or {}, a) end
+					cells, cellsAt = merged, os.clock()
+				end
+			end
+		end
+		local out = {}
+		for k, v in pairs(cells) do
+			local c = {}
+			for kk, vv in pairs(v) do c[kk] = vv end
+			c.k = k
+			table.insert(out, c)
+		end
+		return out
+	end
+
+	--  Zone ignorée qui contient ce point ? (rayon en studs)
+	function Hotspots.ignoredAt(pos)
+		if typeof(pos) ~= "Vector3" then return nil end
+		for _, z in ipairs(ignored) do
+			local dx, dy, dz = pos.X - (z.x or 0), pos.Y - (z.y or 0), pos.Z - (z.z or 0)
+			local r = tonumber(z.r) or 20
+			if dx * dx + dy * dy + dz * dz <= r * r then return z end
+		end
+		return nil
+	end
+	function Hotspots.ignoredList() return ignored end
+	function Hotspots.setIgnore(op, z, byName)
+		local s = getStore() ; if not s then return false, "DataStore indisponible" end
+		local ok, res = pcall(function()
+			return s:UpdateAsync("ignore", function(old)
+				old = type(old) == "table" and old or {}
+				if op == "add" then
+					if #old >= 30 then return nil end
+					table.insert(old, { id = tostring(os.time()) .. tostring(math.random(100, 999)),
+						x = math.floor(z.x), y = math.floor(z.y), z = math.floor(z.z),
+						r = math.clamp(math.floor(tonumber(z.r) or 20), 5, 80),
+						label = string.sub(tostring(z.label or ""), 1, 60), by = byName, at = os.time() })
+				else
+					for i = #old, 1, -1 do if old[i].id == z.id then table.remove(old, i) end end
+				end
+				return old
+			end)
+		end)
+		if not ok then return false, "Écriture impossible, réessaie" end
+		if type(res) ~= "table" then return false, "30 zones ignorées au maximum" end
+		ignored, ignoredAt = res, os.clock()
+		return true
+	end
+
+	task.spawn(loadIgnored)
+	task.spawn(function()
+		while true do
+			task.wait(60)
+			pcall(flush)
+			if os.clock() - ignoredAt > 55 then pcall(loadIgnored) end   -- les autres serveurs suivent
+		end
+	end)
+	game:BindToClose(function() pcall(flush) end)
+end
+
 local function registerViolation(player, st, vType, details, ctx)
 	local now = os.clock()
 	local shadow = acShadow()
@@ -2758,6 +2939,26 @@ local function registerViolation(player, st, vType, details, ctx)
 	local conf, factors = scoreDetection(player, st, vType, ctx)
 	local minCount = acConf("MinConfidenceCount", 55)
 	local counted  = conf >= minCount
+
+	--  🧭 Zones suspectes : où ça s'est passé (retenu OU écarté)
+	do
+		local char = player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local hpos = hrp and hrp.Position
+		local zone = hpos and Hotspots.ignoredAt(hpos)
+		if zone then
+			--  zone marquée « bug connu » par un admin : jamais compté
+			counted = false
+			table.insert(factors, { label = "Zone ignorée par un admin (" .. tostring(zone.label ~= "" and zone.label or "bug connu") .. ")", delta = 0 })
+		end
+		local tool
+		if char then
+			for _, t in ipairs(char:GetChildren()) do
+				if t:IsA("Tool") then tool = t.Name break end
+			end
+		end
+		pcall(Hotspots.record, player, vType, hpos, counted, conf, tool, isInArena(player) == true)
+	end
 
 	--  Resynchronisation dans TOUS les cas, même quand on écarte le signal :
 	--  sinon la mesure suivante compare une position à une ancienne et
@@ -3644,6 +3845,10 @@ _G.AntiFlyTP = {
 	FeedPush      = function(ev) FeedLog.push(ev) end,
 	GetFeedLog    = function(n) return FeedLog.get(n) end,
 	GetPlayerFile = function(userId) return playerFile(userId) end,
+	--  🧭 zones suspectes
+	GetHotspots   = function() return Hotspots.list() end,
+	GetIgnoredZones = function() return Hotspots.ignoredList() end,
+	SetIgnoredZone = function(op, z, by) return Hotspots.setIgnore(op, z, by) end,
 	ForgetFile    = function(userId) fileCache[tonumber(userId) or 0] = nil end,
 	--  Vide le classement des warnings réels (il repart de zéro).
 	ResetRealRanks = function() return StatsStore.bumpRealGen() end,

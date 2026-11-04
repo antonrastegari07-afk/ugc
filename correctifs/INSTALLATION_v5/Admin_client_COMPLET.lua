@@ -24752,6 +24752,193 @@ end)()
 	end
 
 	--════════════════════════════════════════════════════════════════
+	-- 🧭 ZONES SUSPECTES — trouver les BUGS de la map
+	--    Si plusieurs joueurs DIFFÉRENTS déclenchent l'anti-cheat au même
+	--    endroit, c'est presque toujours un bug du jeu, pas des tricheurs.
+	--════════════════════════════════════════════════════════════════
+	local ZONE_BUG_PLAYERS = 3     -- à partir de combien de joueurs différents on parle de bug probable
+	local ZONE_RADIUS      = 24    -- rayon d'une zone ignorée (studs)
+	ST.zn = ST.zn or { sort = "bug", onlyBug = false, show = 30 }
+
+	local function zoneVerdict(c)
+		local uc, n = tonumber(c.uc) or 0, tonumber(c.n) or 0
+		if uc >= ZONE_BUG_PLAYERS then
+			return "🐞 BUG PROBABLE", RED, string.format("%d joueurs différents ont déclenché l'anti-cheat ici : c'est très "
+				.. "probablement la map (launcher, plateforme, tapis, porte, tyrolienne…), pas des tricheurs.", uc)
+		elseif uc == 2 then
+			return "⚠️ À SURVEILLER", ORANGE, "2 joueurs différents ici : peut-être un bug, à confirmer si d'autres arrivent."
+		elseif n >= 5 then
+			return "👤 UN SEUL JOUEUR", C.TEXT_GREY, "Toujours le même joueur ici : c'est plutôt lui qu'un bug de la map."
+		end
+		return "• ISOLÉ", C.TEXT_DIM, "Peu de détections ici : rien d'anormal pour l'instant."
+	end
+	local function zonePos(c) return string.format("%s, %s, %s", tostring(c.x or "?"), tostring(c.y or "?"), tostring(c.z or "?")) end
+	local function topOf(t, labels, n)
+		local l = {}
+		for k, v in pairs(t or {}) do table.insert(l, { k = k, v = tonumber(v) or 0 }) end
+		table.sort(l, function(a, b) return a.v > b.v end)
+		local out = {}
+		for i = 1, math.min(n or 3, #l) do table.insert(out, ((labels and labels[l[i].k]) or l[i].k) .. " ×" .. l[i].v) end
+		return table.concat(out, "  ·  ")
+	end
+	local function ignoredFor(c, ign)
+		for _, z in ipairs(ign or {}) do
+			local dx, dy, dz = (c.x or 0) - (z.x or 0), (c.y or 0) - (z.y or 0), (c.z or 0) - (z.z or 0)
+			local r = (tonumber(z.r) or ZONE_RADIUS) + 6
+			if dx * dx + dy * dy + dz * dz <= r * r then return z end
+		end
+	end
+	local function zoneCall(payload, okMsgFallback)
+		call("hotzone", payload, function(res)
+			toast(res and res.msg or okMsgFallback or "Erreur", res and res.ok == true)
+			if payload.op ~= "tp" then DATA.zones = nil ; screenAC() end
+		end)
+	end
+	local function askIgnoreZone(c)
+		confirmPage({ title = "🛡️ Ignorer cette zone (bug connu)", color = GOLD,
+			lines = {
+				"Zone : 📍 " .. zonePos(c) .. ", rayon " .. ZONE_RADIUS .. " studs.",
+				"Les détections DANS cette zone seront écartées : plus aucun warning ni sanction à cause d'elle, sur tous les serveurs.",
+				"Elles restent visibles ici (pour voir si le bug est réglé).",
+				"⚠️ Un vrai tricheur ne sera pas puni DANS cette zone. Ne l'utilise que pour un vrai bug.",
+				"Tu peux annuler à tout moment (« ✅ Ne plus ignorer »).",
+			},
+			input = "ex : launcher près du spawn",
+			confirmText = "🛡️ Oui, ignorer cette zone",
+			onConfirm = function(note_)
+				zoneCall({ op = "add", x = c.x, y = c.y, z = c.z, r = ZONE_RADIUS, label = note_ or "" })
+			end })
+	end
+	local function askUnignore(z)
+		confirmPage({ title = "✅ Ne plus ignorer cette zone", color = GREEN,
+			lines = { "Zone : 📍 " .. zonePos(z) .. (z.label ~= "" and (" — " .. tostring(z.label)) or ""),
+				"Les détections dedans compteront de nouveau normalement." },
+			confirmText = "✅ Oui, la surveiller de nouveau",
+			onConfirm = function() zoneCall({ op = "remove", id = z.id }) end })
+	end
+
+	--  🔎 Tout sur une zone (par-dessus le panel)
+	local function openZoneDetail(c, ign)
+		local vt, vc, vx = zoneVerdict(c)
+		local n = tonumber(c.n) or 0
+		openOverlay("🧭 Zone 📍 " .. zonePos(c) .. "  ·  " .. vt, vc, function(sc)
+			local s = box(sc, 1, vt, vc)
+			text(s, 2, vx, C.TEXT_WHITE, TS)
+			if ign then oneLine(s, 3, "🛡️ Zone ignorée" .. ((ign.label or "") ~= "" and (" : " .. ign.label) or "") .. " · par " .. tostring(ign.by or "?"), GOLD, TS, true) end
+			statTiles(s, 4, {
+				{ tostring(c.uc or 0), "joueurs différents", vc },
+				{ tostring(n), "détections", ORANGE },
+				{ tostring(c.c or 0), "retenues", RED },
+				{ tostring(n - (tonumber(c.c) or 0)), "écartées (doute)", C.TEXT_GREY },
+				{ n > 0 and (math.floor((tonumber(c.cf) or 0) / n) .. " %") or "?", "certitude moyenne", confColor(n > 0 and (c.cf or 0) / n or 0) },
+				{ tostring(c.ar or 0), "en arène", CYAN },
+			})
+			local d = box(sc, 2, "📋 Ce qui se passe ici", CYAN)
+			oneLine(d, 2, "🔎 Types : " .. (topOf(c.ty, TYPE_LABEL, 6) ~= "" and topOf(c.ty, TYPE_LABEL, 6) or "—"), C.TEXT_GREY, TS)
+			oneLine(d, 3, "🧰 Outils en main : " .. (topOf(c.tl, nil, 6) ~= "" and topOf(c.tl, nil, 6) or "—"), C.TEXT_GREY, TS)
+			oneLine(d, 4, "🕒 Première fois : " .. dateOf(c.f) .. "  ·  dernière : " .. fmtAgo(c.l), C.TEXT_DIM, TS)
+			local p = box(sc, 3, "👥 Les joueurs (" .. tostring(c.uc or 0) .. ")", ORANGE)
+			local i = 0
+			for uid, nm in pairs(c.u or {}) do
+				i = i + 1
+				local id = tonumber(uid)
+				buttonRow(p, 1 + i, { { text = "🔍 " .. tostring(nm), color = C.BG_LIGHT,
+					fn = function() closeDetail() ; openCard(id) end } }, IS_MOBILE and 28 or 32)
+			end
+			local h = box(sc, 4, "🛠️ Que faire ?", GOLD)
+			text(h, 2, "1. « 🚀 Y aller » : va voir ce qu'il y a à cet endroit.\n"
+				.. "2. Si c'est un élément du jeu (launcher, plateforme qui bouge, tapis…), ajoute-le dans "
+				.. "ANTICHEAT_CONFIG ▸ ⑩ Mouvements normaux du jeu (c'est la vraie correction).\n"
+				.. "3. En attendant, « 🛡️ Ignorer cette zone » : plus aucun warning dedans.\n"
+				.. "4. Les joueurs déjà touchés : 🔍 leur fiche ▸ 🧹 Warnings à 0.", C.TEXT_GREY, TS)
+		end, {
+			{ text = "🚀 Y aller", color = CYAN, textColor = BLACK, fn = function() zoneCall({ op = "tp", x = c.x, y = c.y, z = c.z }) end },
+			ign and { text = "✅ Ne plus ignorer", color = GREEN, textColor = BLACK, fn = function() closeDetail() ; askUnignore(ign) end }
+				or { text = "🛡️ Ignorer", color = GOLD, textColor = BLACK, fn = function() closeDetail() ; askIgnoreZone(c) end },
+		})
+	end
+
+	local function renderZones(body)
+		local Z = ST.zn
+		note(body, 1, "Les ENDROITS où l'anti-cheat se déclenche, tous serveurs confondus. Si plusieurs joueurs "
+			.. "DIFFÉRENTS sont détectés au même endroit, c'est presque toujours un BUG de la map (pas des tricheurs) : "
+			.. "« 🐞 BUG PROBABLE » à partir de " .. ZONE_BUG_PLAYERS .. " joueurs. Mis à jour toutes les minutes.", CYAN)
+		chips(body, 2, {
+			{ id = "bug", label = "🐞 Bugs probables d'abord" }, { id = "count", label = "📊 Le plus de détections" },
+			{ id = "recent", label = "🕒 Les plus récentes" },
+		}, Z.sort, CYAN, function(v) Z.sort = v ; screenAC() end, 3)
+		toggleChip(body, 3, "Seulement les bugs probables", Z.onlyBug, RED, function(v) Z.onlyBug = v ; screenAC() end)
+		local holder = frame(body, 4) ; list(holder, IS_MOBILE and 6 or 8)
+		local d = DATA.zones
+		if not d then
+			local st = status(holder, 1)
+			call("hotspots", {}, function(res)
+				if not st.Parent then return end
+				if not (res and res.ok) then st.Text = "❌ " .. tostring(res and res.msg or "Lecture impossible. Appuie sur 🔄.") return end
+				DATA.zones = res
+				rerender()
+			end)
+			return
+		end
+		local ign = d.ignored or {}
+		if #ign > 0 then
+			local ib = box(holder, 0, "🛡️ Zones ignorées (" .. #ign .. ")", GOLD, "Les détections dedans sont écartées : aucun warning.")
+			for i, z in ipairs(ign) do
+				local row = frame(ib, 1 + i, IS_MOBILE and 28 or 32)
+				local lb = text(row, 1, "📍 " .. zonePos(z) .. ((z.label or "") ~= "" and ("  ·  " .. z.label) or "") .. "  ·  " .. tostring(z.by or "?") .. ", " .. fmtAgo(z.at), C.TEXT_GREY, TS)
+				lb.AutomaticSize = Enum.AutomaticSize.None ; lb.Size = UDim2.new(1, -(IS_MOBILE and 110 or 150), 1, 0)
+				lb.TextWrapped = false ; lb.TextTruncate = Enum.TextTruncate.AtEnd ; lb.TextYAlignment = Enum.TextYAlignment.Center
+				local bw = Instance.new("Frame")
+				bw.AnchorPoint = Vector2.new(1, 0) ; bw.Position = UDim2.new(1, 0, 0, 0)
+				bw.Size = UDim2.new(0, IS_MOBILE and 104 or 144, 1, 0) ; bw.BackgroundTransparency = 1 ; bw.ZIndex = 12 ; bw.Parent = row
+				local b = actionButton(bw, { color = GREEN_D, strokeColor = GREEN, text = "✅ Ne plus ignorer",
+					textColor = C.TEXT_WHITE, textSize = TS, radius = 7, zIndex = 13 })
+				b.MouseButton1Click:Connect(function() askUnignore(z) end)
+			end
+		end
+		local rows = {}
+		for _, c in ipairs(d.cells or {}) do
+			if not Z.onlyBug or (tonumber(c.uc) or 0) >= ZONE_BUG_PLAYERS then table.insert(rows, c) end
+		end
+		table.sort(rows, function(a, b)
+			local ka, kb
+			if Z.sort == "count" then ka, kb = tonumber(a.n) or 0, tonumber(b.n) or 0
+			elseif Z.sort == "recent" then ka, kb = tonumber(a.l) or 0, tonumber(b.l) or 0
+			else ka, kb = (tonumber(a.uc) or 0) * 100000 + (tonumber(a.n) or 0), (tonumber(b.uc) or 0) * 100000 + (tonumber(b.n) or 0) end
+			if ka == kb then return tostring(a.k) < tostring(b.k) end
+			return ka > kb
+		end)
+		local nBug = 0
+		for _, c in ipairs(d.cells or {}) do if (tonumber(c.uc) or 0) >= ZONE_BUG_PLAYERS then nBug = nBug + 1 end end
+		oneLine(holder, 1, string.format("🧭 %d zone(s)  ·  🐞 %d bug(s) probable(s)", #(d.cells or {}), nBug), nBug > 0 and RED or C.TEXT_DIM, TS, true)
+		if #rows == 0 then text(holder, 2, "✅ Aucune zone pour l'instant : rien ne se répète au même endroit.", GREEN, TM) end
+		for i = 1, math.min(#rows, Z.show) do
+			local c = rows[i]
+			local vt, vc = zoneVerdict(c)
+			local z = ignoredFor(c, ign)
+			local n = tonumber(c.n) or 0
+			local b = box(holder, 1 + i, nil, vc)
+			oneLine(b, 1, "📍 " .. zonePos(c) .. "  ·  " .. vt .. (z and "  ·  🛡️ ignorée" or ""), vc, TS, true)
+			oneLine(b, 2, string.format("👥 %s joueur(s)  ·  🔎 %d détection(s), %s retenue(s)  ·  🎯 moy. %s  ·  🕒 %s",
+				tostring(c.uc or 0), n, tostring(c.c or 0), n > 0 and (math.floor((tonumber(c.cf) or 0) / n) .. " %") or "?",
+				fmtAgo(c.l)), C.TEXT_WHITE, TS)
+			oneLine(b, 3, (topOf(c.ty, TYPE_LABEL, 2) ~= "" and topOf(c.ty, TYPE_LABEL, 2) or "—") .. "  ·  🧰 " .. (topOf(c.tl, nil, 2) ~= "" and topOf(c.tl, nil, 2) or "—")
+				.. ((tonumber(c.ar) or 0) > 0 and ("  ·  🥊 arène ×" .. c.ar) or ""), C.TEXT_GREY, TS)
+			buttonRow(b, 4, {
+				{ text = "🔎 Tout voir", color = GOLD, textColor = BLACK, fn = function() openZoneDetail(c, z) end },
+				{ text = "🚀 Y aller", color = CYAN, textColor = BLACK, fn = function() zoneCall({ op = "tp", x = c.x, y = c.y, z = c.z }) end },
+				z and { text = "✅ Ne plus ignorer", color = GREEN, textColor = BLACK, fn = function() askUnignore(z) end }
+					or { text = "🛡️ Ignorer", color = C.BG_LIGHT, fn = function() askIgnoreZone(c) end },
+			})
+		end
+		if #rows > Z.show then
+			button(holder, 9999, string.format("⬇️ Afficher plus (%d sur %d)", Z.show, #rows), C.BG_LIGHT, function()
+				Z.show = Z.show + 30 ; screenAC()
+			end)
+		end
+	end
+
+	--════════════════════════════════════════════════════════════════
 	-- 🖥️ L'ÉCRAN
 	--════════════════════════════════════════════════════════════════
 	screenAC = function()
@@ -24759,6 +24946,7 @@ end)()
 		local body = buildScreen("🛡️ ANTI-CHEAT", true, RED, nil, function()
 			--  🔄 relit tout depuis le serveur
 			DATA.home, DATA.feed, DATA.cand, DATA.schema, DATA.restricted = nil, nil, nil, nil, nil
+			DATA.zones = nil
 			DATA.files = {} ; ST.cardData = nil
 			screenAC()
 		end)
@@ -24767,14 +24955,15 @@ end)()
 			{ id = "players", label = "👥 Joueurs" },
 		}, ST.tab, RED, function(id) ST.tab = id ; screenAC() end)
 		acTabBar(body, -2, {
-			{ id = "restricted", label = "🚫 Restreints" }, { id = "card", label = "🔍 Fiche" },
-			{ id = "settings", label = "⚙️ Réglages" },
+			{ id = "restricted", label = "🚫 Restreints" }, { id = "zones", label = "🧭 Zones" },
+			{ id = "card", label = "🔍 Fiche" }, { id = "settings", label = "⚙️ Réglages" },
 		}, ST.tab, RED, function(id) ST.tab = id ; screenAC() end)
 		local ok, err = pcall(function()
 			if ST.tab == "feed" then renderFeed(body)
 			elseif ST.tab == "players" then renderPlayers(body)
 			elseif ST.tab == "restricted" then renderRestricted(body)
 			elseif ST.tab == "card" then renderCard(body)
+			elseif ST.tab == "zones" then renderZones(body)
 			elseif ST.tab == "settings" then renderSettings(body)
 			else renderHome(body) end
 		end)

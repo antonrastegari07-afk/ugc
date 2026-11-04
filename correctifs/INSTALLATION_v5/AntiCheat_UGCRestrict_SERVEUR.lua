@@ -2358,6 +2358,39 @@ AC_ACTIONS.file = function(_, payload)
 		later = (#later > 0) and later or nil, wait = (#later > 0) and 8 or nil }
 end
 
+--  🧭 Zones suspectes : la liste (tous serveurs) + les zones ignorées
+AC_ACTIONS.hotspots = function()
+	local af = AF()
+	if not (af and af.GetHotspots) then return { ok = false, msg = "anti fly/tp server pas à jour" } end
+	local okL, list = pcall(af.GetHotspots)
+	local okI, ign = pcall(af.GetIgnoredZones)
+	return { ok = true, cells = okL and list or {}, ignored = okI and ign or {} }
+end
+--  ignorer / ne plus ignorer une zone, ou s'y téléporter (l'admin lui-même)
+AC_ACTIONS.hotzone = function(player, payload)
+	local af = AF()
+	local op = tostring(payload.op or "")
+	if op == "tp" then
+		local x, y, z = tonumber(payload.x), tonumber(payload.y), tonumber(payload.z)
+		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if not (x and y and z and hrp) then return { ok = false, msg = "Position invalide" } end
+		if af and af.MarkTeleport then pcall(af.MarkTeleport, player, 6) end   -- l'anti-cheat sait que c'est voulu
+		hrp.CFrame = CFrame.new(x, y + 4, z)
+		return { ok = true, msg = "🚀 Téléporté sur la zone" }
+	end
+	if not (af and af.SetIgnoredZone) then return { ok = false, msg = "anti fly/tp server pas à jour" } end
+	if op == "add" then
+		local x, y, z = tonumber(payload.x), tonumber(payload.y), tonumber(payload.z)
+		if not (x and y and z) then return { ok = false, msg = "Position invalide" } end
+		local ok, err = af.SetIgnoredZone("add", { x = x, y = y, z = z, r = payload.r, label = payload.label }, player.Name)
+		return { ok = ok, msg = ok and "🛡️ Zone ignorée : plus aucun warning dedans" or tostring(err) }
+	elseif op == "remove" then
+		local ok, err = af.SetIgnoredZone("remove", { id = tostring(payload.id or "") }, player.Name)
+		return { ok = ok, msg = ok and "✅ La zone est de nouveau surveillée" or tostring(err) }
+	end
+	return { ok = false, msg = "Action inconnue" }
+end
+
 adminAction.OnServerInvoke = function(player, action, payload)
 	if not isAdmin(player.UserId) then return { ok = false, msg = "Accès refusé" } end
 	if type(action) ~= "string" then return { ok = false, msg = "Requête invalide" } end
@@ -2369,7 +2402,7 @@ adminAction.OnServerInvoke = function(player, action, payload)
 		lookup = 0.5, add = 0.8, remove = 0.8,
 		clearstats = 0.8, setconfig = 0.35, reload = 2,
 		schema = 0.4, setvalues = 0.8, home = 0.8, feedlog = 0.8,
-		candidates = 1, file = 0.15,
+		candidates = 1, file = 0.15, hotspots = 1, hotzone = 1,
 	}
 	if not rateOk(player.UserId, action, COOLDOWN[action] or 0.5) then
 		return { throttled = true, msg = nil }
