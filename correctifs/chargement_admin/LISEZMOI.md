@@ -26,3 +26,36 @@ Réglages en haut du script : `ADMIN_WAIT_MAX = 25` et `ADMIN_EXTRA_DELAY = 4`.
 | ServerScriptService ▸ **ADMIN_TOOLS_GIVER** | `ADMIN_TOOLS_GIVER_COMPLET.lua` (remplacer tout) |
 
 Ensuite, publie puis fais **Shut down all servers**.
+
+---
+
+# ⏱️ Écran de chargement : SKIP plus rapide + diagnostic
+
+## Ce qui a été vérifié
+
+- Entre ta **4.0** et ta **5.0** : mêmes objets (52 895), même écran de chargement. Seuls 6 scripts serveur et le panel admin ont changé, et aucun ne fait de travail en plus quand un joueur arrive.
+- Le bouton SKIP attend 4 choses :
+  - le jeu chargé ;
+  - ton personnage ;
+  - tes **données** (signal `DataLoaded` du script `time`, qui lit le DataStore), avec 8 s d'attente au maximum ;
+  - les images.
+- Si le DataStore est lent (beaucoup de requêtes, nouvel essai, verrou de session), le bouton attendait jusqu'à **8 s**.
+
+## Le correctif
+
+- Attente maximale des données et des images : **8 s → 4 s**. Au-delà, le bouton apparaît quand même (le jeu et le personnage restent obligatoires, comme avant).
+- **Diagnostic dans la console (F9)** : à chaque connexion, tu vois ce qui a pris du temps, par exemple :
+  ```
+  [Loader] ⏱️ jeu chargé (game:IsLoaded) : 1.8 s
+  [Loader] ⏱️ personnage apparu : 2.1 s
+  [Loader] ⏱️ images préchargées : 2.4 s
+  [Loader] ⏱️ données reçues (DataLoaded) : 6.9 s
+  [Loader] ✅ bouton SKIP affiché à 4.0 s  (données pas encore reçues : on n'attend plus)
+  ```
+- Mets `LOADER_DEBUG = false` dans le script pour couper ces messages.
+
+## Installation
+
+| Où | Fichier |
+|---|---|
+| ReplicatedFirst ▸ **Loading screen** | `LoadingScreen_ReplicatedFirst_COMPLET.lua` (remplacer tout) |
