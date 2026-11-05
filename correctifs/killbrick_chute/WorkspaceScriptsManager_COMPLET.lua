@@ -125,6 +125,35 @@ end
 --  ET qu'un sol est juste au-dessus de lui (celui qu'il vient de
 --  traverser), on le repose sur ce sol au lieu de le tuer.
 --  Les kill bricks VISIBLES (les rouges, les obstacles) ne changent pas.
+--  🌀 KILL « EN RETARD » APRÈS UN PORTAIL (niveau 112 et autres)
+--  Le portail téléporte le joueur côté SERVEUR. Pendant une fraction de
+--  seconde, le jeu du joueur continue d'envoyer ses anciennes positions
+--  (celles d'AVANT le portail) : pour le serveur, il « revient » un instant
+--  à côté des blocs rouges qui sont juste devant le portail, et le kill
+--  brick le tue… alors que, sur son écran, il est déjà en haut de la tour.
+--  Maintenant, un kill brick ne tue pas :
+--    • pendant 2 s après un portail, s'il est loin de l'arrivée du portail
+--      (c'est forcément un contact d'AVANT la téléportation) ;
+--    • si le joueur est déjà loin du bloc au moment où le contact arrive
+--      (contact en retard, quel qu'en soit la raison).
+local recentTeleport = setmetatable({}, { __mode = "k" })   -- [player] = { t, dest }
+_G.WSM_MarkTeleport = function(player, destPos)
+	if player and typeof(destPos) == "Vector3" then recentTeleport[player] = { t = os.clock(), dest = destPos } end
+end
+local function staleKill(char, part)
+	local player = Players:GetPlayerFromCharacter(char)
+	local rt = player and recentTeleport[player]
+	if rt and os.clock() - rt.t < 2 and (part.Position - rt.dest).Magnitude > 80 then
+		return true
+	end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if hrp and hrp:IsA("BasePart") then
+		local reach = part.Size.Magnitude / 2 + 12
+		if (hrp.Position - part.Position).Magnitude > reach then return true end
+	end
+	return false
+end
+
 local RESCUE = {
 	minFallSpeed = 110,   -- studs/s : une chute normale depuis un bord n'atteint jamais ça en 15 studs
 	maxUp        = 16,    -- le sol traversé doit être à moins de 16 studs au-dessus
@@ -162,6 +191,9 @@ HANDLERS.WSM_KillBrick = function(part)
 		if hit and hit.Parent and hit.Parent:FindFirstChild("Humanoid") then
 			local hum = hit.Parent.Humanoid
 			if hum.Health <= 0 then return end
+			--  contact « en retard » (juste après un portail…) : pas de kill
+			local okS, stale = pcall(staleKill, hit.Parent, part)
+			if okS and stale then return end
 			--  kill brick invisible (sous la map) : on vérifie d'abord qu'il n'a
 			--  pas juste traversé un sol en tombant trop vite
 			if part.Transparency >= 0.9 then
@@ -186,7 +218,10 @@ HANDLERS.WSM_DamageBlock = function(kill)
 		if not debounce then
 			debounce = true
 			if hit.Parent and hit.Parent:FindFirstChild("Humanoid") then
-				hit.Parent.Humanoid.Health = hit.Parent.Humanoid.Health - damage
+				local okS, stale = pcall(staleKill, hit.Parent, kill)
+				if not (okS and stale) then
+					hit.Parent.Humanoid.Health = hit.Parent.Humanoid.Health - damage
+				end
 			end
 			task.wait(waitTime)
 			debounce = false
@@ -368,6 +403,7 @@ HANDLERS.WSM_Portal = function(parent)
 		end
 		cooldowns[player.UserId] = currentTime
 
+		recentTeleport[player] = { t = os.clock(), dest = targetPos }   -- 🌀 voir « kill en retard »
 		humanoidRootPart.CFrame = targetCFrame
 		if humanoidRootPart:IsA("BasePart") then
 			humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)

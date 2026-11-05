@@ -1,21 +1,29 @@
-# 🛟 Morts « sans raison » après une grande chute (niveau 112 → 113, et d'autres niveaux)
+# 🌀 Mort juste après le portail (niveau 112, et d'autres niveaux)
 
-## La cause
+## Ce que montre la vidéo
 
-- Le portail du niveau 112 envoie le joueur en haut de la tour (y = 1328). Il tombe environ **215 studs** jusqu'au sol du checkpoint 113.
-- Juste sous ce sol, il y a un **kill brick invisible** : `Workspace.Part`, 528 × 1 × 300, transparence 1. C'est le « Undermapkill » du coin, à seulement **7 studs** sous le sol.
-- À l'arrivée, le joueur tombe à environ **290 studs/s**. Le sol ne fait que 1,3 stud d'épaisseur : avec un petit PC ou du lag, le personnage **traverse le sol en une seule image** et touche le kill brick invisible juste dessous. Il meurt alors qu'il a bien atterri, d'où le « pas de kill part visible ».
-- C'est pour ça que ça n'arrive qu'à **certaines personnes** : surtout celles qui ont peu d'images par seconde.
+- Le joueur passe le portail du niveau 112 et apparaît en haut de la tour.
+- **0,5 s plus tard**, il disparaît en plein air : c'est une mort (ton script « dead pas son » rend le corps invisible), puis il réapparaît au checkpoint 112.
+- Dans cette zone, il n'y a **aucun** kill brick (vérifié en tenant compte de l'orientation des pièces), ni flèche, missile, cylindre ou script qui tue.
 
-Autres checkpoints où un kill brick invisible est très proche sous le sol (moins de 15 studs) : **1, 2, 3, 4, 6, 100, 101, 102, 111**. Le plus dangereux reste le **113** (7 studs, et une très longue chute).
+## La cause (la plus probable)
 
-## Le correctif (aucun changement de gameplay)
+- Juste **devant** le portail d'entrée, il y a les **blocs rouges qui tuent** (`Part9`, à 12 studs du portail).
+- Le portail téléporte le joueur côté **serveur**. Pendant une fraction de seconde, le jeu du joueur continue d'envoyer ses **anciennes positions**, celles d'avant le portail, surtout avec du lag.
+- Pour le serveur, le joueur « revient » donc un instant à côté des blocs rouges. Le kill brick le tue, alors que sur son écran il est déjà en haut de la tour.
+- D'où « pas de kill part visible », et « seulement certaines personnes » : celles qui ont du lag.
 
-Dans le gestionnaire des scripts du Workspace :
-- si un joueur touche un kill brick **invisible** en tombant **très vite** (plus de 110 studs/s) **et** qu'un sol se trouve juste au-dessus de lui (celui qu'il vient de traverser), il est **reposé sur ce sol** au lieu de mourir ;
-- une chute normale dans le vide n'est pas concernée : en tombant d'un bord, on n'atteint jamais cette vitesse avant le kill brick, et il n'y a pas de sol au-dessus ;
-- les kill bricks **visibles** (les blocs rouges, les obstacles) ne changent **pas du tout** ;
-- l'anti-cheat est prévenu, pour ne pas prendre ce petit déplacement pour une téléportation.
+Un seul autre portail du jeu a aussi des kill bricks visibles tout près de son entrée, à 11 studs ; ça peut être ton « autre niveau ».
+
+## Le correctif
+
+Dans `WorkspaceScriptsManager`, un kill brick (ou un bloc de dégâts) **ne tue plus** :
+- pendant **2 s après un portail**, s'il est loin de l'arrivée du portail (c'est forcément un contact d'avant la téléportation) ;
+- si le joueur est **déjà loin du bloc** au moment où le contact arrive au serveur (contact en retard).
+
+Un contact normal tue toujours, exactement comme avant : testé sur le bloc rouge, le grand kill brick sous la map, et le retour sur le bloc 5 s après.
+
+Le fichier garde aussi la protection précédente (joueur qui traverse un sol en tombant très vite). Elle ne joue pas ici, mais elle reste utile.
 
 ## Installation
 
@@ -25,10 +33,4 @@ Dans le gestionnaire des scripts du Workspace :
 
 Ensuite, publie puis fais **Shut down all servers**.
 
-## Optionnel, dans Studio (encore plus sûr)
-
-Descends le kill brick invisible sous le niveau 113 d'environ 40 studs :
-- `Workspace.Part` à la position **(3830, 1105, 857)**, taille 528 × 1 × 300, transparence 1 ;
-- mets sa position Y à **1065**.
-
-Le vide reste mortel, mais il y a alors beaucoup plus de marge sous le sol.
+Pour les autres scripts qui téléportent un joueur, ils peuvent appeler `_G.WSM_MarkTeleport(player, positionArrivée)` pour profiter de la même protection.
