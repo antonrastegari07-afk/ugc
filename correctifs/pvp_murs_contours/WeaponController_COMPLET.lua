@@ -3315,6 +3315,52 @@ function WeaponController.Setup(tool, userConfig)
 		if seg.Magnitude < 0.5 then return nil end
 		return RayCast(body, seg.Unit, seg.Magnitude)
 	end
+	--  impact (trou, étincelles) sur le MUR réellement touché, pas derrière
+	Extra.wallRay = function(muzzlePos, rp)
+		local root = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+		if not root then return nil end
+		local body = root.Position + Vector3.new(0, 1.5, 0)
+		local seg = muzzlePos - body
+		if seg.Magnitude < 0.5 then return nil end
+		return workspace:Raycast(body, seg.Unit * (seg.Magnitude + 0.5), rp)
+	end
+	-- 🧱 [Murs] 3e PERSONNE : l'arme se relève contre un mur (comme en 1re personne).
+	--    Rayon poitrine → direction de l'arme (mesurée bras baissés) ; si un mur est
+	--    plus proche que le bout du canon, les bras pivotent vers le haut aux épaules.
+	--    Que des rayons : rien n'est rendu « CanCollide », aucun accrochage aux murs.
+	Extra.wall3A = 0
+	Extra.wallThird = function(dt)
+		local W = CS.WallPose
+		local root = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+		if CS.Enabled == false or not W or W.Enabled == false or not root or not Flash or not Flash.Parent
+			or (viewmodel and viewmodel.Parent == camera) or tool.Parent ~= MyCharacter then
+			Extra.wall3A, Extra.wall3Rel = 0, nil
+			return 0
+		end
+		local chest = root.Position + Vector3.new(0, 1.5, 0)
+		if Extra.wall3A < 0.02 or not Extra.wall3Rel then
+			local v = Flash.Position - chest
+			if v.Magnitude > 0.5 and v.Magnitude < 10 then Extra.wall3Rel = root.CFrame:VectorToObjectSpace(v) end
+		end
+		local target = 0
+		if Extra.wall3Rel then
+			local v = root.CFrame:VectorToWorldSpace(Extra.wall3Rel)
+			local len = v.Magnitude + (W.Margin or 0.35)
+			Extra.wallParams.FilterDescendantsInstances = { MyCharacter, camera }
+			local res = workspace:Raycast(chest, v.Unit * len, Extra.wallParams)
+			if res and res.Instance and res.Instance.CanCollide and res.Instance.Transparency < 0.9 then
+				local m = res.Instance:FindFirstAncestorOfClass("Model")
+				local isChar = m and m:FindFirstChildOfClass("Humanoid") ~= nil
+				local inTool = res.Instance:FindFirstAncestorOfClass("Tool") or res.Instance:FindFirstAncestorOfClass("Accessory")
+				if not isChar and not inTool then
+					target = math.clamp((len - res.Distance) / (len * 0.55), 0, 1)
+				end
+			end
+		end
+		Extra.wall3A += (target - Extra.wall3A) * math.clamp((dt or 0.016) * (W.Speed or 14), 0, 1)
+		if Extra.wall3A < 0.002 then Extra.wall3A = 0 end
+		return Extra.wall3A
+	end
 	local function AddRecoilKick()
 		if Aiming and Extra.freezeAim() then return end
 		-- 🆕 au doigt on ne compense pas : tout le recul est mis à l'échelle
@@ -3750,6 +3796,23 @@ function WeaponController.Setup(tool, userConfig)
 				local gunL = LeftArmBaseC1 * aimCF * swayUse * ReloadOffsetL * EquipOffsetL * Extra.gkArm("L", LeftArmWeld) * RecoilOffset   -- [GunKit P16c] [GunKit P18d]
 					* Extra.mvOf(LeftArmWeld.Part0, "L")
 				LeftArmWeld.C1 = (mAlpha > 0.001) and gunL:Lerp(mPoseL, mAlpha) or gunL
+			end
+			-- 🧱 [Murs] 3e personne : bras (et arme) relevés aux épaules contre un mur
+			do
+				local a3 = Extra.wallThird(dt)
+				local root3 = a3 > 0 and RightArmWeld and RightArmBaseC1 and LeftArmWeld and LeftArmBaseC1
+					and MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+				if root3 then
+					local e3 = a3 * a3 * (3 - 2 * a3)
+					local W3 = CS.WallPose
+					local rw = CFrame.fromAxisAngle(root3.CFrame.RightVector, math.rad((W3.RaiseThird or 70) * e3))
+					for _, wl in ipairs({ RightArmWeld, LeftArmWeld }) do
+						if wl and wl.Part0 then
+							local jr = (wl.Part0.CFrame * wl.C0).Rotation
+							wl.C1 = wl.C1 * (jr:Inverse() * rw * jr):Inverse()
+						end
+					end
+				end
 			end
 			Extra.thirdUpdate(swayUse, mAlpha, mPoseL, mPoseR, aimCF)
 			-- 🔫 PISTE DE L'ARME
@@ -5431,7 +5494,7 @@ function WeaponController.Setup(tool, userConfig)
 				hitObject, bulletPos = camHit, camHitPos
 			end
 			local endPos = bulletPos or targetPoint
-			if showTracer then
+			if showTracer and not wallHit then   -- 🧱 balle arrêtée net par le mur : pas de traînée
 				SpawnLocalTracer(visualMuzzlePos, endPos)          -- visuel depuis l'arme vue
 				tracerEnds[#tracerEnds+1] = endPos                 -- relais batché après la boucle
 			end
@@ -5487,7 +5550,8 @@ function WeaponController.Setup(tool, userConfig)
 				impactBudget -= 1
 				local rp = RaycastParams.new(); rp.FilterType=Enum.RaycastFilterType.Exclude
 				rp.FilterDescendantsInstances={MyCharacter, viewmodel, Handle, Flash}
-				local nres = workspace:Raycast(muzzlePos, toDir * (toTarget.Magnitude + 2), rp)
+				local nres = wallHit and Extra.wallRay(muzzlePos, rp)
+					or workspace:Raycast(muzzlePos, toDir * (toTarget.Magnitude + 2), rp)
 				-- impact SEULEMENT si une vraie surface est confirmée — sinon
 				-- l'effet (trou de balle inclus) apparaissait EN L'AIR au bout du rayon
 				if nres then
