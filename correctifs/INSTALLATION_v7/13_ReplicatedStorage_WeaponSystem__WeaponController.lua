@@ -143,6 +143,9 @@ local DEFAULTS = {
 	Cursor = {
 		Color = Color3.fromRGB(255,255,255), Outline = Color3.fromRGB(0,0,0),
 		LineLength = 8, LineThickness = 2, Gap = 3, DotSize = 2, PCScale = 2,
+		-- 🔴 ton image de curseur en ROUGE (rbxassetid://...) : le curseur passe dessus sur un ennemi.
+		--    Nécessaire pour le rouge en caméra libre PC (le curseur système ne se teinte pas).
+		EnemyImage = "",
 		HitColor = Color3.fromRGB(255,80,80), HitLength = 6, HitOffset = 10,
 		HitThickness = 2,
 		-- 🆕 HIT MARKERS : restent visibles puis s'effacent en fondu
@@ -1103,6 +1106,13 @@ function WeaponController.Setup(tool, userConfig)
 		return gui
 	end
 	local function SetMobileCursorColor(color)
+		-- 🖱️ curseur système (PC, caméra libre) : rouge = ton image rouge (Cursor.EnemyImage)
+		if MyMouse and not IsMobile then
+			local enemyImg = C.EnemyImage
+			local want = (type(enemyImg) == "string" and enemyImg ~= "" and color == Color3.new(1, 0, 0))
+				and enemyImg or cfg.CustomCursorID
+			if MyMouse.Icon ~= want then MyMouse.Icon = want end
+		end
 		if not MobileCursorGui then return end
 		local c = MobileCursorGui:FindFirstChild("Crosshair"); if not c then return end
 		local img = c:FindFirstChild("CursorImage")
@@ -2178,11 +2188,11 @@ function WeaponController.Setup(tool, userConfig)
 			if wasScriptable then
 				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			end
-			-- 🎯 même curseur qu'en mode lock / mobile : ton image, qui suit la souris image par
-			--    image (Extra.startCross) et peut devenir rouge. Le curseur système est caché
-			--    (sinon on en verrait deux).
-			UserInputService.MouseIconEnabled = false
+			-- 🖱️ caméra libre : le VRAI curseur système avec ton image (zéro retard).
+			--    Extra.startCross cache l'image d'interface pour ne pas en voir deux.
+			UserInputService.MouseIconEnabled = true
 			if MyMouse then MyMouse.Icon = cfg.CustomCursorID end
+			Extra.retColor = nil   -- la couleur (rouge sur un ennemi) sera réappliquée
 			if MobileCursorGui then MobileCursorGui:Destroy() end
 			MobileCursorGui = buildCursor(false)
 		end
@@ -3003,30 +3013,37 @@ function WeaponController.Setup(tool, userConfig)
 					end
 				end
 				local editing = workspace:GetAttribute("AnimEditorFreeze") == true
-				local scripted = not IsMobile   -- 🎯 notre image remplace toujours le curseur système
-				if scripted and not editing then
-					if UserInputService.MouseIconEnabled then
-						UserInputService.MouseIconEnabled = false
-					end
-				end
+				-- 🖱️ PC, caméra libre (souris libre) : on garde le VRAI curseur de Roblox avec ton image
+				--    (Mouse.Icon) → zéro retard, il est dessiné par le système. Une image d'interface
+				--    qui suit la souris a toujours une image de retard : c'était ça, le « délai ».
+				--    En mode lock / manette / mobile le curseur est au centre → notre image (aucun retard).
+				local sysCur = not IsMobile and not IS_CONSOLE and not CI.IsGamepad()
+					and not WeaponSharedState.IsThirdPersonLock()
 				if g.Enabled == false and not editing then g.Enabled = true end
 				-- 🎯 COMME AVANT : le curseur disparaît pendant la visée sur PC (même règle que
 				--    WeaponMechanics : réglage joueur SettingHideCursorAiming, exception par arme
 				--    KeepCursorWhileAiming). Les hit markers restent visibles.
+				local hide = false
+				-- 🎯 caché SEULEMENT en vraie visée (1re personne zoomée à fond). En mode lock ou en
+				--    caméra libre pas zoomée, le clic droit ne vise pas → le curseur reste.
+				-- 🎮 console : comme sur mobile, le curseur reste toujours affiché
+				if not IsMobile and not IS_CONSOLE
+					and tool:GetAttribute("KeepCursorWhileAiming") ~= true
+					and MyPlayer and MyPlayer:GetAttribute("SettingHideCursorAiming") ~= false then
+					hide = Aiming or (IsActuallyFirstPerson()
+						and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2))
+				end
+				if not editing and not IsMobile then
+					local wantSys = sysCur and not hide
+					if UserInputService.MouseIconEnabled ~= wantSys then
+						UserInputService.MouseIconEnabled = wantSys
+					end
+				end
 				do
 					local img = ct:FindFirstChild("CursorImage")
 					if img then
-						local hide = false
-						-- 🎯 caché SEULEMENT en vraie visée (1re personne zoomée à fond). En mode lock ou en
-						--    caméra libre pas zoomée, le clic droit ne vise pas → le curseur reste.
-						-- 🎮 console : comme sur mobile, le curseur reste toujours affiché
-						if not IsMobile and not IS_CONSOLE
-							and tool:GetAttribute("KeepCursorWhileAiming") ~= true
-							and MyPlayer and MyPlayer:GetAttribute("SettingHideCursorAiming") ~= false then
-							hide = Aiming or (IsActuallyFirstPerson()
-								and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2))
-						end
-						if img.Visible == hide then img.Visible = not hide end
+						local show = not hide and not sysCur
+						if img.Visible ~= show then img.Visible = show end
 					end
 				end
 				local CH = cfg.Crosshair
