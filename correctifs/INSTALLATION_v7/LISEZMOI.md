@@ -17,6 +17,8 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 10 | ServerScriptService | checkpoints system | Script |
 | 11 | ServerScriptService | system ancer reculer level | Script |
 | 12 | StarterPlayer › StarterPlayerScripts | system navigation +1 level -1 level | LocalScript |
+| 13 | ReplicatedStorage › WeaponSystem | WeaponController | ModuleScript |
+| 14 | StarterPlayer › StarterPlayerScripts | WeaponDeathCleanup | LocalScript |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -32,3 +34,4 @@ Ce que ça change :
 - 9 (+ 4, 5) : flèches de feu invisibles en mode performance (« particules » coupées) — les effets de gameplay marqués KeepFX ne sont plus jamais coupés.
 - 10, 11, 12 : flèche -1 qui refusait de descendre après un join sur un checkpoint > 1 (Stage restait à 1) — corrigé. ET faille fermée : le serveur acceptait n'importe quel numéro de niveau (sauter tout l'obby) ; il part maintenant du checkpoint actuel et refuse tout ce qui dépasse le plus haut checkpoint atteint.
 - 9 (mise à jour) : Auto Performance marche dans les deux sens (baisse si FPS < 22, remonte quand les FPS sont bons 60 s, sans va-et-vient).
+- 13, 14 : mode lock PvP — plus de vue bloquée avec curseur libre après la mort, perso qui ne tourne plus contre un mur, caméra sans allocation par image, « Mode » → « Views ».
