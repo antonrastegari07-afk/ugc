@@ -3377,6 +3377,30 @@ function WeaponController.Setup(tool, userConfig)
 		Extra.wall3A = a
 		return a
 	end
+	-- 👻 [Murs] bras + arme TRAVERSENT les murs (local : ton perso est simulé chez toi).
+	--    Les pièces de l'arme retrouvent leur CanCollide d'origine quand on la range.
+	Extra.ghostSaved = {}
+	Extra.ghostPart = function(d)
+		if d:IsA("BasePart") and d.CanCollide then
+			if Extra.ghostSaved[d] == nil then Extra.ghostSaved[d] = true end
+			d.CanCollide = false
+		end
+	end
+	Extra.ghostOn = function()
+		for _, d in ipairs(tool:GetDescendants()) do Extra.ghostPart(d) end
+	end
+	Extra.ghostOff = function()
+		for d in pairs(Extra.ghostSaved) do
+			if d.Parent then d.CanCollide = true end
+		end
+		Extra.ghostSaved = {}
+	end
+	Extra.ghostArms = function()
+		if not MyCharacter then return end
+		local r, l = MyCharacter:FindFirstChild("Right Arm"), MyCharacter:FindFirstChild("Left Arm")
+		if r and r.CanCollide then r.CanCollide = false end
+		if l and l.CanCollide then l.CanCollide = false end
+	end
 	-- lève UN bras autour de son épaule (rotation monde rw), sans créer de table
 	Extra.wallArm = function(wl, rw)
 		if wl and wl.Part0 then
@@ -3822,6 +3846,7 @@ function WeaponController.Setup(tool, userConfig)
 			end
 			-- 🧱 [Murs] 3e personne : bras (et arme) relevés aux épaules contre un mur
 			do
+				Extra.ghostArms()   -- 👻 bras à travers les murs
 				local a3 = Extra.wallThird(dt)
 				local root3 = a3 > 0 and RightArmWeld and RightArmBaseC1 and LeftArmWeld and LeftArmBaseC1
 					and MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
@@ -4907,6 +4932,7 @@ function WeaponController.Setup(tool, userConfig)
 	end
 	tool.DescendantAdded:Connect(function(d)
 		if d:IsA("BasePart") then Extra.toolParts = nil; Extra.realHiddenWas = nil end
+		if MyCharacter and tool.Parent == MyCharacter then Extra.ghostPart(d) end   -- 👻
 	end)
 	tool.DescendantRemoving:Connect(function(d)
 		if d:IsA("BasePart") then Extra.toolParts = nil end
@@ -5471,6 +5497,7 @@ function WeaponController.Setup(tool, userConfig)
 		local headshotThisVolley = false   -- 🆕
 		local impactBudget = (cfg.FX.Impact and cfg.FX.Impact.MaxPerVolley) or 0
 		local tracerEnds = {}   -- on collecte les bouts pour UN seul relais réseau
+		local relayFrom = Flash.Position   -- 🧱 départ des traînées vues par les autres
 		-- 🆕 BALLES TRAÇANTES : 1 tir sur N. Décidé une fois par TIR (les 12 pellets
 		-- d'un shotgun sont donc tracés ensemble, ou pas du tout).
 		Extra.tracerShots += 1
@@ -5513,8 +5540,15 @@ function WeaponController.Setup(tool, userConfig)
 				hitObject, bulletPos = camHit, camHitPos
 			end
 			local endPos = bulletPos or targetPoint
-			if showTracer and not wallHit then   -- 🧱 balle arrêtée net par le mur : pas de traînée
-				SpawnLocalTracer(visualMuzzlePos, endPos, fpNow or Flash)   -- visuel depuis l'arme vue, accroché au canon
+			if showTracer then
+				if wallHit then
+					-- 🧱 canon dans le mur : courte traînée CÔTÉ JOUEUR qui finit sur la face du mur
+					local from = endPos - dir * 1.5
+					SpawnLocalTracer(from, endPos, nil)
+					relayFrom = from
+				else
+					SpawnLocalTracer(visualMuzzlePos, endPos, fpNow or Flash)   -- visuel depuis l'arme vue, accroché au canon
+				end
 				tracerEnds[#tracerEnds+1] = endPos                 -- relais batché après la boucle
 			end
 			local bullet = hitObject and CreateBullet(bulletPos)
@@ -5589,7 +5623,7 @@ function WeaponController.Setup(tool, userConfig)
 				Extra.tracerSig, Extra.tracerSigAt = sig, os.clock()
 				sendStyle = tracerStyle
 			end
-			Receiver:FireServer("Tracer", Flash.Position, tracerEnds, sendStyle)
+			Receiver:FireServer("Tracer", relayFrom, tracerEnds, sendStyle)
 		end
 		if damaged then
 			C.PlayHitSound(headshotThisVolley)   -- 🔊 local : seul le tireur l'entend
@@ -5978,6 +6012,7 @@ function WeaponController.Setup(tool, userConfig)
 		MyHumanoid  = MyCharacter:FindFirstChild("Humanoid")
 		MyMouse     = mouse
 		if MyPlayer then MyPlayer:SetAttribute("WeaponTracerCustom", TT.Style == "Custom") end  -- 🆕
+		Extra.ghostOn()   -- 👻 l'arme traverse les murs
 		-- purge un viewmodel orphelin laissé par une mort précédente
 		for _, m in ipairs(camera:GetChildren()) do
 			if m.Name == "WeaponViewmodel" then m:Destroy() end
@@ -6446,6 +6481,7 @@ function WeaponController.Setup(tool, userConfig)
 		NextAllowedShot = 0   -- 🆕
 	end
 	local function OnUnequipped()
+		Extra.ghostOff()   -- 👻 l'arme rangée / lâchée retrouve ses collisions
 		Extra.share:Stop()
 		Extra.shareEquipCock, Extra.shareGrip, Extra.shareGrab, Extra.shareLastCategory = nil,nil,nil,nil
 		Extra.third=nil
