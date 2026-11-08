@@ -575,6 +575,31 @@ function VFX.Tracer(startPos, endPos, T, key, fromPart)
 	local dist = (endPos - startPos).Magnitude
 	if dist < 0.5 then return end
 
+	if style == "Classic" and typeof(fromPart) == "Instance" and fromPart:IsA("BasePart") then
+		-- 🏃 TRAIT ACCROCHÉ AU CANON : un Beam entre un point SUR le canon et le
+		--    point d'impact. Roblox le redessine tout seul à chaque image (aucun
+		--    code par image) : il ne se décale plus quand on court.
+		local a0 = Instance.new("Attachment")
+		a0.Name = "TracerStart"; a0.Parent = fromPart          -- suit l'arme
+		local a1 = Instance.new("Attachment")
+		a1.Name = "TracerEnd"; a1.WorldPosition = endPos; a1.Parent = workspace.Terrain
+		local b = Instance.new("Beam")
+		b.Attachment0 = a0; b.Attachment1 = a1
+		b.FaceCamera = true; b.Segments = 1
+		b.Width0 = T.Size.X; b.Width1 = T.Size.X
+		b.Color = ColorSequence.new(T.Color)
+		b.Transparency = NumberSequence.new(T.Transparency or 0)
+		b.LightEmission = 1; b.LightInfluence = 0
+		b.Parent = a1
+		if not T._noLight and VFX.Config.TracerLights ~= false then   -- 💡 même lumière qu'avant
+			local l = Instance.new("PointLight"); l.Color = T.LightColor
+			l.Brightness = T.LightBrightness; l.Range = T.LightRange; l.Parent = a1
+		end
+		Debris:AddItem(a0, T.Life)
+		Debris:AddItem(a1, T.Life)   -- le Beam et la lumière partent avec
+		return
+	end
+
 	if style == "Classic" then
 		local p = Instance.new("Part")
 		p.Name="BulletTracer"; p.Anchored=true; p.CanCollide=false; p.CanQuery=false; p.CanTouch=false
@@ -582,27 +607,6 @@ function VFX.Tracer(startPos, endPos, T, key, fromPart)
 		p.Size=Vector3.new(T.Size.X, T.Size.Y, dist)
 		p.CFrame=CFrame.lookAt(startPos, endPos)*CFrame.new(0,0,-dist/2)
 		p.Transparency=T.Transparency; p.Parent=workspace
-		-- 🏃 La barre suit le BOUT DU CANON à chaque image tant qu'elle est visible.
-		--    Avant, elle restait figée là où était le canon au moment du tir : en
-		--    courant, l'arme avançait et la ligne se décalait (derrière / à côté).
-		if typeof(fromPart) == "Instance" and fromPart:IsA("BasePart") then
-			local conn
-			local function follow()
-				if not p.Parent or not fromPart.Parent then
-					if conn then conn:Disconnect(); conn = nil end
-					return
-				end
-				local s0 = fromPart.Position
-				local d = (endPos - s0).Magnitude
-				if d > 0.05 then
-					p.Size = Vector3.new(T.Size.X, T.Size.Y, d)
-					p.CFrame = CFrame.lookAt(s0, endPos) * CFrame.new(0, 0, -d / 2)
-				end
-			end
-			conn = RunService.RenderStepped:Connect(follow)
-			p.Destroying:Connect(function() if conn then conn:Disconnect(); conn = nil end end)
-			follow()
-		end
 		if not T._noLight and VFX.Config.TracerLights ~= false then   -- 💡 traçante classique
 			local l=Instance.new("PointLight"); l.Color=T.LightColor
 			l.Brightness=T.LightBrightness; l.Range=T.LightRange; l.Parent=p
