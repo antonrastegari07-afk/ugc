@@ -1918,7 +1918,14 @@ local function readPing()
 	return 0
 end
 
-local frames, lowCount, autoDone, born = 0, 0, false, os.clock()
+local frames, lowCount, born = 0, 0, os.clock()
+-- ⚡ AUTO PERFORMANCE dans LES DEUX SENS (0 = High · 1 = Medium · 2 = Low · 3 = Custom)
+--   • FPS < 22 pendant 8 s           → un cran plus bas
+--   • FPS bons pendant 60 s           → un cran plus haut (retour vers High)
+--   • 15 s de pause après chaque changement (le temps que les FPS se stabilisent)
+--   • un niveau remonté qui refait chuter les FPS en moins de 2 min est jugé trop lourd pour
+--     cet appareil : on n'y remonte plus de la partie (pas de va-et-vient)
+local AP = { high = 0, changedAt = -1e9, raisedAt = -1e9, cap = 0, peak = 0 }
 RunService.RenderStepped:Connect(function() frames += 1 end)
 task.spawn(function()
 	while true do
@@ -1930,14 +1937,36 @@ task.spawn(function()
 			hudLbl.Text = string.format("FPS %d", fps)
 			hudPing.Text = string.format("PING %d ms", ping)
 		end
-		if loaded and not autoDone and get("SettingAutoPerf") == true
-			and os.clock() - born > 30 and get("SettingPerfPreset") ~= 2 then
-			lowCount = (fps > 0 and fps < 22) and (lowCount + 1) or 0
-			if lowCount >= 8 then
-				autoDone = true
-				applyPreset(2)
-				toast("PERFORMANCE SET TO LOW", "Low FPS detected. Change it in Settings > Performance.")
+		if loaded and get("SettingAutoPerf") == true and os.clock() - born > 30 then
+			local cur = tonumber(get("SettingPerfPreset")) or 0
+			local t = os.clock()
+			AP.peak = math.max(AP.peak, fps)
+			-- « bons FPS » : 50, ou un peu moins sur un appareil bloqué à 30 FPS
+			local good = math.max(28, math.min(50, AP.peak * 0.85))
+			if t - AP.changedAt > 15 then
+				lowCount = (fps > 0 and fps < 22) and (lowCount + 1) or 0
+				AP.high = (fps >= good) and (AP.high + 1) or 0
+				local target
+				if lowCount >= 8 and cur ~= 2 then
+					target = (cur == 0) and 1 or 2           -- High → Medium → Low (Custom → Low)
+					if t - AP.raisedAt < 120 then AP.cap = math.max(AP.cap, target) end
+				elseif AP.high >= 60 and (cur == 1 or cur == 2) and cur - 1 >= AP.cap then
+					target = cur - 1                         -- Low → Medium → High
+					AP.raisedAt = t
+				end
+				if target then
+					lowCount, AP.high, AP.changedAt = 0, 0, t
+					applyPreset(target)
+					local name = (C.PerfPresets[target] and C.PerfPresets[target].name) or "?"
+					if target > cur or cur == 3 then
+						toast("PERFORMANCE: " .. string.upper(name), "Low FPS detected. Change it in Settings > Performance.")
+					else
+						toast("PERFORMANCE: " .. string.upper(name), "Your FPS are better: graphics turned back up.")
+					end
+				end
 			end
+		else
+			lowCount, AP.high = 0, 0
 		end
 		if panelOpen and currentSub == "stats" then refreshStats() end
 		if panelOpen and currentSub == "feedback" then fbRefresh() end
