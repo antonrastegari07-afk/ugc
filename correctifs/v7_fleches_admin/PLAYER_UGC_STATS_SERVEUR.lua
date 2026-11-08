@@ -245,6 +245,7 @@ local function onJoin(p)
 		if prev and type(prev.lsd) == "string" then move(prev.lsd, prev.f, prev.u, -1) end
 		move(dk, f, u, 1)
 	end
+	if not p.Parent then return end   -- parti pendant la lecture : déjà rangé au bon jour, rien à suivre
 	sess[uid] = {
 		lsd = dk, f = f, u = u,
 		pu = prev and prev.pu or nil, tu = prev and prev.tu or nil,
@@ -336,9 +337,11 @@ end
 -- 📥 RATTRAPAGE DES JOUEURS DÉJÀ CONNUS (un seul serveur à la fois)
 --════════════════════════════════════════════════════════════
 local BF = { running = false }
+-- on ne prend que le budget LIBRE : les sauvegardes des joueurs passent toujours avant
 local function budget()
 	local ok, b = pcall(function()
-		return DSS:GetRequestBudgetForRequestType(Enum.DataStoreRequestType.UpdateAsync)
+		return math.min(DSS:GetRequestBudgetForRequestType(Enum.DataStoreRequestType.UpdateAsync),
+			DSS:GetRequestBudgetForRequestType(Enum.DataStoreRequestType.GetAsync))
 	end)
 	return ok and b or 0
 end

@@ -279,7 +279,11 @@ function economy.resolveLastSeen(ids, cb)
 					if id and type(v) == "table" and not v.on then economy.lastSeen[id] = v end
 				end
 			end
-			for _, id in ipairs(chunk) do economy.lsFlight[id] = nil end
+			for _, id in ipairs(chunk) do
+				economy.lsFlight[id] = nil
+				-- pas de réponse pour lui : on ne redemande pas à chaque affichage
+				if economy.lastSeen[id] == nil and not Players:GetPlayerByUserId(id) then economy.lastSeen[id] = {} end
+			end
 		end
 		if waitOthers then
 			local t0 = os.clock()
