@@ -179,7 +179,10 @@ function M.SetNoShiftLockZone(active)
 	inNoShiftLockZone = active
 	if active then
 		modeBeforeZone = mode
-		M.SetMode("FirstPersonAim")
+		-- 👁️ dans l'arène : la vue PRÉFÉRÉE de cet appareil (avant : toujours la 1re personne,
+		--    la préférence était ignorée justement en PvP). Jamais choisie → 1re personne, comme avant.
+		local pref = LocalPlayer:GetAttribute(VIEW_KEY)
+		M.SetMode(pref == 2 and "ThirdPersonLock" or "FirstPersonAim")
 		local bk = getBoundKeys()
 		if bk then bk.Value = "" end
 		local char = LocalPlayer.Character
@@ -202,11 +205,7 @@ task.spawn(function()
 	local v = LocalPlayer:GetAttribute(VIEW_KEY)
 	local want = (v == 1 and "FirstPersonAim") or (v == 2 and "ThirdPersonLock") or nil
 	if not want then return end
-	if inNoShiftLockZone then
-		modeBeforeZone = want          -- zone qui force la 1re personne : la vue revient à la sortie
-	else
-		M.SetMode(want)
-	end
+	M.SetMode(want)                    -- aussi dans l'arène : la zone respecte maintenant la préférence
 end)
 
 -- init shift-lock natif
