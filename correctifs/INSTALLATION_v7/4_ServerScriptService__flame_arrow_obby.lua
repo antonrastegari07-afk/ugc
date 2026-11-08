@@ -31,7 +31,7 @@ local FIRE_SCAN = 0.1 -- granularité de la boucle de tir
 --    Tu peux aussi poser un attribut nombre « ArrowSpeed » sur la Part de la zone :
 --    il est prioritaire et se règle en direct pendant le test.
 local ZONE_SPEED: { [string]: number } = {
-	arrowzone1 = 42, -- niveau 93 : flèches plus lentes (avant 70)
+	arrowzone1 = 22, -- niveau 93 : flèches BEAUCOUP plus lentes (avant 70)
 }
 
 -- ---------- RemoteEvent ----------
