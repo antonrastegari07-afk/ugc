@@ -12,6 +12,7 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 5 | StarterPlayer › StarterPlayerScripts | flame arrow obby | LocalScript |
 | 6 | ReplicatedStorage › WeaponSystem | WeaponMechanics | ModuleScript |
 | 7 | ReplicatedStorage › WeaponSystem | WeaponSharedState | ModuleScript |
+| 8 | ServerScriptService | AntiCheat_UGCRestrict | Script |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -23,3 +24,4 @@ Ce que ça change :
   sur la Part de la zone pour régler en direct.
 - 6 : manette : L3 = sprint activé pour de bon, 2e appui = arrêt (GamepadToggle = false pour l'ancien maintien).
 - 7 : console (Xbox / PlayStation) : 3e personne avec lock par défaut.
+- 8 : anti-cheat : « 🟢 Activer les sanctions » (et toute case qu'on COUPE dans les réglages) ne faisait rien — corrigé.
