@@ -173,7 +173,7 @@ function M.AnyEquipped() return equippedCountNow() > 0 end
 -- ── Zone "no shift-lock" ────────────────────────────────────
 local modeBeforeZone = nil
 function M.SetNoShiftLockZone(active)
-	if IS_MOBILE then return end
+	if IS_MOBILE or IS_CONSOLE then return end   -- 🎮 console : jamais forcé hors du mode lock (comme mobile)
 	active = active and true or false
 	if inNoShiftLockZone == active then return end
 	inNoShiftLockZone = active

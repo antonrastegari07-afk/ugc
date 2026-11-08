@@ -32,6 +32,10 @@ local TweenService     = game:GetService("TweenService")
 local PhysicsService   = game:GetService("PhysicsService")
 local ReplicatedStorage= game:GetService("ReplicatedStorage")
 local GuiService = game:GetService("GuiService")
+-- 🎮 CONSOLE (Xbox / PlayStation) : comme sur mobile, 2 vues SEULEMENT, toutes deux pilotées par
+--    le script : 1re personne (caméra à la tête) et mode lock (vue par défaut). Plus de caméra libre.
+local IS_CONSOLE = false
+pcall(function() IS_CONSOLE = GuiService:IsTenFootInterface() end)
 local AimPivotSettings = require(ReplicatedStorage:WaitForChild("WeaponSystem"):WaitForChild("AimPivotSettings"))
 local WeaponSharedState = require(ReplicatedStorage:WaitForChild("WeaponSystem"):WaitForChild("WeaponSharedState"))
 local RocketFX          = require(ReplicatedStorage:WaitForChild("WeaponSystem"):WaitForChild("RocketFX"))
@@ -762,7 +766,7 @@ function WeaponController.Setup(tool, userConfig)
 			return (camera.CFrame.Position - camera.Focus.Position).Magnitude
 		end
 		-- Notre caméra mobile Scriptable est explicitement en mode FP.
-		if IsMobile and camRenderBound and WeaponSharedState.IsFirstPersonAim() then return 0 end
+		if (IsMobile or IS_CONSOLE) and camRenderBound and WeaponSharedState.IsFirstPersonAim() then return 0 end
 		local head = MyCharacter:FindFirstChild("Head")
 		local root = MyCharacter:FindFirstChild("HumanoidRootPart")
 		if not head then return math.huge end
@@ -2154,7 +2158,7 @@ function WeaponController.Setup(tool, userConfig)
 		local wasScriptable = camera.CameraType == Enum.CameraType.Scriptable
 		RestoreShiftLock(false, IsMobile)
 		-- Préserve les doigts actifs lors du passage FP/TP sur mobile.
-		if IsMobile then
+		if IsMobile or IS_CONSOLE then   -- 🎮 console : mêmes 2 vues scriptées que le mobile
 			-- mobile : TP = caméra scriptable ; FP = caméra scriptable 1re personne
 			SetWholeCharacterHidden(false)
 			SetupShiftLock(useShared, not third)
@@ -6231,7 +6235,7 @@ function WeaponController.Setup(tool, userConfig)
 					elseif k == GP.Reload then
 						task.spawn(Reload)
 					elseif k == GP.ToggleView then
-						if not IsActuallyFirstPerson() then WeaponSharedState.ToggleMode() end
+						if IS_CONSOLE or not IsActuallyFirstPerson() then WeaponSharedState.ToggleMode() end   -- 🎮 console : 1re ↔ lock
 					end
 				end))
 				table.insert(conns, UserInputService.InputEnded:Connect(function(input)
@@ -6248,7 +6252,7 @@ function WeaponController.Setup(tool, userConfig)
 				end))
 				table.insert(conns, RunService.RenderStepped:Connect(function(dt)
 					local st = Extra.padStick
-					if not st or not MyCharacter or not WeaponSharedState.IsThirdPersonLock() then return end
+					if not st or not MyCharacter or not (WeaponSharedState.IsThirdPersonLock() or (IS_CONSOLE and camRenderBound)) then return end   -- 🎮 console : le stick tourne aussi la 1re personne
 					local x, y = st.X, st.Y
 					local dz = GP.StickDeadzone or 0.15
 					local m = math.sqrt(x * x + y * y)
@@ -6454,7 +6458,7 @@ function WeaponController.Setup(tool, userConfig)
 		-- état partagé (sinon le sprint reste "en visée", curseur caché, etc.)
 		WeaponSharedState.SetAiming(false)
 		WeaponSharedState.SetFiring(false)
-		if IsMobile then SetWholeCharacterHidden(false) end
+		if IsMobile or IS_CONSOLE then SetWholeCharacterHidden(false) end
 		-- CAMÉRA : on force le retour en Custom, peu importe le mode (shift-lock inclus).
 		if CameraRenderConnection then CameraRenderConnection:Disconnect(); CameraRenderConnection=nil end
 		if camRenderBound then RunService:UnbindFromRenderStep(camRenderName); camRenderBound=false end
@@ -6533,7 +6537,7 @@ function WeaponController.Setup(tool, userConfig)
 		UserInputService.MouseDeltaSensitivity = 1
 		WeaponSharedState.SetAiming(false)   -- ← coupe le flag visée partagé (sinon curseur reste caché)
 		WeaponSharedState.SetFiring(false)
-		if IsMobile then SetWholeCharacterHidden(false) end
+		if IsMobile or IS_CONSOLE then SetWholeCharacterHidden(false) end
 		UserInputService.MouseIconEnabled = true
 		-- délock UNIQUEMENT si la lunette était RÉELLEMENT active (ScopeAlpha > 0).
 		-- Avant : forcé à CHAQUE déséquipe du sniper, même non scopé → en vraie
