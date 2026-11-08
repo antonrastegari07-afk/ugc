@@ -13,6 +13,7 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 6 | ReplicatedStorage › WeaponSystem | WeaponMechanics | ModuleScript |
 | 7 | ReplicatedStorage › WeaponSystem | WeaponSharedState | ModuleScript |
 | 8 | ServerScriptService | AntiCheat_UGCRestrict | Script |
+| 9 | StarterPlayer › StarterPlayerScripts | SettingsUI | LocalScript |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -25,3 +26,4 @@ Ce que ça change :
 - 6 : manette : L3 = sprint activé pour de bon, 2e appui = arrêt (GamepadToggle = false pour l'ancien maintien).
 - 7 : console (Xbox / PlayStation) : 3e personne avec lock par défaut.
 - 8 : anti-cheat : « 🟢 Activer les sanctions » (et toute case qu'on COUPE dans les réglages) ne faisait rien — corrigé.
+- 9 (+ 4, 5) : flèches de feu invisibles en mode performance (« particules » coupées) — les effets de gameplay marqués KeepFX ne sont plus jamais coupés.

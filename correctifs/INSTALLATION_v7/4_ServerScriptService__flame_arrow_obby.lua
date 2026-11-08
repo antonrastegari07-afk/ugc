@@ -75,6 +75,13 @@ end
 for _, d in ipairs(Workspace:GetDescendants()) do
 	addZone(d)
 end
+do
+	local names = {}
+	for bp in pairs(zones) do table.insert(names, bp.Name) end
+	table.sort(names)
+	print(string.format("🔥 [FlameArrows] %d zone(s) : %s", #names, table.concat(names, ", ")))
+	if #names == 0 then warn("🔥 [FlameArrows] aucune Part « arrowzone… » trouvée dans le Workspace") end
+end
 -- Sur le serveur, pas de streaming : DescendantAdded ne fait pas de spam.
 Workspace.DescendantAdded:Connect(addZone)
 Workspace.DescendantRemoving:Connect(function(inst)

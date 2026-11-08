@@ -17,7 +17,11 @@ local Debris = game:GetService("Debris")
 local ARROW_SPEED = 70
 local ARROW_LIFETIME = 1.5
 
-local arrowModel = ReplicatedStorage:WaitForChild("flamearrow")
+local arrowModel = ReplicatedStorage:WaitForChild("flamearrow", 30)
+if not arrowModel then
+	warn("🔥 [FlameArrows] « flamearrow » introuvable dans ReplicatedStorage : les flèches ne s'afficheront pas")
+	arrowModel = ReplicatedStorage:WaitForChild("flamearrow")
+end
 local spawnEvent = ReplicatedStorage:WaitForChild("SpawnFlameArrow")
 
 -- Son optionnel : mets un objet Sound nommé "ArrowSound" dans
@@ -25,9 +29,19 @@ local spawnEvent = ReplicatedStorage:WaitForChild("SpawnFlameArrow")
 local soundTemplate = ReplicatedStorage:FindFirstChild("ArrowSound")
 
 -- Dossier LOCAL (créé sur le client => non répliqué)
-local folder = Instance.new("Folder")
-folder.Name = "LocalArrows"
-folder.Parent = Workspace
+-- 🔥 KeepFX : la flèche n'est faite QUE d'effets (Beams + particules). Le mode
+--    performance (Settings ▸ particules) ne doit jamais les couper : flèche invisible = mort injuste.
+local folder: Folder? = nil
+local function getFolder(): Folder
+	if not folder or folder.Parent ~= Workspace then
+		folder = Instance.new("Folder")
+		folder.Name = "LocalArrows"
+		folder:SetAttribute("KeepFX", true)
+		folder.Parent = Workspace
+	end
+	return folder :: Folder
+end
+getFolder()
 
 local active: { [Model]: any } = {}
 
@@ -38,7 +52,11 @@ spawnEvent.OnClientEvent:Connect(function(x, y, startZ, dirZ, spawnTime, speed, 
 	local rot = CFrame.lookAt(Vector3.zero, dir) -- orientation seule
 
 	arrow:PivotTo(CFrame.new(spawnPos) * rot)
-	arrow.Parent = folder
+	arrow.Parent = getFolder()
+	-- au cas où un effet aurait été désactivé dans le modèle source
+	for _, d in ipairs(arrow:GetDescendants()) do
+		if d:IsA("Beam") or d:IsA("ParticleEmitter") then d.Enabled = true end
+	end
 
 	active[arrow] = {
 		x = x,
