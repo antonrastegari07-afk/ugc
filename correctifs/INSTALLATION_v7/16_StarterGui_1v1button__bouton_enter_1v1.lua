@@ -208,6 +208,41 @@ padIcon.ZIndex = 3
 padIcon.Visible = false
 padIcon.Parent = exitButton
 pcall(function() padIcon.Image = UserInputService:GetImageForKeyCode(Enum.KeyCode.DPadRight) end)
+-- ⌨️ PC : une vraie TOUCHE DE CLAVIER « L » (touche claire, bord foncé en dessous)
+local KEY = 26
+local keycap = Instance.new("Frame")
+keycap.Name = "KeyCap"
+keycap.AnchorPoint = Vector2.new(0, 0.5)
+keycap.Position = UDim2.new(0, 9, 0.5, 0)
+keycap.Size = UDim2.fromOffset(KEY, KEY)
+keycap.BackgroundColor3 = Color3.fromRGB(70, 20, 20)          -- bord foncé (épaisseur de la touche)
+keycap.BorderSizePixel = 0
+keycap.ZIndex = 3
+keycap.Visible = false
+keycap.Parent = exitButton
+Instance.new("UICorner", keycap).CornerRadius = UDim.new(0, 6)
+local keyTop = Instance.new("Frame")
+keyTop.Name = "Top"
+keyTop.Size = UDim2.new(1, 0, 1, -4)                           -- le dessus, un peu plus haut que le bord
+keyTop.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
+keyTop.BorderSizePixel = 0
+keyTop.ZIndex = 4
+keyTop.Parent = keycap
+Instance.new("UICorner", keyTop).CornerRadius = UDim.new(0, 6)
+local keyStroke = Instance.new("UIStroke", keyTop)
+keyStroke.Color = Color3.fromRGB(70, 20, 20)
+keyStroke.Thickness = 1.5
+keyStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+local keyLetter = Instance.new("TextLabel")
+keyLetter.Name = "Letter"
+keyLetter.BackgroundTransparency = 1
+keyLetter.Size = UDim2.fromScale(1, 1)
+keyLetter.FontFace = FREDOKA
+keyLetter.Text = "L"
+keyLetter.TextSize = 18
+keyLetter.TextColor3 = Color3.fromRGB(40, 40, 40)
+keyLetter.ZIndex = 5
+keyLetter.Parent = keyTop
 local function usingGamepad()
 	if IS_CONSOLE then return true end
 	local t = UserInputService:GetLastInputType()
@@ -216,15 +251,16 @@ end
 local function refreshExitKey()
 	if isMobile then return end
 	if usingGamepad() then
+		keycap.Visible = false
 		if padIcon.Image ~= "" then
-			padIcon.Visible, iconLabel.Visible = true, false
+			padIcon.Visible, iconLabel.Visible = true, false      -- 🎮 le signe de la manette (comme pour les armes)
 		else
 			padIcon.Visible, iconLabel.Visible = false, true
 			iconLabel.Text = "▶"
 		end
 	else
-		padIcon.Visible, iconLabel.Visible = false, true
-		iconLabel.Text = "L"
+		padIcon.Visible, iconLabel.Visible = false, false
+		keycap.Visible = true                                     -- ⌨️ la touche L
 	end
 end
 refreshExitKey()
