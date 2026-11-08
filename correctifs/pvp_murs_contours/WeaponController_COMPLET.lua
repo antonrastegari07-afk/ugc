@@ -3325,42 +3325,64 @@ function WeaponController.Setup(tool, userConfig)
 		if seg.Magnitude < 0.5 then return nil end
 		return workspace:Raycast(body, seg.Unit * (seg.Magnitude + 0.5), rp)
 	end
-	-- 🧱 [Murs] 3e PERSONNE : l'arme se relève contre un mur (comme en 1re personne).
-	--    Rayon poitrine → direction de l'arme (mesurée bras baissés) ; si un mur est
-	--    plus proche que le bout du canon, les bras pivotent vers le haut aux épaules.
-	--    Que des rayons : rien n'est rendu « CanCollide », aucun accrochage aux murs.
-	Extra.wall3A = 0
+	-- 🧱 [Murs] 3e PERSONNE : l'arme se relève contre un mur (que des rayons, aucun CanCollide).
+	--    ⚡ Rayon 20×/s (10×/s en mode performance), lissage à chaque image,
+	--    paramètres de rayon préparés une seule fois par personnage.
+	Extra.wall3A, Extra.wall3T, Extra.wall3Next = 0, 0, 0
+	Extra.wall3Params = RaycastParams.new()
+	Extra.wall3Params.FilterType = Enum.RaycastFilterType.Exclude
+	Extra.wall3Params.RespectCanCollide = true
 	Extra.wallThird = function(dt)
 		local W = CS.WallPose
-		local root = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
-		if CS.Enabled == false or not W or W.Enabled == false or not root or not Flash or not Flash.Parent
-			or (viewmodel and viewmodel.Parent == camera) or tool.Parent ~= MyCharacter then
-			Extra.wall3A, Extra.wall3Rel = 0, nil
+		if CS.Enabled == false or not W or W.Enabled == false or not MyCharacter
+			or tool.Parent ~= MyCharacter or not Flash or not Flash.Parent
+			or (viewmodel and viewmodel.Parent == camera) then
+			Extra.wall3A, Extra.wall3T, Extra.wall3Rel = 0, 0, nil
 			return 0
 		end
-		local chest = root.Position + Vector3.new(0, 1.5, 0)
-		if Extra.wall3A < 0.02 or not Extra.wall3Rel then
-			local v = Flash.Position - chest
-			if v.Magnitude > 0.5 and v.Magnitude < 10 then Extra.wall3Rel = root.CFrame:VectorToObjectSpace(v) end
-		end
-		local target = 0
-		if Extra.wall3Rel then
-			local v = root.CFrame:VectorToWorldSpace(Extra.wall3Rel)
-			local len = v.Magnitude + (W.Margin or 0.35)
-			Extra.wallParams.FilterDescendantsInstances = { MyCharacter, camera }
-			local res = workspace:Raycast(chest, v.Unit * len, Extra.wallParams)
-			if res and res.Instance and res.Instance.CanCollide and res.Instance.Transparency < 0.9 then
-				local m = res.Instance:FindFirstAncestorOfClass("Model")
-				local isChar = m and m:FindFirstChildOfClass("Humanoid") ~= nil
-				local inTool = res.Instance:FindFirstAncestorOfClass("Tool") or res.Instance:FindFirstAncestorOfClass("Accessory")
-				if not isChar and not inTool then
-					target = math.clamp((len - res.Distance) / (len * 0.55), 0, 1)
+		local root = MyCharacter:FindFirstChild("HumanoidRootPart")
+		if not root then return 0 end
+		local now = os.clock()
+		if now >= Extra.wall3Next then
+			Extra.wall3Next = now + ((Extra.perfOn and 0.1) or 0.05)
+			if Extra.wall3Char ~= MyCharacter then
+				Extra.wall3Char = MyCharacter
+				Extra.wall3Params.FilterDescendantsInstances = { MyCharacter, camera }
+			end
+			local chest = root.Position + Vector3.new(0, 1.5, 0)
+			if Extra.wall3A < 0.02 or not Extra.wall3Rel then
+				local v = Flash.Position - chest
+				if v.Magnitude > 0.5 and v.Magnitude < 10 then Extra.wall3Rel = root.CFrame:VectorToObjectSpace(v) end
+			end
+			local target = 0
+			if Extra.wall3Rel then
+				local v = root.CFrame:VectorToWorldSpace(Extra.wall3Rel)
+				local len = v.Magnitude + (W.Margin or 0.35)
+				local res = workspace:Raycast(chest, v.Unit * len, Extra.wall3Params)
+				local inst = res and res.Instance
+				if inst and inst.Transparency < 0.9
+					and not inst:FindFirstAncestorOfClass("Tool") and not inst:FindFirstAncestorOfClass("Accessory") then
+					local m = inst:FindFirstAncestorOfClass("Model")
+					if not (m and m:FindFirstChildOfClass("Humanoid")) then
+						target = math.clamp((len - res.Distance) / (len * 0.55), 0, 1)
+					end
 				end
 			end
+			Extra.wall3T = target
 		end
-		Extra.wall3A += (target - Extra.wall3A) * math.clamp((dt or 0.016) * (W.Speed or 14), 0, 1)
-		if Extra.wall3A < 0.002 then Extra.wall3A = 0 end
-		return Extra.wall3A
+		local a = Extra.wall3A
+		if a == 0 and Extra.wall3T == 0 then return 0 end
+		a += (Extra.wall3T - a) * math.clamp((dt or 0.016) * (W.Speed or 14), 0, 1)
+		if a < 0.002 then a = 0 end
+		Extra.wall3A = a
+		return a
+	end
+	-- lève UN bras autour de son épaule (rotation monde rw), sans créer de table
+	Extra.wallArm = function(wl, rw)
+		if wl and wl.Part0 then
+			local jr = (wl.Part0.CFrame * wl.C0).Rotation
+			wl.C1 = wl.C1 * (jr:Inverse() * rw * jr):Inverse()
+		end
 	end
 	local function AddRecoilKick()
 		if Aiming and Extra.freezeAim() then return end
@@ -3807,12 +3829,8 @@ function WeaponController.Setup(tool, userConfig)
 					local e3 = a3 * a3 * (3 - 2 * a3)
 					local W3 = CS.WallPose
 					local rw = CFrame.fromAxisAngle(root3.CFrame.RightVector, math.rad((W3.RaiseThird or 70) * e3))
-					for _, wl in ipairs({ RightArmWeld, LeftArmWeld }) do
-						if wl and wl.Part0 then
-							local jr = (wl.Part0.CFrame * wl.C0).Rotation
-							wl.C1 = wl.C1 * (jr:Inverse() * rw * jr):Inverse()
-						end
-					end
+					Extra.wallArm(RightArmWeld, rw)
+					Extra.wallArm(LeftArmWeld, rw)
 				end
 			end
 			Extra.thirdUpdate(swayUse, mAlpha, mPoseL, mPoseR, aimCF)
