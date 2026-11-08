@@ -3325,6 +3325,22 @@ function WeaponController.Setup(tool, userConfig)
 		if seg.Magnitude < 0.5 then return nil end
 		return workspace:Raycast(body, seg.Unit * (seg.Magnitude + 0.5), rp)
 	end
+	-- 🧱 [Murs] face du mur traversé CÔTÉ CANON : rayon qui revient vers le joueur depuis
+	--    un peu au-delà du canon, et qui ne peut toucher QUE ce mur-là
+	Extra.wallFarParams = RaycastParams.new()
+	Extra.wallFarParams.FilterType = Enum.RaycastFilterType.Include
+	Extra.wallFar = function(wall, muzzlePos, nearPos)
+		if partIsCharacter(wall) then return nil end
+		local root = MyCharacter and MyCharacter:FindFirstChild("HumanoidRootPart")
+		if not root then return nil end
+		local u = muzzlePos - (root.Position + Vector3.new(0, 1.5, 0))
+		if u.Magnitude < 0.5 then return nil end
+		u = u.Unit
+		Extra.wallFarParams.FilterDescendantsInstances = { wall }
+		local from = muzzlePos + u * 3
+		local back = 3 + (nearPos and (muzzlePos - nearPos).Magnitude or 0) + 0.1
+		return workspace:Raycast(from, -u * back, Extra.wallFarParams)
+	end
 	-- 🧱 [Murs] 3e PERSONNE : l'arme se relève contre un mur (que des rayons, aucun CanCollide).
 	--    ⚡ Rayon 20×/s (10×/s en mode performance), lissage à chaque image,
 	--    paramètres de rayon préparés une seule fois par personnage.
@@ -5529,15 +5545,12 @@ function WeaponController.Setup(tool, userConfig)
 			local toTarget = targetPoint - muzzlePos
 			local toDir = (toTarget.Magnitude > 1e-3) and toTarget.Unit or dir
 			local hitObject, bulletPos
-			-- 3) 🧱 canon passé de l'autre côté d'un mur : la balle part DU CANON, tout droit
-			--    (le point visé par la caméra est sur le mur, côté joueur → on ne le vise pas).
-			--    Effet + traînée côté canon. Dégâts aux joueurs : WallPose.MuzzleDamage (false = aucun)
-			local wallHit = Extra.muzzleBlocked(muzzlePos)
-			local noDmg = wallHit ~= nil and not (CS.WallPose and CS.WallPose.MuzzleDamage == true)
+			-- 3) 🧱 canon passé à travers un mur : la balle s'arrête sur CE mur, mais sur sa face
+			--    CÔTÉ CANON (traînée + effets là où est le canon, jamais derrière le mur)
+			local wallHit, wallPos = Extra.muzzleBlocked(muzzlePos)
+			local wallRes = wallHit and Extra.wallFar(wallHit, muzzlePos, wallPos)
 			if wallHit then
-				toDir = dir
-				hitObject, bulletPos = RayCast(muzzlePos, dir, cfg.Range)
-				targetPoint = muzzlePos + dir * cfg.Range
+				hitObject, bulletPos = wallHit, (wallRes and wallRes.Position) or wallPos
 			elseif toTarget.Magnitude > 0.5 then
 				hitObject, bulletPos = RayCast(muzzlePos, toDir, toTarget.Magnitude + 2)
 			else
@@ -5556,7 +5569,7 @@ function WeaponController.Setup(tool, userConfig)
 				if hum then
 					hitHumanoidOrEgg = true
 					local hp = Players:GetPlayerFromCharacter(hum.Parent)
-					if not noDmg and (MyPlayer.Neutral or (hp and hp.TeamColor ~= MyPlayer.TeamColor) or not hp) then
+					if MyPlayer.Neutral or (hp and hp.TeamColor ~= MyPlayer.TeamColor) or not hp then
 						-- 🎯 HEADSHOT : la part réellement touchée décide
 						local isHead = cfg.Headshot.Enabled and partIsHead(hitObject) or false
 						local dmg = isHead
@@ -5586,7 +5599,7 @@ function WeaponController.Setup(tool, userConfig)
 					end
 				end
 				local egg = model and model:FindFirstChild("Egglon")
-				if egg and not noDmg then
+				if egg then
 					hitHumanoidOrEgg = true
 					Receiver:FireServer("Damage", egg, cfg.Damage, MyPlayer)
 					if bullet then bullet:Destroy(); bullet=nil end
@@ -5600,9 +5613,9 @@ function WeaponController.Setup(tool, userConfig)
 				impactBudget -= 1
 				local rp = RaycastParams.new(); rp.FilterType=Enum.RaycastFilterType.Exclude
 				rp.FilterDescendantsInstances={MyCharacter, viewmodel, Handle, Flash}
-				-- 🧱 rayon canon → point touché : l'effet se pose sur la face vue DEPUIS le canon
-				local seg = (bulletPos or endPos) - muzzlePos
-				local nres = (seg.Magnitude > 1e-3) and workspace:Raycast(muzzlePos, seg.Unit * (seg.Magnitude + 0.5), rp) or nil
+				-- 🧱 canon dans un mur : l'effet se pose sur la face du mur CÔTÉ CANON
+				local nres = wallRes or (wallHit and Extra.wallRay(muzzlePos, rp))
+					or workspace:Raycast(muzzlePos, toDir * (toTarget.Magnitude + 2), rp)
 				-- impact SEULEMENT si une vraie surface est confirmée — sinon
 				-- l'effet (trou de balle inclus) apparaissait EN L'AIR au bout du rayon
 				if nres then
