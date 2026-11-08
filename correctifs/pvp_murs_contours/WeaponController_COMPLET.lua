@@ -861,9 +861,10 @@ function WeaponController.Setup(tool, userConfig)
 	-- ========================================================
 	-- FX LOCAUX (chaque client les spawn selon le config)
 	-- ========================================================
-	local function SpawnLocalTracer(startPos, endPos)
+	local function SpawnLocalTracer(startPos, endPos, fromPart)
 		if not WeaponVFX.TracersEnabled() then return end   -- interrupteur global
-		WeaponVFX.Tracer(startPos, endPos, tracerStyle, tool)   -- tracerStyle = params + style résolu
+		-- fromPart = le bout du canon : la traînée reste ACCROCHÉE à l'arme (même en courant)
+		WeaponVFX.Tracer(startPos, endPos, tracerStyle, tool, fromPart)   -- tracerStyle = params + style résolu
 	end
 	-- 🆕 o = les réglages de CETTE éjection (posés dans l'Anim Studio).
 	-- Sans o, on retombe sur les valeurs d'avant : rien ne change.
@@ -5495,7 +5496,7 @@ function WeaponController.Setup(tool, userConfig)
 			end
 			local endPos = bulletPos or targetPoint
 			if showTracer and not wallHit then   -- 🧱 balle arrêtée net par le mur : pas de traînée
-				SpawnLocalTracer(visualMuzzlePos, endPos)          -- visuel depuis l'arme vue
+				SpawnLocalTracer(visualMuzzlePos, endPos, fpNow or Flash)   -- visuel depuis l'arme vue, accroché au canon
 				tracerEnds[#tracerEnds+1] = endPos                 -- relais batché après la boucle
 			end
 			local bullet = hitObject and CreateBullet(bulletPos)
