@@ -6155,7 +6155,6 @@ function WeaponController.Setup(tool, userConfig)
 			if cfg.ADS.Enabled then table.insert(keys, {key="Q",action="Aim", image=cfg.KeyIcons.Aim}) end
 			table.insert(keys, {key="Shift",action="Sprint"})
 			table.insert(keys, {key="C",action="Slide"})
-			table.insert(keys, {key="V",action="Inspect"})
 			table.insert(keys, {key="B",action="Views"})
 			table.insert(keys, {key="H",action="Hide Controls"})   -- 🆕 toujours en bas
 			styleAmmoHud(keys)
@@ -6236,8 +6235,6 @@ function WeaponController.Setup(tool, userConfig)
 						Extra.requestAim("pad", true)
 					elseif k == GP.Reload then
 						task.spawn(Reload)
-					elseif k == GP.Inspect then
-						task.spawn(Extra.playInspect)
 					elseif k == GP.ToggleView then
 						if not IsActuallyFirstPerson() then WeaponSharedState.ToggleMode() end
 					end
@@ -6359,7 +6356,7 @@ function WeaponController.Setup(tool, userConfig)
 			if cfg.ADS.Enabled and input.KeyCode==Enum.KeyCode.Q then Extra.requestAim("key", true) end
 			if not IsMobile and input.KeyCode==Enum.KeyCode.H then ToggleControls() end
 			-- 🆕 V = INSPECTION (spammable : chaque appui repart du début)
-			if input.KeyCode == Enum.KeyCode.V then task.spawn(Extra.playInspect) end
+			-- (inspection retirée : la touche V ne fait plus rien)
 			-- le changement de mode passe sur B (V est pris par l'inspection)
 			if not IsMobile and input.KeyCode==Enum.KeyCode.B then
 				-- en VRAIE 1re personne (viewmodel actif), on n'autorise pas le changement de mode
