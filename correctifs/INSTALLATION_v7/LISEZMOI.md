@@ -14,6 +14,9 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 7 | ReplicatedStorage › WeaponSystem | WeaponSharedState | ModuleScript |
 | 8 | ServerScriptService | AntiCheat_UGCRestrict | Script |
 | 9 | StarterPlayer › StarterPlayerScripts | SettingsUI | LocalScript |
+| 10 | ServerScriptService | checkpoints system | Script |
+| 11 | ServerScriptService | system ancer reculer level | Script |
+| 12 | StarterPlayer › StarterPlayerScripts | system navigation +1 level -1 level | LocalScript |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -27,3 +30,4 @@ Ce que ça change :
 - 7 : console (Xbox / PlayStation) : 3e personne avec lock par défaut.
 - 8 : anti-cheat : « 🟢 Activer les sanctions » (et toute case qu'on COUPE dans les réglages) ne faisait rien — corrigé.
 - 9 (+ 4, 5) : flèches de feu invisibles en mode performance (« particules » coupées) — les effets de gameplay marqués KeepFX ne sont plus jamais coupés.
+- 10, 11, 12 : flèche -1 qui refusait de descendre après un join sur un checkpoint > 1 (Stage restait à 1) — corrigé. ET faille fermée : le serveur acceptait n'importe quel numéro de niveau (sauter tout l'obby) ; il part maintenant du checkpoint actuel et refuse tout ce qui dépasse le plus haut checkpoint atteint.
