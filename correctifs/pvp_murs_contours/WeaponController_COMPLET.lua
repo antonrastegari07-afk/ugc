@@ -5497,7 +5497,6 @@ function WeaponController.Setup(tool, userConfig)
 		local headshotThisVolley = false   -- 🆕
 		local impactBudget = (cfg.FX.Impact and cfg.FX.Impact.MaxPerVolley) or 0
 		local tracerEnds = {}   -- on collecte les bouts pour UN seul relais réseau
-		local relayFrom = Flash.Position   -- 🧱 départ des traînées vues par les autres
 		-- 🆕 BALLES TRAÇANTES : 1 tir sur N. Décidé une fois par TIR (les 12 pellets
 		-- d'un shotgun sont donc tracés ensemble, ou pas du tout).
 		Extra.tracerShots += 1
@@ -5530,25 +5529,23 @@ function WeaponController.Setup(tool, userConfig)
 			local toTarget = targetPoint - muzzlePos
 			local toDir = (toTarget.Magnitude > 1e-3) and toTarget.Unit or dir
 			local hitObject, bulletPos
-			-- 3) 🧱 canon rentré dans un mur : la balle s'arrête sur CE mur
-			local wallHit, wallPos = Extra.muzzleBlocked(muzzlePos)
+			-- 3) 🧱 canon passé de l'autre côté d'un mur : la balle part DU CANON, tout droit
+			--    (le point visé par la caméra est sur le mur, côté joueur → on ne le vise pas).
+			--    Effet + traînée côté canon. Dégâts aux joueurs : WallPose.MuzzleDamage (false = aucun)
+			local wallHit = Extra.muzzleBlocked(muzzlePos)
+			local noDmg = wallHit ~= nil and not (CS.WallPose and CS.WallPose.MuzzleDamage == true)
 			if wallHit then
-				hitObject, bulletPos = wallHit, wallPos
+				toDir = dir
+				hitObject, bulletPos = RayCast(muzzlePos, dir, cfg.Range)
+				targetPoint = muzzlePos + dir * cfg.Range
 			elseif toTarget.Magnitude > 0.5 then
 				hitObject, bulletPos = RayCast(muzzlePos, toDir, toTarget.Magnitude + 2)
 			else
 				hitObject, bulletPos = camHit, camHitPos
 			end
 			local endPos = bulletPos or targetPoint
-			if showTracer then
-				if wallHit then
-					-- 🧱 canon dans le mur : courte traînée CÔTÉ JOUEUR qui finit sur la face du mur
-					local from = endPos - dir * 1.5
-					SpawnLocalTracer(from, endPos, nil)
-					relayFrom = from
-				else
-					SpawnLocalTracer(visualMuzzlePos, endPos, fpNow or Flash)   -- visuel depuis l'arme vue, accroché au canon
-				end
+			if showTracer then   -- la traînée part TOUJOURS du canon
+				SpawnLocalTracer(visualMuzzlePos, endPos, fpNow or Flash)   -- visuel depuis l'arme vue, accroché au canon
 				tracerEnds[#tracerEnds+1] = endPos                 -- relais batché après la boucle
 			end
 			local bullet = hitObject and CreateBullet(bulletPos)
@@ -5559,7 +5556,7 @@ function WeaponController.Setup(tool, userConfig)
 				if hum then
 					hitHumanoidOrEgg = true
 					local hp = Players:GetPlayerFromCharacter(hum.Parent)
-					if MyPlayer.Neutral or (hp and hp.TeamColor ~= MyPlayer.TeamColor) or not hp then
+					if not noDmg and (MyPlayer.Neutral or (hp and hp.TeamColor ~= MyPlayer.TeamColor) or not hp) then
 						-- 🎯 HEADSHOT : la part réellement touchée décide
 						local isHead = cfg.Headshot.Enabled and partIsHead(hitObject) or false
 						local dmg = isHead
@@ -5589,7 +5586,7 @@ function WeaponController.Setup(tool, userConfig)
 					end
 				end
 				local egg = model and model:FindFirstChild("Egglon")
-				if egg then
+				if egg and not noDmg then
 					hitHumanoidOrEgg = true
 					Receiver:FireServer("Damage", egg, cfg.Damage, MyPlayer)
 					if bullet then bullet:Destroy(); bullet=nil end
@@ -5603,8 +5600,9 @@ function WeaponController.Setup(tool, userConfig)
 				impactBudget -= 1
 				local rp = RaycastParams.new(); rp.FilterType=Enum.RaycastFilterType.Exclude
 				rp.FilterDescendantsInstances={MyCharacter, viewmodel, Handle, Flash}
-				local nres = wallHit and Extra.wallRay(muzzlePos, rp)
-					or workspace:Raycast(muzzlePos, toDir * (toTarget.Magnitude + 2), rp)
+				-- 🧱 rayon canon → point touché : l'effet se pose sur la face vue DEPUIS le canon
+				local seg = (bulletPos or endPos) - muzzlePos
+				local nres = (seg.Magnitude > 1e-3) and workspace:Raycast(muzzlePos, seg.Unit * (seg.Magnitude + 0.5), rp) or nil
 				-- impact SEULEMENT si une vraie surface est confirmée — sinon
 				-- l'effet (trou de balle inclus) apparaissait EN L'AIR au bout du rayon
 				if nres then
@@ -5623,7 +5621,7 @@ function WeaponController.Setup(tool, userConfig)
 				Extra.tracerSig, Extra.tracerSigAt = sig, os.clock()
 				sendStyle = tracerStyle
 			end
-			Receiver:FireServer("Tracer", relayFrom, tracerEnds, sendStyle)
+			Receiver:FireServer("Tracer", Flash.Position, tracerEnds, sendStyle)
 		end
 		if damaged then
 			C.PlayHitSound(headshotThisVolley)   -- 🔊 local : seul le tireur l'entend
