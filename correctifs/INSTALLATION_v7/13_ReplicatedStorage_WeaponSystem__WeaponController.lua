@@ -1051,7 +1051,9 @@ function WeaponController.Setup(tool, userConfig)
 			img.ScaleType = Enum.ScaleType.Fit
 			img.AnchorPoint = Vector2.new(0.5, 0.5)
 			img.Position = UDim2.new(0.5, 0, 0.5, 0)
-			local isz = (C.ImageSize or 34) * (IsMobile and 1 or (C.ImagePCScale or 1))
+			-- taille du curseur libre de Roblox (ton image affichée à sa taille normale : 64 px)
+			--    → réglable : Cursor.ImageSize (tout le monde) · Cursor.ImageMobileScale (mobile)
+			local isz = (C.ImageSize or 64) * (IsMobile and (C.ImageMobileScale or 1) or 1)
 			img.Size = UDim2.fromOffset(isz, isz)
 			img.ZIndex = 2
 			img.Parent = container
