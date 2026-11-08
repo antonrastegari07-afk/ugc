@@ -3334,7 +3334,7 @@ function WeaponController.Setup(tool, userConfig)
 	Extra.wall3Params.RespectCanCollide = true
 	Extra.wallThird = function(dt)
 		local W = CS.WallPose
-		if CS.Enabled == false or not W or W.Enabled == false or not MyCharacter
+		if CS.Enabled == false or not W or W.Enabled == false or W.Third == false or not MyCharacter
 			or tool.Parent ~= MyCharacter or not Flash or not Flash.Parent
 			or (viewmodel and viewmodel.Parent == camera) then
 			Extra.wall3A, Extra.wall3T, Extra.wall3Rel = 0, 0, nil
