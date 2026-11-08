@@ -3008,6 +3008,20 @@ function WeaponController.Setup(tool, userConfig)
 					end
 				end
 				if g.Enabled == false and not editing then g.Enabled = true end
+				-- 🎯 COMME AVANT : le curseur disparaît pendant la visée sur PC (même règle que
+				--    WeaponMechanics : réglage joueur SettingHideCursorAiming, exception par arme
+				--    KeepCursorWhileAiming). Les hit markers restent visibles.
+				do
+					local img = ct:FindFirstChild("CursorImage")
+					if img then
+						local hide = false
+						if not IsMobile and tool:GetAttribute("KeepCursorWhileAiming") ~= true
+							and MyPlayer and MyPlayer:GetAttribute("SettingHideCursorAiming") ~= false then
+							hide = Aiming or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+						end
+						if img.Visible == hide then img.Visible = not hide end
+					end
+				end
 				local CH = cfg.Crosshair
 				if CH and CH.HideInScope and cfg.ADS.Scope then
 					ct.Visible = not (Aiming or ScopeAlpha > 0.02)
