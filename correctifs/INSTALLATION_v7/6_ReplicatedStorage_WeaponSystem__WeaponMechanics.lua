@@ -748,6 +748,16 @@ function WeaponMechanics.Setup(userConfig)
 		WeaponSharedState.PublishWeaponPose(poseL, poseR)
 	end
 
+	-- 🎯 la visée n'existe qu'en VRAIE 1re personne (zoomé à fond, pas en mode lock).
+	--    Ailleurs, le clic droit ne vise pas : il ne coupe ni le sprint ni le curseur.
+	local function aimHeldReal()
+		if not aimInputHeld then return false end
+		if WeaponSharedState.IsThirdPersonLock() then return false end
+		local cam = workspace.CurrentCamera
+		if not cam or cam.CameraType ~= Enum.CameraType.Custom then return false end
+		return (cam.CFrame.Position - cam.Focus.Position).Magnitude < 1.5
+	end
+
 	local function hideCursorWhileAiming()
 		-- exception PAR ARME : un Tool avec l'attribut KeepCursorWhileAiming=true
 		-- garde TOUJOURS le curseur en visée (ex: minigun), peu importe le réglage joueur.
@@ -776,7 +786,7 @@ function WeaponMechanics.Setup(userConfig)
 		-- cursor caché pendant la visée. En SORTANT de visée on remet TOUJOURS le cursor
 		-- visible (évite qu'il reste caché après la lunette du sniper, où le scope le cache aussi).
 		if hideCursorWhileAiming() then
-			local aimingNow = weaponOK and (aimInputHeld or WeaponSharedState.IsAiming())
+			local aimingNow = weaponOK and (aimHeldReal() or WeaponSharedState.IsAiming())
 			if aimingNow and not cursorHidden then
 				UserInputService.MouseIconEnabled = false
 				cursorHidden = true
@@ -837,7 +847,7 @@ function WeaponMechanics.Setup(userConfig)
 		-- ── état SPRINT ──
 		local wantSprint = cfg.Sprint.Enabled and sprintHeld and not sliding
 		if wantSprint and now < suppressedUntil then wantSprint = false end   -- pause courte après un tir
-		if wantSprint and (WeaponSharedState.IsAiming() or aimInputHeld) then wantSprint = false end  -- pause TANT qu'on vise (reprise au relâché)
+		if wantSprint and (WeaponSharedState.IsAiming() or aimHeldReal()) then wantSprint = false end  -- pause TANT qu'on vise (reprise au relâché)
 		local firingNow = fireInputHeld or WeaponSharedState.IsFiring()
 		if prevFiring and not firingNow then
 			fireSuppressUntil = now + cfg.Sprint.RecoverTime   -- reprise smooth après la rafale

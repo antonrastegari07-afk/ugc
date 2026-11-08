@@ -3022,9 +3022,14 @@ function WeaponController.Setup(tool, userConfig)
 					local img = ct:FindFirstChild("CursorImage")
 					if img then
 						local hide = false
-						if not IsMobile and tool:GetAttribute("KeepCursorWhileAiming") ~= true
+						-- 🎯 caché SEULEMENT en vraie visée (1re personne zoomée à fond). En mode lock ou en
+						--    caméra libre pas zoomée, le clic droit ne vise pas → le curseur reste.
+						-- 🎮 console : comme sur mobile, le curseur reste toujours affiché
+						if not IsMobile and not IS_CONSOLE
+							and tool:GetAttribute("KeepCursorWhileAiming") ~= true
 							and MyPlayer and MyPlayer:GetAttribute("SettingHideCursorAiming") ~= false then
-							hide = Aiming or UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+							hide = Aiming or (IsActuallyFirstPerson()
+								and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2))
 						end
 						if img.Visible == hide then img.Visible = not hide end
 					end
