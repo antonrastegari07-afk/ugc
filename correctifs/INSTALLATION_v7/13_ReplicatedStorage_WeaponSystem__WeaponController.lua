@@ -2168,6 +2168,9 @@ function WeaponController.Setup(tool, userConfig)
 		end
 		if SavedMouseIconEnabled == nil then SavedMouseIconEnabled = UserInputService.MouseIconEnabled end
 		if third then
+			-- 👁️ on arrive peut-être d'un zoom 1re personne : le corps avait été caché par la caméra
+			--    de Roblox, qui ne le réaffiche plus une fois la caméra scriptée → on le réaffiche.
+			SetWholeCharacterHidden(false)
 			SetupShiftLock(useShared)
 			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 			UserInputService.MouseIconEnabled = false
@@ -6235,7 +6238,7 @@ function WeaponController.Setup(tool, userConfig)
 					elseif k == GP.Reload then
 						task.spawn(Reload)
 					elseif k == GP.ToggleView then
-						if IS_CONSOLE or not IsActuallyFirstPerson() then WeaponSharedState.ToggleMode() end   -- 🎮 console : 1re ↔ lock
+						WeaponSharedState.ToggleMode()   -- 🎮 1re ↔ lock, même zoomé en 1re personne
 					end
 				end))
 				table.insert(conns, UserInputService.InputEnded:Connect(function(input)
@@ -6358,10 +6361,8 @@ function WeaponController.Setup(tool, userConfig)
 			-- (inspection retirée : la touche V ne fait plus rien)
 			-- le changement de mode passe sur B (V est pris par l'inspection)
 			if not IsMobile and input.KeyCode==Enum.KeyCode.B then
-				-- en VRAIE 1re personne (viewmodel actif), on n'autorise pas le changement de mode
-				if not IsActuallyFirstPerson() then
-					WeaponSharedState.ToggleMode()
-				end
+				-- 👁️ B marche aussi zoomé en 1re personne : on passe directement au mode lock
+				WeaponSharedState.ToggleMode()
 			end
 		end))
 		table.insert(conns, UserInputService.InputEnded:Connect(function(input)
