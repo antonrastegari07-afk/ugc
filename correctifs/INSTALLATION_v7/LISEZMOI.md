@@ -20,6 +20,8 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 13 | ReplicatedStorage › WeaponSystem | WeaponController | ModuleScript |
 | 14 | StarterPlayer › StarterPlayerScripts | WeaponDeathCleanup | LocalScript |
 | 15 | ServerScriptService | time | Script |
+| 16 | StarterGui › 1v1button › Frame › TextButton | bouton enter 1v1 | LocalScript |
+| 17 | ReplicatedStorage › WeaponSystem | CombatSettings | ModuleScript |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -37,3 +39,4 @@ Ce que ça change :
 - 9 (mise à jour) : Auto Performance marche dans les deux sens (baisse si FPS < 22, remonte quand les FPS sont bons 60 s, sans va-et-vient).
 - 13, 14 : mode lock PvP — plus de vue bloquée avec curseur libre après la mort, perso qui ne tourne plus contre un mur, caméra sans allocation par image, « Mode » → « Views ».
 - 7, 13, 15 : la vue PvP (B / VIEW) est mémorisée par appareil ; curseur = ton image partout (1re personne, lock, mobile, manette), rouge sur un ennemi ; ancien viseur en lignes retiré.
+- 16, 17 : bouton Exit de l'arène — touche L (PC) / flèche droite (manette) affichée à la place du ✖ et utilisable ; changement de vue manette déplacé sur la flèche gauche.
