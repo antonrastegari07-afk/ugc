@@ -1941,8 +1941,8 @@ task.spawn(function()
 			local cur = tonumber(get("SettingPerfPreset")) or 0
 			local t = os.clock()
 			AP.peak = math.max(AP.peak, fps)
-			-- « bons FPS » : 50, ou un peu moins sur un appareil bloqué à 30 FPS
-			local good = math.max(28, math.min(50, AP.peak * 0.85))
+			-- « bons FPS » : 40, ou un peu moins sur un appareil bloqué à 30 FPS
+			local good = math.max(28, math.min(40, AP.peak * 0.85))
 			if t - AP.changedAt > 15 then
 				lowCount = (fps > 0 and fps < 22) and (lowCount + 1) or 0
 				AP.high = (fps >= good) and (AP.high + 1) or 0
