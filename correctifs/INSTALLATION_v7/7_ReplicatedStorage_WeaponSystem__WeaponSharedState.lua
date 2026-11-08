@@ -39,8 +39,23 @@ function M.SetMode(newMode)
 	modeChangedBindable:Fire(mode)
 end
 
+-- 💾 LA VUE CHOISIE EST MÉMORISÉE (réglage sauvegardé, un par type d'appareil) :
+--    0 = vue par défaut de l'appareil · 1 = FirstPersonAim · 2 = ThirdPersonLock
+local VIEW_KEY = IS_MOBILE and "SettingViewMobile" or (IS_CONSOLE and "SettingViewConsole" or "SettingViewPC")
+local function saveView()
+	local v = (mode == "ThirdPersonLock") and 2 or 1
+	if LocalPlayer:GetAttribute(VIEW_KEY) == v then return end
+	LocalPlayer:SetAttribute(VIEW_KEY, v)
+	local r = game:GetService("ReplicatedStorage"):FindFirstChild("UpdateSetting")
+	if r and LocalPlayer:GetAttribute("SettingsLoaded") == true then
+		pcall(function() r:FireServer(VIEW_KEY, v) end)
+	end
+end
+
+-- appelé UNIQUEMENT par le joueur (touche B, bouton VIEW, manette) : c'est son choix → mémorisé
 function M.ToggleMode()
 	M.SetMode(mode == "FirstPersonAim" and "ThirdPersonLock" or "FirstPersonAim")
+	saveView()
 end
 
 -- ── Caméra (yaw/pitch préservés entre armes) ────────────────
@@ -179,6 +194,20 @@ function M.SetNoShiftLockZone(active)
 		end
 	end
 end
+
+-- 💾 au chargement des réglages : on remet la vue que le joueur avait choisie
+task.spawn(function()
+	local t0 = os.clock()
+	while LocalPlayer:GetAttribute("SettingsLoaded") ~= true and os.clock() - t0 < 60 do task.wait(0.5) end
+	local v = LocalPlayer:GetAttribute(VIEW_KEY)
+	local want = (v == 1 and "FirstPersonAim") or (v == 2 and "ThirdPersonLock") or nil
+	if not want then return end
+	if inNoShiftLockZone then
+		modeBeforeZone = want          -- zone qui force la 1re personne : la vue revient à la sortie
+	else
+		M.SetMode(want)
+	end
+end)
 
 -- init shift-lock natif
 task.spawn(function()

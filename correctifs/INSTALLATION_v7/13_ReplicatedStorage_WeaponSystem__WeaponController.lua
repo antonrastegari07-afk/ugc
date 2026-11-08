@@ -1040,45 +1040,21 @@ function WeaponController.Setup(tool, userConfig)
 		container.Position = UDim2.new(0.5,0,0.5,0)
 		container.BackgroundTransparency = 1; container.Parent = gui
 		if not hitMarkersOnly then
-			-- halo circulaire discret autour du crosshair
-			local halo = Instance.new("Frame"); halo.Name = "Halo"
-			halo.AnchorPoint = Vector2.new(0.5,0.5); halo.Position = UDim2.new(0.5,0,0.5,0)
-			local hd = (L+G)*2.4
-			halo.Size = UDim2.fromOffset(hd, hd); halo.BackgroundTransparency = 1; halo.Parent = container
-			local hcnr = Instance.new("UICorner"); hcnr.CornerRadius = UDim.new(1,0); hcnr.Parent = halo
-			local hst = Instance.new("UIStroke"); hst.Color = C.Color; hst.Thickness = 1
-			hst.Transparency = 0.82; hst.Parent = halo
-			halo.Visible = false   -- 🚫 plus de rond autour du viseur (PC et mobile)
-			-- lignes arrondies + dégradé qui s'estompe vers l'EXTÉRIEUR
-			local function line(name, sx, sy, px, py, ax, ay, rot, fadeOutFirst)
-				local f = Instance.new("Frame")
-				f.Name = name; f.Size = UDim2.new(0,sx,0,sy); f.AnchorPoint = Vector2.new(ax,ay)
-				f.Position = UDim2.new(0.5,px,0.5,py); f.BackgroundColor3 = C.Color
-				f.BorderSizePixel = 0; f.Parent = container
-				local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(1,0); rc.Parent = f
-				local st = Instance.new("UIStroke"); st.Color = C.Outline; st.Thickness = 1
-				st.Transparency = 0.35; st.Parent = f
-				local gr = Instance.new("UIGradient"); gr.Rotation = rot
-				local a, bpt = fadeOutFirst and 0.75 or 0, fadeOutFirst and 0 or 0.75
-				gr.Transparency = NumberSequence.new({
-					NumberSequenceKeypoint.new(0, a), NumberSequenceKeypoint.new(1, bpt)})
-				gr.Parent = f
-				-- 🆕 position de repos → la dispersion peut écarter les branches
-				f:SetAttribute("BX", px); f:SetAttribute("BY", py)
-			end
-			line("Top",    T, L, 0,-G, 0.5,1, 90, true)   -- s'estompe vers le haut
-			line("Bottom", T, L, 0, G, 0.5,0, 90, false)  -- s'estompe vers le bas
-			line("Left",   L, T,-G, 0, 1,0.5,  0, true)   -- s'estompe vers la gauche
-			line("Right",  L, T, G, 0, 0,0.5,  0, false)  -- s'estompe vers la droite
-			if dotSize > 0 then
-				local dot = Instance.new("Frame"); dot.Name = "Dot"
-				dot.Size = UDim2.new(0,dotSize,0,dotSize); dot.AnchorPoint = Vector2.new(0.5,0.5)
-				dot.Position = UDim2.new(0.5,0,0.5,0); dot.BackgroundColor3 = C.Color
-				dot.BorderSizePixel = 0; dot.Parent = container
-				local dcn = Instance.new("UICorner"); dcn.CornerRadius = UDim.new(1,0); dcn.Parent = dot
-				local ds = Instance.new("UIStroke"); ds.Color = C.Color; ds.Thickness = 2
-				ds.Transparency = 0.6; ds.Parent = dot
-			end
+			-- 🎯 LE MÊME CURSEUR PARTOUT : ton image (CustomCursorID), en 1re personne, en mode
+			--    lock, sur mobile et à la manette. Elle devient ROUGE sur un ennemi (SetReticleColor).
+			--    (l'ancien viseur dessiné en lignes est retiré)
+			local img = Instance.new("ImageLabel")
+			img.Name = "CursorImage"
+			img.BackgroundTransparency = 1
+			img.Image = cfg.CustomCursorID
+			img.ImageColor3 = C.Color
+			img.ScaleType = Enum.ScaleType.Fit
+			img.AnchorPoint = Vector2.new(0.5, 0.5)
+			img.Position = UDim2.new(0.5, 0, 0.5, 0)
+			local isz = (C.ImageSize or 34) * (IsMobile and 1 or (C.ImagePCScale or 1))
+			img.Size = UDim2.fromOffset(isz, isz)
+			img.ZIndex = 2
+			img.Parent = container
 		end
 		-- hit markers : 4 traits diagonaux arrondis (offsets de base en attributs)
 		local function hitMark(name, ox, oy, rotn)
@@ -1123,8 +1099,17 @@ function WeaponController.Setup(tool, userConfig)
 	local function SetMobileCursorColor(color)
 		if not MobileCursorGui then return end
 		local c = MobileCursorGui:FindFirstChild("Crosshair"); if not c then return end
-		for _, ch in ipairs(c:GetChildren()) do
-			if ch:IsA("Frame") and ch.Name:sub(1,8) ~= "HitMark_" then ch.BackgroundColor3 = color end
+		local img = c:FindFirstChild("CursorImage")
+		if img then
+			-- image rouge prête (Cursor.EnemyImage) : on change d'image, sinon on la teinte
+			local enemyImg = C.EnemyImage
+			if type(enemyImg) == "string" and enemyImg ~= "" then
+				local isEnemy = (color == Color3.new(1, 0, 0))
+				img.Image = isEnemy and enemyImg or cfg.CustomCursorID
+				img.ImageColor3 = isEnemy and Color3.new(1, 1, 1) or color
+			else
+				img.ImageColor3 = color
+			end
 		end
 	end
 	-- position du curseur SANS dépendre de la table Snap (déclarée plus bas
@@ -2189,21 +2174,13 @@ function WeaponController.Setup(tool, userConfig)
 			if wasScriptable then
 				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			end
-			if bloomSwitch("cross") then
-				-- viseur ENTIÈREMENT scripté : on éteint le curseur système,
-				-- sinon on en verrait deux. Il suit la souris image par image
-				-- (voir Extra.startCross).
-				UserInputService.MouseIconEnabled = false
-				if MobileCursorGui then MobileCursorGui:Destroy() end
-				MobileCursorGui = buildCursor(false)
-			else
-				-- interrupteur à false → EXACTEMENT comme avant : ton curseur
-				-- image, aucun viseur scripté, précision exacte.
-				UserInputService.MouseIconEnabled = true
-				if MyMouse then MyMouse.Icon = cfg.CustomCursorID end
-				if MobileCursorGui then MobileCursorGui:Destroy() end
-				MobileCursorGui = buildCursor(true)
-			end
+			-- 🎯 même curseur qu'en mode lock / mobile : ton image, qui suit la souris image par
+			--    image (Extra.startCross) et peut devenir rouge. Le curseur système est caché
+			--    (sinon on en verrait deux).
+			UserInputService.MouseIconEnabled = false
+			if MyMouse then MyMouse.Icon = cfg.CustomCursorID end
+			if MobileCursorGui then MobileCursorGui:Destroy() end
+			MobileCursorGui = buildCursor(false)
 		end
 	end
 	CleanupAllMobileUI = function()
@@ -3022,7 +2999,7 @@ function WeaponController.Setup(tool, userConfig)
 					end
 				end
 				local editing = workspace:GetAttribute("AnimEditorFreeze") == true
-				local scripted = bloomSwitch("cross") and not IsMobile
+				local scripted = not IsMobile   -- 🎯 notre image remplace toujours le curseur système
 				if scripted and not editing then
 					if UserInputService.MouseIconEnabled then
 						UserInputService.MouseIconEnabled = false
@@ -5846,6 +5823,8 @@ function WeaponController.Setup(tool, userConfig)
 	-- ========================================================
 	local Friendly, Enemy, Neutral = Color3.new(0,1,0), Color3.new(1,0,0), Color3.new(1,1,1)
 	local function SetReticleColor(color)
+		if Extra.retColor == color and Extra.retGui == MobileCursorGui then return end
+		Extra.retColor, Extra.retGui = color, MobileCursorGui
 		if WeaponGui then
 			local c = WeaponGui:FindFirstChild("Crosshair")
 			if c then for _, l in pairs(c:GetChildren()) do if l:IsA("Frame") then l.BorderColor3 = color end end end
@@ -6643,12 +6622,16 @@ function WeaponController.Setup(tool, userConfig)
 			end
 			-- UpdateEnemyHighlights()  -- désactivé : géré par ArenaHighlights (client)
 			if WeaponGui then
-				SetReticleColor(Neutral)
+				local want = Neutral   -- 🎯 couleur choisie puis écrite UNE fois (rouge = ennemi)
 				local onEnemy = false
 				if WeaponSharedState.IsThirdPersonLock() or IsMobile or CI.IsGamepad() then   -- [Combat C2d]
 					local cf = camera.CFrame
-					local rp = RaycastParams.new(); rp.FilterType=Enum.RaycastFilterType.Exclude
-					rp.FilterDescendantsInstances={MyCharacter, viewmodel}
+					local rp = Extra.retRay   -- ⚡ préparé une fois (avant : recréé 30×/s)
+					if not rp then rp = RaycastParams.new(); rp.FilterType = Enum.RaycastFilterType.Exclude; Extra.retRay = rp end
+					if Extra.retRayChar ~= MyCharacter or Extra.retRayVM ~= viewmodel then
+						Extra.retRayChar, Extra.retRayVM = MyCharacter, viewmodel
+						rp.FilterDescendantsInstances = { MyCharacter, viewmodel }
+					end
 					local res = workspace:Raycast(cf.Position, cf.LookVector*cfg.Range, rp)
 					if res and res.Instance and res.Instance.Parent then
 						local hum = res.Instance.Parent:FindFirstChild("Humanoid")
@@ -6656,30 +6639,35 @@ function WeaponController.Setup(tool, userConfig)
 							local pl = Players:GetPlayerFromCharacter(res.Instance.Parent)
 							if MyPlayer then
 								if pl then
-									if MyPlayer.Neutral or pl.TeamColor~=MyPlayer.TeamColor then SetReticleColor(Enemy); onEnemy=true
-									else SetReticleColor(Friendly) end
-								else SetReticleColor(Enemy); onEnemy=true end
+									if MyPlayer.Neutral or pl.TeamColor~=MyPlayer.TeamColor then want = Enemy; onEnemy=true
+									else want = Friendly end
+								else want = Enemy; onEnemy=true end
 							end
 						end
-						if res.Instance.Parent:FindFirstChild("Egglon") then SetReticleColor(Enemy); onEnemy=true end
+						if res.Instance.Parent:FindFirstChild("Egglon") then want = Enemy; onEnemy=true end
 					end
 				elseif MyMouse then
 					local tgt = MyMouse.Target
 					if tgt and tgt.Parent then
-						local pl = Players:GetPlayerFromCharacter(tgt.Parent)
+						local tm = tgt:FindFirstAncestorWhichIsA("Model")
+						local pl = Players:GetPlayerFromCharacter(tgt.Parent) or (tm and Players:GetPlayerFromCharacter(tm))
+						if pl and pl ~= MyPlayer and pl.Character and pl.Character:FindFirstChildOfClass("Humanoid")
+							and pl.Character:FindFirstChildOfClass("Humanoid").Health <= 0 then pl = nil end
+						if pl == MyPlayer then pl = nil end
 						if pl and MyPlayer then
-							if MyPlayer.Neutral or pl.TeamColor~=MyPlayer.TeamColor then SetReticleColor(Enemy)
-							else SetReticleColor(Friendly) end
+							if MyPlayer.Neutral or pl.TeamColor~=MyPlayer.TeamColor then want = Enemy
+							else want = Friendly end
 						elseif MyPlayer then
 							-- 🤖 bot d'arène (même si on vise un accessoire)
 							local m = tgt:FindFirstAncestorWhichIsA("Model")
 							if m and m:GetAttribute("ArenaBot") then
 								local bh = m:FindFirstChildOfClass("Humanoid")
-								if bh and bh.Health > 0 then SetReticleColor(Enemy) end
+								if bh and bh.Health > 0 then want = Enemy end
 							end
 						end
 					end
 				end
+				SetReticleColor(want)
 				-- AUTOSHOOT (mobile) — la charge se REMPLIT sur la cible et se VIDE
 				-- lentement quand on la perd : on reprend où on en était, pas de reset.
 				if IsMobile and cfg.Autoshoot and GetSetting("SettingAutoFire", true) then
