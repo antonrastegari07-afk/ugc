@@ -1867,14 +1867,9 @@ function WeaponController.Setup(tool, userConfig)
 			end
 			ApplyAimAssist(dt)
 			CameraPitch = math.clamp(CameraPitch, PitchMin, PitchMax)
-			local rot
-			if firstPerson then
-				-- FP mobile : PAS de recul caméra (identique à la 1re personne PC,
-				-- où la caméra Custom ne reçoit jamais CamRecoil)
-				rot = CFrame.Angles(0, CameraYaw, 0) * CFrame.Angles(CameraPitch, 0, 0)
-			else
-				rot = CFrame.Angles(0, CameraYaw + CamRecoilYaw, 0) * CFrame.Angles(CameraPitch + CamRecoilPitch, 0, 0)
-			end
+			-- 🔒 PAS de recul caméra, ni en 1re personne scriptée ni en mode lock (le sniper faisait
+			--    sauter la vue). La 1re personne PC (caméra Custom) n'en a jamais eu non plus.
+			local rot = CFrame.Angles(0, CameraYaw, 0) * CFrame.Angles(CameraPitch, 0, 0)
 			if firstPerson then
 				-- 1re personne : caméra à la tête, perso caché localement
 				local headPos = rp.Position + Vector3.new(0, 1.5, 0)
