@@ -22,6 +22,8 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 15 | ServerScriptService | time | Script |
 | 16 | StarterGui › 1v1button › Frame › TextButton | bouton enter 1v1 | LocalScript |
 | 17 | ReplicatedStorage › WeaponSystem | CombatSettings | ModuleScript |
+| 18 | ServerScriptService | cross-server 1v1 | Script |
+| 19 | StarterPlayer › StarterPlayerScripts | 1v1 cross server local | LocalScript |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -40,3 +42,4 @@ Ce que ça change :
 - 13, 14 : mode lock PvP — plus de vue bloquée avec curseur libre après la mort, perso qui ne tourne plus contre un mur, caméra sans allocation par image, « Mode » → « Views ».
 - 7, 13, 15 : la vue PvP (B / VIEW) est mémorisée par appareil ; curseur = ton image partout (1re personne, lock, mobile, manette), rouge sur un ennemi ; ancien viseur en lignes retiré.
 - 16, 17 : bouton Exit de l'arène — touche L (PC) / flèche droite (manette) affichée à la place du ✖ et utilisable ; changement de vue manette déplacé sur la flèche gauche.
+- 18, 19 : liste des serveurs 1v1 — les serveurs ajoutés avec « Load More » disparaissaient à chaque actualisation (10 s) ; les nombres de joueurs sont publiés dès qu'ils changent (plus de retard de 10 à 20 s) ; un échec MemoryStore ne fait plus disparaître un serveur ; jusqu'à 200 serveurs listés.
