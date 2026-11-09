@@ -428,22 +428,10 @@ end
 local HOLD_POSE = {
 	["Right Shoulder"] = CFrame.Angles(math.rad(90), 0, 0),   -- bras droit à l'horizontale, arme vers l'avant
 }
--- 🏃 le reste du corps n'est plus figé : l'animation de repos de Roblox (R6) joue sur les jambes,
---    la tête et le torse ; les bras restent soudés à l'arme comme en jeu.
-local IDLE_ANIM = "rbxassetid://180435571"
 local function applyPose(m)
 	local torso = m:FindFirstChild("Torso")
 	if not torso then return end
-	local hum = m:FindFirstChildOfClass("Humanoid")
-	local animator = hum and (hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum))
-	if animator then
-		pcall(function()
-			local a = Instance.new("Animation"); a.AnimationId = IDLE_ANIM
-			local tr = animator:LoadAnimation(a)
-			tr.Looped = true; tr.Priority = Enum.AnimationPriority.Idle
-			tr:Play(0)
-		end)
-	end
+
 	-- bras déjà soudés à l'arme par le serveur (pose de ton système d'armes) : rien d'autre à faire
 	if torso:FindFirstChild("RightArmWeld") then return end
 	for name, R in pairs(HOLD_POSE) do
@@ -452,17 +440,33 @@ local function applyPose(m)
 	end
 end
 
--- 🎥 CAMÉRA : de face, un peu sur SON CÔTÉ GAUCHE, zoom très lent et léger vers son visage
--- qui dure tout le vote (la caméra reste loin)
--- (a = angle autour de lui : 0 = de face, − = son côté gauche ; d = distance ; y = point visé ; h = hauteur de l'œil)
-local ZOOM_FROM = { a = -0.45, h = 0.5, d = 16,   y = 0.4, fov = 31 }   -- perso entier
-local ZOOM_TO   = { a = -0.42, h = 0.5, d = 13.5, y = 0.8, fov = 30 }   -- à peine plus près : on voit encore presque tout
-local ZOOM_TIME = 30                                                     -- secondes : plus long que le vote
+-- 🎥 CAMÉRA : plusieurs PLANS qui s'enchaînent (coupe franche entre deux plans), chacun avec un
+--    mouvement lent ; la suite tourne en boucle tant que l'écran de vote est affiché.
+-- (a = angle autour de lui : 0 = de face, − = son côté gauche ; d = distance ; y = point visé ;
+--  h = hauteur de l'œil PAR RAPPORT au point visé (− = vue d'en bas) ; fov ; t = durée du plan en s)
+local SHOTS = {
+	{ t = 5, from = { a = -0.45, h = 0.5,  d = 16,  y = 0.4, fov = 31 },   -- plan large : perso entier
+	         to   = { a = -0.36, h = 0.5,  d = 14.5, y = 0.6, fov = 30 } },
+	{ t = 5, from = { a = 0.50,  h = -2.2, d = 11,  y = 1.0, fov = 34 },   -- contre-plongée héroïque
+	         to   = { a = 0.38,  h = -2.0, d = 10,  y = 1.2, fov = 33 } },
+	{ t = 4, from = { a = -0.90, h = 0.4,  d = 7,   y = 1.8, fov = 28 },   -- gros plan visage + arme
+	         to   = { a = -0.72, h = 0.5,  d = 6.3, y = 1.9, fov = 27 } },
+	{ t = 6, from = { a = 0.90,  h = 1.0,  d = 15,  y = 0.6, fov = 30 },   -- travelling tournant
+	         to   = { a = -0.20, h = 1.0,  d = 15,  y = 0.6, fov = 30 } },
+}
+local SHOTS_TOTAL = 0
+for _, sh in ipairs(SHOTS) do SHOTS_TOTAL += sh.t end
 
 local function camAt(t)
-	local x = math.clamp(t / ZOOM_TIME, 0, 1)
-	local e = x   -- vitesse constante : le zoom avance tout le long
-	local function L(k) return ZOOM_FROM[k] + (ZOOM_TO[k] - ZOOM_FROM[k]) * e end
+	t = t % SHOTS_TOTAL
+	local sh = SHOTS[#SHOTS]
+	for _, s in ipairs(SHOTS) do
+		if t < s.t then sh = s; break end
+		t -= s.t
+	end
+	local x = math.clamp(t / sh.t, 0, 1)
+	local e = 0.5 - 0.5 * math.cos(x * math.pi)   -- départ et arrivée doux
+	local function L(k) return sh.from[k] + (sh.to[k] - sh.from[k]) * e end
 	local a, d = L("a"), L("d")
 	local target = Vector3.new(0, L("y"), 0)
 	winCam.FieldOfView = L("fov")
@@ -471,30 +475,26 @@ end
 
 local function sceneLoop()
 	if win.conn then return end
-	if win.model and win.t0 and os.clock() - win.t0 >= ZOOM_TIME then camAt(ZOOM_TIME) return end   -- déjà fini : plan fixe
 	win.conn = RunService.RenderStepped:Connect(function()
 		if not voteGui.Enabled or not winCol.Visible then
 			win.conn:Disconnect(); win.conn = nil
 			return
 		end
 		if not win.model then camAt(0) return end   -- en attente du modèle
-		local t = os.clock() - win.t0
-		camAt(t)
-		if t >= ZOOM_TIME then win.conn:Disconnect(); win.conn = nil end   -- zoom fini : plus aucun calcul
+		camAt(os.clock() - win.t0)
 	end)
 end
 
 -- 🏆 ANIMATION DE VICTOIRE (locale, aucun effet en plus) :
 --    0 → 0,4 s : il tombe sur le podium (petit amorti à l'atterrissage)
 --    0,4 → 1,2 s : il lève son arme vers le ciel (bras droit), poing gauche levé
---    ensuite : pose tenue, légère respiration et balancement
+--    ensuite : pose tenue, IMMOBILE (plus aucun calcul)
 --    Les angles se règlent ici (degrés, autour de l'épaule ; + = vers le haut).
 local VICTORY = {
 	DropHeight = 3,   DropTime = 0.4,
 	RaiseStart = 0.4, RaiseTime = 0.8,
 	RightUp = 80,     -- bras droit (arme) levé vers le ciel
 	LeftUp = 150, LeftOut = 25,   -- poing gauche levé, un peu écarté
-	Breath = 0.06, BreathSpeed = 1.6, Sway = 3,   -- studs · cycles/s · degrés
 }
 local function outBack(x)
 	local c = 1.4; local u = x - 1
@@ -531,12 +531,12 @@ local function startVictory(m)
 		if lw and lw.Parent and lC0 then
 			lw.C0 = around(lPiv, CFrame.Angles(math.rad(VICTORY.LeftUp * k), 0, math.rad(-VICTORY.LeftOut * k))) * lC0
 		end
-		-- respiration + balancement une fois posé
-		local settle = math.clamp((t - VICTORY.DropTime - 0.25) / 0.5, 0, 1)
-		local ph = (t * VICTORY.BreathSpeed) * 2 * math.pi
-		y += settle * VICTORY.Breath * math.sin(ph)
-		local yaw = settle * math.rad(VICTORY.Sway) * math.sin(ph * 0.5)
-		m:PivotTo(CFrame.new(0, y, 0) * CFrame.Angles(0, yaw, 0))
+		m:PivotTo(CFrame.new(0, y, 0))
+		-- geste fini : pose figée, on arrête de calculer
+		if t >= math.max(VICTORY.DropTime + 0.25, VICTORY.RaiseStart + VICTORY.RaiseTime)
+			and win.anim then
+			win.anim:Disconnect(); win.anim = nil
+		end
 	end
 	step()
 	win.anim = RunService.RenderStepped:Connect(function()
