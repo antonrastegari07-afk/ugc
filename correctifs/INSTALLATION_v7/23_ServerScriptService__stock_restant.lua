@@ -1239,6 +1239,63 @@ local function fetchBatch()
 	end, false)
 end
 
+--════════════════════════════════════════════════════════════
+-- 🏠 LECTURE PAR LE MOTEUR ROBLOX (MarketplaceService:GetProductInfo)
+--   Aucun appel HTTP, aucun relais : Roblox ne peut pas renvoyer « 429 » à cause de l'adresse
+--   Cloudflare partagée avec d'autres jeux (c'était la vraie cause : même UNE requête était
+--   refusée). Un seul serveur relit les 81 UGC toutes les « pollSeconds », étalé sur ~1 min
+--   (limite Roblox ≈ 100 appels / min / serveur), résultat partagé avec tous les serveurs.
+--   Si le moteur ne publie pas le stock d'un UGC, on garde la lecture HTTP en secours.
+--════════════════════════════════════════════════════════════
+local EngineState = { unsupportedUntil = 0 }
+
+local function engineRead(assetId)
+	local ok, info = pcall(function()
+		return MarketplaceService:GetProductInfo(assetId, Enum.InfoType.Asset)
+	end)
+	if not ok or type(info) ~= "table" then return nil, tostring(info) end
+	local cd = type(info.CollectiblesItemDetails) == "table" and info.CollectiblesItemDetails or {}
+	local rem = tonumber(info.Remaining) or tonumber(cd.UnitsAvailableForConsumption)
+		or tonumber(cd.UnitsAvailable) or tonumber(info.UnitsAvailableForConsumption)
+	local tot = tonumber(cd.TotalQuantity) or tonumber(info.TotalQuantity) or tonumber(info.AssetStock)
+	if rem == nil or rem ~= rem or math.abs(rem) == math.huge then return nil, "pas de stock publié" end
+	if tot and (tot ~= tot or math.abs(tot) == math.huge) then tot = nil end
+	return { rem = math.max(0, math.floor(rem)), total = tot and math.max(0, math.floor(tot)) or nil,
+		name = tostring(info.Name or "") }
+end
+
+local function fetchEngine()
+	return ProxyCache.Get("stockengine:v1", StockCfg.pollSeconds, function()
+		local out, got, lastErr = {}, 0, nil
+		for _, ugc in ipairs(UGC_CONFIG.Items) do
+			if tonumber(ugc.AssetId) and ugc.AssetId > 0 then
+				local d, err = engineRead(ugc.AssetId)
+				if d then out[tostring(ugc.AssetId)] = d; got = got + 1 else lastErr = err end
+				task.wait(0.7)   -- ≈ 85 appels / min max : sous la limite Roblox
+			end
+		end
+		if got == 0 then
+			EngineState.unsupportedUntil = os.clock() + 3600
+			return nil, "moteur : " .. tostring(lastErr or "aucun stock publié")
+		end
+		return out
+	end, false)
+end
+
+-- Diagnostic : _G.UGCStock_TestEngine()  → ce que le moteur renvoie pour le 1er UGC
+_G.UGCStock_TestEngine = function(assetId)
+	assetId = assetId or (UGC_CONFIG.Items[1] and UGC_CONFIG.Items[1].AssetId)
+	local ok, info = pcall(function() return MarketplaceService:GetProductInfo(assetId, Enum.InfoType.Asset) end)
+	print("🔎 GetProductInfo", assetId, ok)
+	if ok and type(info) == "table" then
+		print("   Name =", info.Name, "| IsLimited =", info.IsLimited, "| Remaining =", info.Remaining)
+		if type(info.CollectiblesItemDetails) == "table" then
+			for k, v in pairs(info.CollectiblesItemDetails) do print("   CollectiblesItemDetails." .. tostring(k), "=", v) end
+		end
+	end
+	print("   → lu :", engineRead(assetId))
+end
+
 -- Ancienne méthode, gardée en secours : un UGC à la fois (lente, sujette aux 429)
 local function fetchAllOneByOne()
 	local okN, total, lastErr = 0, 0, nil
@@ -1261,7 +1318,7 @@ local function fetchAll(reason)
 	local okN, total, lastErr = 0, 0, nil
 
 	local passOK, passErr = pcall(function()
-		if os.clock() < BatchState.unsupportedUntil then
+		if os.clock() < BatchState.unsupportedUntil and os.clock() < EngineState.unsupportedUntil then
 			okN, total, lastErr = fetchAllOneByOne()
 			return
 		end
@@ -1271,7 +1328,18 @@ local function fetchAll(reason)
 			seqs[tostring(ugc.AssetId)] = p and p.sequence
 		end
 		local requestHost, requestMode = StockCfg.proxyHost, StockCfg.mode
-		local data, at, err, version = fetchBatch()
+		local data, at, err, version
+		if os.clock() >= EngineState.unsupportedUntil then
+			data, at, err, version = fetchEngine()
+			local fresh = type(data) == "table" and at and (os.time() - at) <= StockCfg.pollSeconds * STALE_FACTOR
+			if not fresh and os.clock() < EngineState.unsupportedUntil then
+				data, at, err, version = fetchBatch()   -- le moteur ne publie pas ces stocks : HTTP
+			elseif not fresh and type(data) ~= "table" then
+				data, at, err, version = nil, nil, err, nil   -- 1re lecture en cours : on attend
+			end
+		else
+			data, at, err, version = fetchBatch()
+		end
 		if StockCfg.proxyHost ~= requestHost or StockCfg.mode ~= requestMode then
 			lastErr = "configuration modifiée pendant la lecture"
 			return
@@ -1281,7 +1349,8 @@ local function fetchAll(reason)
 			or err:match("^HTTP 50[12]") or err:find("illisible", 1, true) or err:find("CSRF", 1, true)) then
 			BatchState.unsupportedUntil = os.clock() + 3600
 		end
-		if os.clock() < BatchState.unsupportedUntil then
+		if type(data) ~= "table" and os.clock() < BatchState.unsupportedUntil
+			and os.clock() < EngineState.unsupportedUntil then
 			-- le relais vient de refuser la lecture groupée : secours immédiat
 			okN, total, lastErr = fetchAllOneByOne()
 			return
@@ -1656,8 +1725,10 @@ stockActionFn.OnServerInvoke = function(player, action, payload)
 		if not first then return { ok = false, msg = "Aucun UGC dans la config." } end
 
 		local t0 = os.clock()
-		if os.clock() >= BatchState.unsupportedUntil then
-			local data, at, err = fetchBatch()
+		if os.clock() >= EngineState.unsupportedUntil or os.clock() >= BatchState.unsupportedUntil then
+			local viaEngine = os.clock() >= EngineState.unsupportedUntil
+			local data, at, err
+			if viaEngine then data, at, err = fetchEngine() else data, at, err = fetchBatch() end
 			local ms = math.floor((os.clock() - t0) * 1000)
 			if type(data) == "table" and at then
 				local n = 0
@@ -1666,8 +1737,9 @@ stockActionFn.OnServerInvoke = function(player, action, payload)
 				local fresh = age <= StockCfg.pollSeconds * STALE_FACTOR
 				return {
 					ok = fresh,
-					msg = string.format("%s Lecture groupée : %d UGC lus, il y a %d s (%d ms)%s",
-						fresh and "✅" or "⚠️", n, age, ms,
+					msg = string.format("%s %s : %d UGC lus, il y a %d s (%d ms)%s",
+						fresh and "✅" or "⚠️", viaEngine and "Lecture moteur Roblox (sans relais)" or "Lecture groupée",
+						n, age, ms,
 						err and (" — dernier souci : " .. tostring(err)) or ""),
 				}
 			end
