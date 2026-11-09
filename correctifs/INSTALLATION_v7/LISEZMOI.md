@@ -27,6 +27,7 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 20 | ServerScriptService › CombatSystem | CombatServer | Script |
 | 21 | StarterPlayer › StarterPlayerScripts | PVPmapvoting | LocalScript |
 | 22 | ServerScriptService | securité suplementaire ban | Script |
+| 23 | ServerScriptService | stock restant | Script |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -49,3 +50,4 @@ Ce que ça change :
 - 20, 21 : écran ROUND WINNER — le perso tient son arme avec la vraie pose de ton système d'armes (les deux bras, mêmes welds qu'en jeu) Animation de victoire : chute sur le podium, arme levée au ciel + poing gauche, puis immobile (réglages : table VICTORY). Caméra : 4 plans qui s'enchaînent en boucle (réglages : table SHOTS).
 - 15, 22 : FAUX BANS des nouveaux joueurs (gros gain légitime : code, cadeau, pack, quête) — SmartAntiCheat bannissait sur UNE seule analyse avec un « maximum » minuscule pour un nouveau joueur. Maintenant : le mode du panel décide (privation d'UGC / shadow = aucun ban ni kick de SmartAntiCheat ni du cap), jamais de sanction avant 3 jours dans le jeu, 2 analyses séparées nécessaires pour un ban, tous les gains enregistrés par le serveur sont déduits. Cap absolu : le bonus d'un code / cadeau reçu pendant le chargement d'un nouveau joueur n'est plus effacé.
 - Halloween : voir HALLOWEEN_RANGEMENT.md (aucun script à remplacer).
+- 23 : shop UGC — faux « out of stock » et « 429 trop de requêtes » : 1 seule requête groupée pour tous les UGC (au lieu de 81), partagée entre les serveurs ; en repli, le dernier stock RÉEL connu est affiché (plus le vieux compteur maison à 0) ; 2 relectures après achat au lieu de 4. Si le relais refuse la lecture groupée, retour automatique à l'ancienne méthode.
