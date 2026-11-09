@@ -24,6 +24,8 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 17 | ReplicatedStorage › WeaponSystem | CombatSettings | ModuleScript |
 | 18 | ServerScriptService | cross-server 1v1 | Script |
 | 19 | StarterPlayer › StarterPlayerScripts | 1v1 cross server local | LocalScript |
+| 20 | ServerScriptService › CombatSystem | CombatServer | Script |
+| 21 | StarterPlayer › StarterPlayerScripts | PVPmapvoting | LocalScript |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -43,3 +45,4 @@ Ce que ça change :
 - 7, 13, 15 : la vue PvP (B / VIEW) est mémorisée par appareil ; curseur = ton image partout (1re personne, lock, mobile, manette), rouge sur un ennemi ; ancien viseur en lignes retiré.
 - 16, 17 : bouton Exit de l'arène — touche L (PC) / flèche droite (manette) affichée à la place du ✖ et utilisable ; changement de vue manette déplacé sur la flèche gauche.
 - 18, 19 : liste des serveurs 1v1 — les serveurs ajoutés avec « Load More » disparaissaient à chaque actualisation (10 s) ; les nombres de joueurs sont publiés dès qu'ils changent (plus de retard de 10 à 20 s) ; un échec MemoryStore ne fait plus disparaître un serveur ; jusqu'à 200 serveurs listés.
+- 20, 21 : écran ROUND WINNER — le perso tient son arme avec la vraie pose de ton système d'armes (les deux bras, mêmes welds qu'en jeu) et le reste du corps joue l'animation de repos au lieu d'être figé.
