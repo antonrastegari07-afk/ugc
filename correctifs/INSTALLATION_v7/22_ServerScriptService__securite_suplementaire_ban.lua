@@ -420,31 +420,34 @@ task.spawn(function()
 		local userId = player.UserId
 		local now    = os.time()
 
-		-- 🛡️ le MODE choisi dans le panel (🚫 UGC BAN ▸ ⚙️ Réglages) décide : en « privation
-		--    d'UGC » ou en shadow, aucun ban (avant, ce script bannissait en ignorant le mode).
+		-- 🛡️ QUELLE SANCTION ?
+		--  • shadow → rien · mode « privation d'UGC » → privation d'UGC (avant : ban en ignorant le mode)
+		--  • mode « ban » : joueur < 3 jours → privation d'UGC (réversible) au lieu du ban, sinon ban
 		local AC = _G.ACConfig
+		local decision = "ban"
 		if AC then
-			local okM, mode = pcall(function() return AC.Mode and AC.Mode() end)
 			local okP, punish = pcall(function() return AC.ShouldPunish == nil or AC.ShouldPunish() end)
-			if (okM and mode ~= nil and mode ~= "ban") or (okP and punish == false) then
-				warn(string.format("🛡️ CAP : pas de ban pour %s (mode %s) | %s | %s",
-					player.Name, tostring(mode), reason, details))
-				local UR = _G.UGCRestrict
-				if UR and UR.NoteDetection then pcall(UR.NoteDetection, userId) end
-				-- mode « privation d'UGC » : la sanction du mode, mais JAMAIS pour un joueur de moins
-				-- de 3 jours (son cap est petit, un gros gain légitime peut le dépasser)
-				local data = capData[userId]
-				local age = data and data.firstJoin and (now - data.firstJoin) or 0
-				if okM and mode == "ugc" and not (okP and punish == false) and age >= 3 * 86400
-					and UR and UR.Add and not capRestricted[userId] then
-					capRestricted[userId] = true   -- une seule tentative par session (Add refuse les doublons)
-					task.spawn(pcall, UR.Add, userId, {
-						by = "AbsoluteCap", auto = true, reason = "anticheat_points",
-						details = reason .. " | " .. details, name = player.Name,
-					})
-				end
-				return
+			local okM, mode = pcall(function() return AC.Mode and AC.Mode() end)
+			if okP and punish == false then decision = "none"
+			elseif okM and mode ~= nil and mode ~= "ban" then decision = "restrict" end
+		end
+		if decision == "ban" then
+			local data = capData[userId]
+			local age = data and data.firstJoin and (now - data.firstJoin) or 0
+			if age < 3 * 86400 then decision = "restrict" end
+		end
+		if decision ~= "ban" then
+			warn(string.format("🛡️ CAP : %s pour %s | %s | %s", decision, player.Name, reason, details))
+			local UR = _G.UGCRestrict
+			if UR and UR.NoteDetection then pcall(UR.NoteDetection, userId) end
+			if decision == "restrict" and UR and UR.Add and not capRestricted[userId] then
+				capRestricted[userId] = true   -- une seule demande par session (Add refuse les doublons)
+				task.spawn(pcall, UR.Add, userId, {
+					by = "AbsoluteCap", auto = true, reason = "anticheat_points",
+					details = reason .. " | " .. details, name = player.Name,
+				})
 			end
+			return
 		end
 
 		warn(string.format("🚫 CAP BAN | %s (ID: %d) | %s | %s",

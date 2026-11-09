@@ -1206,35 +1206,52 @@ end
 print("✅ ANTI-CHEAT INTELLIGENT - PARTIE 1/2 CHARGÉE")
 
 
--- 🛡️ FIX FAUX-BAN (nouveaux joueurs) : qui a le droit de sanctionner ?
---  • le MODE choisi dans le panel (🚫 UGC BAN ▸ ⚙️ Réglages) décide pour TOUT l'anti-cheat :
---    en mode « privation d'UGC » ou en shadow, SmartAntiCheat ne kicke ni ne bannit plus jamais
---    (avant, il bannissait quand même, en ignorant le mode).
---  • jamais de sanction pendant les 3 premiers jours dans le jeu : un nouveau joueur a un
---    « maximum » minuscule, et UN seul gros gain légitime (code, cadeau, pack, quête) suffisait.
---  • un ban demande au moins 2 analyses SÉPARÉES au-dessus du seuil (plus jamais sur une seule).
+-- 🛡️ QUELLE SANCTION ? (FIX FAUX-BAN sans ouvrir de trou pour les exploits)
+--  • shadow (mode test du panel)       → rien, juste noté
+--  • mode « privation d'UGC »          → PRIVATION D'UGC (avant : SmartAntiCheat bannissait en
+--                                        ignorant le mode)
+--  • mode « ban », joueur < 3 jours     → PRIVATION D'UGC au lieu du ban : un nouveau joueur a un
+--    (ou ancienneté inconnue)            « maximum » minuscule, un gros gain légitime peut le dépasser.
+--                                        La privation est réversible par un admin ET empêche quand
+--                                        même un exploiteur d'encaisser des UGC.
+--  • mode « ban », joueur ≥ 3 jours     → ban comme avant
+--  Dans tous les cas : 2 analyses SÉPARÉES au-dessus du seuil (plus jamais une seule), et tous les
+--  gains crédités par le serveur (RecordGain) sont déduits avant le calcul.
 -- (tout est rangé dans SmartAntiCheat : ce script est à la limite Luau de 200 variables locales)
 SmartAntiCheat.NEW_PLAYER_DAYS = 3
 SmartAntiCheat.BAN_STRIKES     = 2
+SmartAntiCheat.restrictAsked   = {}
 pcall(function()
 	SmartAntiCheat.firstJoinBridge = require(game:GetService("ServerScriptService"):WaitForChild("CapFirstJoinBridge", 5))
 end)
+-- renvoie "none" | "restrict" | "ban", raison
 function SmartAntiCheat.SanctionAllowed(userId)
 	local AC = _G.ACConfig
 	if AC then
-		local okM, mode = pcall(function() return AC.Mode and AC.Mode() end)
-		if okM and mode ~= nil and mode ~= "ban" then return false, "mode " .. tostring(mode) end
 		local okP, punish = pcall(function() return AC.ShouldPunish == nil or AC.ShouldPunish() end)
-		if okP and punish == false then return false, "shadow" end
+		if okP and punish == false then return "none", "shadow" end
+		local okM, mode = pcall(function() return AC.Mode and AC.Mode() end)
+		if okM and mode ~= nil and mode ~= "ban" then return "restrict", "mode " .. tostring(mode) end
 	end
 	local fj = SmartAntiCheat.firstJoinBridge and SmartAntiCheat.firstJoinBridge.get(userId)
-	if type(fj) ~= "number" or fj <= 0 then
-		return false, "ancienneté inconnue"   -- dans le doute, on ne bannit pas
-	end
-	if os.time() - fj < SmartAntiCheat.NEW_PLAYER_DAYS * 86400 then
-		return false, "nouveau joueur"
-	end
-	return true
+	if type(fj) ~= "number" or fj <= 0 then return "restrict", "ancienneté inconnue" end
+	if os.time() - fj < SmartAntiCheat.NEW_PLAYER_DAYS * 86400 then return "restrict", "nouveau joueur" end
+	return "ban"
+end
+function SmartAntiCheat.Restrict(player, details)
+	local userId = player.UserId
+	if SmartAntiCheat.restrictAsked[userId] then return end
+	local UR = _G.UGCRestrict
+	if not (UR and UR.Add) then return end
+	SmartAntiCheat.restrictAsked[userId] = true   -- une seule demande par session (Add refuse les doublons)
+	task.spawn(function()
+		local ok, res, msg = pcall(UR.Add, userId, {
+			by = "SmartAntiCheat", auto = true, reason = "anticheat_points",
+			details = details, name = player.Name,
+		})
+		warn(string.format("🚫 SmartAntiCheat : privation d'UGC pour %s → %s %s",
+			player.Name, tostring(ok and res), tostring(msg or "")))
+	end)
 end
 
 function SmartAntiCheat.AnalyzePlayer(player)
@@ -1548,14 +1565,22 @@ function SmartAntiCheat.AnalyzePlayer(player)
 				))
 		end
 
-		-- 🛡️ sanctions permises ? (mode du panel, nouveau joueur)
-		local canSanction, whyNot = SmartAntiCheat.SanctionAllowed(userId)
-		if not canSanction and ratio >= DANGEROUS then
-			warn(string.format("🛡️ SmartAntiCheat : pas de sanction pour %s (%s) | %.1fx",
-				player.Name, whyNot or "?", ratio))
+		-- 🛡️ quelle sanction ? (mode du panel, ancienneté)
+		local decision, why = SmartAntiCheat.SanctionAllowed(userId)
+		if decision ~= "ban" and ratio >= DANGEROUS then
 			if _G.UGCRestrict and _G.UGCRestrict.NoteDetection then
 				pcall(_G.UGCRestrict.NoteDetection, userId)
 			end
+			if ratio >= BAN then
+				data.infractions.banStrikes = (data.infractions.banStrikes or 0) + 1
+				if decision == "restrict" and data.infractions.banStrikes >= SmartAntiCheat.BAN_STRIKES then
+					SmartAntiCheat.Restrict(player, string.format("%d/%d (%.1fx) en %ds · %s",
+						pointsGained, maxGain, ratio, timeElapsed, why or "?"))
+				end
+			end
+			warn(string.format("🛡️ SmartAntiCheat : %s pour %s (%s) | %.1fx | %d/%d",
+				decision, player.Name, why or "?", ratio,
+				data.infractions.banStrikes or 0, SmartAntiCheat.BAN_STRIKES))
 			data.lastCheckTime = now
 			data.lastKnownPoints = currentPoints
 			data.lastAnalysis = now
