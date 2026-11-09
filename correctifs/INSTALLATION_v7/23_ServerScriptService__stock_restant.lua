@@ -1286,10 +1286,24 @@ local function fetchEngine()
 		for _, ugc in ipairs(UGC_CONFIG.Items) do
 			if tonumber(ugc.AssetId) and ugc.AssetId > 0 then
 				local d, err = engineRead(ugc.AssetId)
-				if d then out[tostring(ugc.AssetId)] = d; got = got + 1 else lastErr = err end
+				if d then
+					local k = tostring(ugc.AssetId)
+					out[k] = d; got = got + 1
+					-- ⚡ PROGRESSIF : chaque UGC lu s'affiche tout de suite sur CE serveur, sans attendre
+					--    la fin des 81 lectures (~1 min). Seulement s'il n'a pas déjà une valeur fraîche.
+					local l = Live[k]
+					if not (l and (os.time() - (l.at or 0)) <= StockCfg.pollSeconds) then
+						local p = pendingFor(k)
+						applyRead(k, p and p.sequence, d.rem, d.total, d.name, os.time(), "engine-progress")
+						if got % 8 == 0 and pushStocks then pushStocks() end
+					end
+				else
+					lastErr = err
+				end
 				task.wait(0.7)   -- ≈ 85 appels / min max : sous la limite Roblox
 			end
 		end
+		if pushStocks then pushStocks() end
 		if got == 0 then
 			EngineState.unsupportedUntil = os.clock() + 3600
 			return nil, "moteur : " .. tostring(lastErr or "aucun stock publié")
@@ -1610,7 +1624,7 @@ task.spawn(function()
 	while not DataLoaded do task.wait(0.5) end
 	loadStockCfg()
 
-	task.wait(2 + math.random() * 8)
+	task.wait(1 + math.random() * 2)   -- ⚡ démarrage plus rapide (le cache partagé évite les doublons)
 
 	if StockCfg.mode == "live" then
 		fetchAll("démarrage")
