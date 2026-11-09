@@ -440,7 +440,7 @@ local function applyPose(m)
 	end
 end
 
--- 🎥 CAMÉRA : plusieurs PLANS qui s'enchaînent (coupe franche entre deux plans), chacun avec un
+-- 🎥 CAMÉRA : plusieurs PLANS qui s'enchaînent (petite transition glissée, voir BLEND), chacun avec un
 --    mouvement lent ; la suite tourne en boucle tant que l'écran de vote est affiché.
 -- (a = angle autour de lui : 0 = de face, − = son côté gauche ; d = distance ; y = point visé ;
 --  h = hauteur de l'œil PAR RAPPORT au point visé (− = vue d'en bas) ; fov ; t = durée du plan en s)
@@ -457,20 +457,37 @@ local SHOTS = {
 local SHOTS_TOTAL = 0
 for _, sh in ipairs(SHOTS) do SHOTS_TOTAL += sh.t end
 
-local function camAt(t)
-	t = t % SHOTS_TOTAL
-	local sh = SHOTS[#SHOTS]
-	for _, s in ipairs(SHOTS) do
-		if t < s.t then sh = s; break end
-		t -= s.t
-	end
-	local x = math.clamp(t / sh.t, 0, 1)
-	local e = 0.5 - 0.5 * math.cos(x * math.pi)   -- départ et arrivée doux
+local BLEND = 0.45   -- s : petite transition glissée entre deux plans (0 = coupe franche)
+
+local function shotCam(sh, x)
+	local e = 0.5 - 0.5 * math.cos(math.clamp(x, 0, 1) * math.pi)   -- départ et arrivée doux
 	local function L(k) return sh.from[k] + (sh.to[k] - sh.from[k]) * e end
 	local a, d = L("a"), L("d")
 	local target = Vector3.new(0, L("y"), 0)
-	winCam.FieldOfView = L("fov")
-	winCam.CFrame = CFrame.lookAt(target + Vector3.new(math.sin(a) * d, L("h"), -math.cos(a) * d), target)
+	return CFrame.lookAt(target + Vector3.new(math.sin(a) * d, L("h"), -math.cos(a) * d), target), L("fov")
+end
+
+local function camAt(t)
+	local loops = t >= SHOTS_TOTAL
+	t = t % SHOTS_TOTAL
+	local i = #SHOTS
+	for k, s in ipairs(SHOTS) do
+		if t < s.t then i = k; break end
+		t -= s.t
+	end
+	local sh = SHOTS[i]
+	local cf, fov = shotCam(sh, t / sh.t)
+	-- 🎬 début d'un plan : on glisse depuis la fin du plan précédent (pas au tout premier plan)
+	if BLEND > 0 and t < BLEND and (i > 1 or loops) then
+		local prev = SHOTS[i > 1 and i - 1 or #SHOTS]
+		local pcf, pfov = shotCam(prev, 1)
+		local x = t / BLEND
+		x = x * x * (3 - 2 * x)
+		cf = pcf:Lerp(cf, x)
+		fov = pfov + (fov - pfov) * x
+	end
+	winCam.FieldOfView = fov
+	winCam.CFrame = cf
 end
 
 local function sceneLoop()
