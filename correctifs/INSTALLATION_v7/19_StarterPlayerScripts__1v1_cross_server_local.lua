@@ -506,6 +506,7 @@ end
 
 -- Une requête en cours par RemoteFunction : pas d'accumulation si le serveur ne répond pas.
 local inFlight = setmetatable({}, { __mode = "k" })
+local lastListSig = nil   -- dernière liste affichée (pour ne pas tout reconstruire si rien n'a changé)
 local function showStatus(message)
 	if not uiReady() then return end
 	if #currentCards == 0 then showEmptyState(); emptyLabel.Text = message end
@@ -573,6 +574,18 @@ local function refresh(animate)
 		end
 		local list = normalizeList(result)
 		if #list == 0 and FAKE_WHEN_EMPTY then list = makeFakeServers() end
+		-- ⚡ PERF : actualisation auto (toutes les 10 s) sans AUCUN changement → on ne reconstruit
+		--    rien (avant : toutes les cartes étaient détruites et recréées à chaque fois).
+		local parts = {}
+		for _, it in ipairs(list) do
+			local ids = {}
+			for _, pp in ipairs(it.players or {}) do ids[#ids + 1] = tostring(pp.id) end
+			parts[#parts + 1] = table.concat({ it.jobId, it.arena, it.total, it.region or "",
+				it.map or "", table.concat(ids, ",") }, "|")
+		end
+		local sig = table.concat(parts, ";")
+		if not animate and sig == lastListSig and #currentCards > 0 then return end
+		lastListSig = sig
 		local rendered, err = pcall(render, list, animate)
 		if not rendered then
 			warn("[ServerBrowser] Affichage : " .. tostring(err))

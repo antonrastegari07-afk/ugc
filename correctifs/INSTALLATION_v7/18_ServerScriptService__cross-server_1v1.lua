@@ -16,7 +16,7 @@ local MAP_NAME      = "ArenaServers_v1"
 local HEARTBEAT     = 10   -- publie l'état toutes les X s
 local ENTRY_TTL     = 30   -- l'entrée expire si pas refresh (doit être > HEARTBEAT)
 local MAX_AVATARS   = 15   -- nb d'avatars stockés par serveur
-local LIST_LIMIT    = 200  -- nb max de serveurs renvoyés (max permis par MemoryStore)
+local LIST_LIMIT    = 100  -- nb max de serveurs renvoyés
 local CACHE_TTL     = 3    -- cache serveur pour limiter les lectures MemoryStore
 local JOIN_COOLDOWN = 3
 
@@ -89,7 +89,7 @@ end
 
 -- 🆕 publie TOUT DE SUITE quand le nombre de joueurs change (entrée / sortie d'arène,
 --    arrivée / départ du serveur), au lieu d'attendre le prochain battement de 10 s.
---    Au plus une écriture toutes les 3 s (quota MemoryStore).
+--    Au plus une écriture toutes les 5 s (quota MemoryStore, côté serveur uniquement).
 local lastSig, lastPub, pubQueued = nil, 0, false
 local function signature()
 	return #Players:GetPlayers() .. ":" .. #getArenaPlayers()
@@ -101,7 +101,7 @@ end
 local function requestPublish()
 	if pubQueued or JOB_ID == "" then return end
 	pubQueued = true
-	task.delay(math.max(0, 3 - (os.clock() - lastPub)), function()
+	task.delay(math.max(0, 5 - (os.clock() - lastPub)), function()
 		pubQueued = false
 		if signature() ~= lastSig then publishNow() end
 	end)
@@ -160,7 +160,19 @@ local function fetchServers()
 		for _, item in ipairs(items) do
 			local v = item.value or item
 			if type(v) == "table" and v.jobId and v.jobId ~= JOB_ID then
-				table.insert(result, v) -- exclut le serveur courant
+				-- ⚡ RÉSEAU : on n'envoie au joueur que ce que la carte affiche (6 photos, juste
+				--    l'id) au lieu de 15 joueurs avec leur nom → ~3× moins de données qu'avant.
+				local pls = {}
+				if type(v.players) == "table" then
+					for i = 1, math.min(#v.players, 6) do
+						local pp = v.players[i]
+						if type(pp) == "table" and pp.id then pls[i] = { id = pp.id } end
+					end
+				end
+				table.insert(result, {   -- exclut le serveur courant
+					jobId = v.jobId, total = v.total, arena = v.arena,
+					region = v.region, map = v.map, players = pls,
+				})
 			end
 		end
 	end
