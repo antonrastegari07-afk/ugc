@@ -1206,6 +1206,37 @@ end
 print("✅ ANTI-CHEAT INTELLIGENT - PARTIE 1/2 CHARGÉE")
 
 
+-- 🛡️ FIX FAUX-BAN (nouveaux joueurs) : qui a le droit de sanctionner ?
+--  • le MODE choisi dans le panel (🚫 UGC BAN ▸ ⚙️ Réglages) décide pour TOUT l'anti-cheat :
+--    en mode « privation d'UGC » ou en shadow, SmartAntiCheat ne kicke ni ne bannit plus jamais
+--    (avant, il bannissait quand même, en ignorant le mode).
+--  • jamais de sanction pendant les 3 premiers jours dans le jeu : un nouveau joueur a un
+--    « maximum » minuscule, et UN seul gros gain légitime (code, cadeau, pack, quête) suffisait.
+--  • un ban demande au moins 2 analyses SÉPARÉES au-dessus du seuil (plus jamais sur une seule).
+-- (tout est rangé dans SmartAntiCheat : ce script est à la limite Luau de 200 variables locales)
+SmartAntiCheat.NEW_PLAYER_DAYS = 3
+SmartAntiCheat.BAN_STRIKES     = 2
+pcall(function()
+	SmartAntiCheat.firstJoinBridge = require(game:GetService("ServerScriptService"):WaitForChild("CapFirstJoinBridge", 5))
+end)
+function SmartAntiCheat.SanctionAllowed(userId)
+	local AC = _G.ACConfig
+	if AC then
+		local okM, mode = pcall(function() return AC.Mode and AC.Mode() end)
+		if okM and mode ~= nil and mode ~= "ban" then return false, "mode " .. tostring(mode) end
+		local okP, punish = pcall(function() return AC.ShouldPunish == nil or AC.ShouldPunish() end)
+		if okP and punish == false then return false, "shadow" end
+	end
+	local fj = SmartAntiCheat.firstJoinBridge and SmartAntiCheat.firstJoinBridge.get(userId)
+	if type(fj) ~= "number" or fj <= 0 then
+		return false, "ancienneté inconnue"   -- dans le doute, on ne bannit pas
+	end
+	if os.time() - fj < SmartAntiCheat.NEW_PLAYER_DAYS * 86400 then
+		return false, "nouveau joueur"
+	end
+	return true
+end
+
 function SmartAntiCheat.AnalyzePlayer(player)
 	local success, err = pcall(function()
 		if not player or not player.Parent then return end
@@ -1404,14 +1435,15 @@ function SmartAntiCheat.AnalyzePlayer(player)
 		local boxPoints = 0
 		if data.pointsHistory then
 			for _, event in ipairs(data.pointsHistory) do
-				if (event.source == "BoxReward" or event.source == "BoxDuplicate") 
-					and (os.time() - event.timestamp) <= timeElapsed then
+				-- 🛡️ FIX FAUX-BAN : TOUS les gains crédités par le serveur (RecordGain : codes, quêtes,
+				--    cadeaux, packs, boxes…) sont légitimes, pas seulement les boxes.
+				if (os.time() - (event.timestamp or 0)) <= timeElapsed then
 					boxPoints = boxPoints + (event.points or 0)
 				end
 			end
 		end
 		if boxPoints > 0 then
-			print(string.format("📦 Points de boxes soustraits du calcul: %d pts pour %s", boxPoints, player.Name))
+			print(string.format("📦 Gains enregistrés soustraits du calcul: %d pts pour %s", boxPoints, player.Name))
 			activeGain = math.max(0, activeGain - boxPoints)
 			passiveGain = passiveGain  -- inchangé
 		end
@@ -1516,8 +1548,22 @@ function SmartAntiCheat.AnalyzePlayer(player)
 				))
 		end
 
+		-- 🛡️ sanctions permises ? (mode du panel, nouveau joueur)
+		local canSanction, whyNot = SmartAntiCheat.SanctionAllowed(userId)
+		if not canSanction and ratio >= DANGEROUS then
+			warn(string.format("🛡️ SmartAntiCheat : pas de sanction pour %s (%s) | %.1fx",
+				player.Name, whyNot or "?", ratio))
+			if _G.UGCRestrict and _G.UGCRestrict.NoteDetection then
+				pcall(_G.UGCRestrict.NoteDetection, userId)
+			end
+			data.lastCheckTime = now
+			data.lastKnownPoints = currentPoints
+			data.lastAnalysis = now
+			return
+		end
+
 		-- NIVEAU 2: DANGEREUX (kick après 2 bursts)
-		if ratio >= DANGEROUS and data.infractions.burstCount > 1 then
+		if ratio >= DANGEROUS and data.infractions.burstCount > 1 and ratio < BAN then
 			SmartAntiCheat.globalStats.totalKicks = SmartAntiCheat.globalStats.totalKicks + 1
 
 			warn(string.format(
@@ -1545,7 +1591,18 @@ function SmartAntiCheat.AnalyzePlayer(player)
 			return
 		end
 
-		-- NIVEAU 3: BAN
+		-- NIVEAU 3: BAN — seulement après SMART_BAN_STRIKES analyses séparées au-dessus du seuil
+		if ratio >= BAN then
+			data.infractions.banStrikes = (data.infractions.banStrikes or 0) + 1
+			if data.infractions.banStrikes < SmartAntiCheat.BAN_STRIKES then
+				warn(string.format("⚠️ %s : %.1fx (%d/%d avant ban) — on attend une 2e analyse",
+					player.Name, ratio, data.infractions.banStrikes, SmartAntiCheat.BAN_STRIKES))
+				data.lastCheckTime = now
+				data.lastKnownPoints = currentPoints
+				data.lastAnalysis = now
+				return
+			end
+		end
 		if ratio >= BAN then
 			SmartAntiCheat.globalStats.totalBans = SmartAntiCheat.globalStats.totalBans + 1
 
@@ -1598,6 +1655,7 @@ function SmartAntiCheat.AnalyzePlayer(player)
 
 		-- Réduction progressive
 		if ratio < SUSPICIOUS then
+			data.infractions.banStrikes = 0
 			data.infractions.burstCount = math.max(0, data.infractions.burstCount - 1)
 			if data.infractions.suspiciousCount > 0 then
 				data.infractions.suspiciousCount = data.infractions.suspiciousCount - 1
