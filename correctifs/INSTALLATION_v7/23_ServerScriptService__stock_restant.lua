@@ -285,8 +285,14 @@ local function SaveStockData(skipBroadcast, force)
 		local dataToSave
 		UGCStockStore:UpdateAsync(DATA_KEY, function(ds)
 			ds = (type(ds) == "table") and ds or {}
+			local liveMirror = _G.UGCStock_LiveMirror
 			for key, value in pairs(CurrentStocks) do
-				if force or type(ds[key]) ~= "number" then
+				-- 🛡️ dernier stock RÉEL lu chez Roblox (mode live) : c'est lui qu'on garde en base,
+				--    pour qu'un serveur qui démarre affiche le dernier stock connu, pas un vieux 0
+				local live = liveMirror and liveMirror[key]
+				if type(live) == "number" then
+					ds[key] = live
+				elseif force or type(ds[key]) ~= "number" then
 					ds[key] = value
 				elseif pend[key] then
 					ds[key] = math.max(0, ds[key] - pend[key])
@@ -1151,7 +1157,12 @@ applyRead = function(key, sequence, rem, tot, msg, at, version)
 		rem = adjusted, total = tot, at = at, version = version,
 		name = msg, rawRem = rem, pendingPurchase = pending ~= nil,
 	}
-	if StockCfg.mirror and DataLoaded and CurrentStocks[key] ~= adjusted then
+	-- 🛡️ le dernier stock RÉEL est TOUJOURS recopié dans le compteur maison (sauvegardé en
+	--    DataStore) : au démarrage d'un serveur, avant la 1re lecture Roblox, le shop affiche
+	--    donc le dernier stock connu au lieu d'un vieux 0. (Avant : seulement si « miroir » était coché.)
+	_G.UGCStock_LiveMirror = _G.UGCStock_LiveMirror or {}
+	_G.UGCStock_LiveMirror[key] = adjusted
+	if DataLoaded and CurrentStocks[key] ~= adjusted then
 		CurrentStocks[key] = adjusted
 	end
 	return true
