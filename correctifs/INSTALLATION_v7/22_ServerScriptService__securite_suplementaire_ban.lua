@@ -16,6 +16,8 @@ local initialized  = {}
 local multiplierCache = {}
 local sessionBanLog = {}
 local capRestricted = {}   -- [userId] = privation d'UGC déjà demandée cette session
+local ownedPasses = {}     -- [userId] = { [passId] = true/false } (vu possédé = gardé pour la session)
+local passUnknown = {}     -- [userId] = true si un pass n'a jamais pu être vérifié
 
 local function waitForGlobal(name, timeout)
 	local t = 0
@@ -71,6 +73,7 @@ task.spawn(function()
 		BUFFER = 2,
 
 		DEV_PRODUCT_CAP_BONUS = {
+			[3606598159] = 1000,      -- AdReward (pub récompensée) : manquait
 			[3606598188] = 1000,
 			[3606598763] = 2500,
 			[3606598849] = 100000,
@@ -84,19 +87,36 @@ task.spawn(function()
 	-- ────────────────────────────────────────────
 	-- CALCUL DU MULTIPLICATEUR (retourne la valeur)
 	-- ────────────────────────────────────────────
+	-- 🛡️ FIX FAUX POSITIF : un appel UserOwnsGamePassAsync qui ÉCHOUE (hoquet Roblox) comptait
+	--    comme « ne possède pas » → multiplicateur trop bas → cap trop bas → sanction d'un joueur
+	--    qui a payé son pass. Maintenant : un pass vu possédé le reste pour la session, et si un
+	--    pass n'a jamais pu être vérifié, on saute la vérification (passUnknown).
 	local function computeMultiplier(player)
 		local userId = player.UserId
 		local total  = 1
 		local hasVipPass = false
+		local owned = ownedPasses[userId]
+		if not owned then owned = {}; ownedPasses[userId] = owned end
+		local unknown = false
 		for passId, bonus in pairs(GAMEPASS_MULTIPLIERS) do
-			local ok, owns = pcall(function()
-				return MarketplaceService:UserOwnsGamePassAsync(userId, passId)
-			end)
-			if ok and owns then
+			local has = owned[passId]
+			if has ~= true then
+				local ok, owns = pcall(function()
+					return MarketplaceService:UserOwnsGamePassAsync(userId, passId)
+				end)
+				if ok then
+					has = owns == true
+					owned[passId] = has
+				else
+					unknown = true   -- échec : jamais vu possédé ET pas vérifiable maintenant (achat récent possible)
+				end
+			end
+			if has then
 				total = total + bonus
 				if passId == 1891589121 then hasVipPass = true end
 			end
 		end
+		passUnknown[userId] = unknown or nil
 		-- 👑 VIP offert par un admin : le cap DOIT connaître le même x2 que le
 		--    script de points, sinon le joueur dépasse son plafond et se fait
 		--    bannir alors qu'il gagne légitimement.
@@ -158,6 +178,16 @@ task.spawn(function()
 		if playtime < 0 then
 			warn(string.format("⚠️ getMaxPoints: firstJoin dans le futur pour UserID %d, skip", userId))
 			return nil
+		end
+
+		-- 🛡️ FIX FAUX POSITIF : si la fiche du cap a été perdue / recréée, un ancien joueur
+		--    repartait au « jour 1 » avec ses millions de points. Le TEMPS DE JEU RÉEL (compté par
+		--    le serveur, attribut PlaytimeSeconds) sert de plancher : on ne peut pas avoir joué
+		--    plus longtemps qu'on n'est dans le jeu. Le client ne peut pas modifier cet attribut.
+		local pl = Players:GetPlayerByUserId(userId)
+		local pt = pl and tonumber(pl:GetAttribute("PlaytimeSeconds"))
+		if pt and pt > 0 and pt / 86400 > playtimeDays then
+			playtimeDays = pt / 86400
 		end
 
 		local multiplier = getPlayerMultiplier(userId)
@@ -551,6 +581,10 @@ task.spawn(function()
 		end
 
 		local multiplier = computeMultiplier(player)
+		if passUnknown[userId] then
+			warn(string.format("⚠️ checkPlayer: gamepass non vérifiables pour %s, skip ce cycle", player.Name))
+			return
+		end
 
 		if multiplierCache[userId] ~= multiplier then
 			warn(string.format("⚠️ Cache incohérent pour %s, skip ce cycle", player.Name))
@@ -598,6 +632,7 @@ task.spawn(function()
 			multiplierCache[userId] = nil
 			local freshMult = computeMultiplier(player)
 			local freshMax  = getMaxPoints(userId)
+			if passUnknown[userId] then return end   -- vérification impossible : jamais de sanction
 
 			if freshMax and currentPoints <= freshMax then
 				print(string.format(
@@ -666,12 +701,22 @@ task.spawn(function()
 
 		capData[userId].devProductBonus = capData[userId].devProductBonus + bonusPoints
 
-		pcall(function()
-			capStore:UpdateAsync("cap_" .. userId, function(existing)
-				if not existing or type(existing) ~= "table" then return capData[userId] end
-				existing.devProductBonus = capData[userId].devProductBonus
-				return existing
-			end)
+		-- 🛡️ FIX : relances (avant : un seul essai → un hoquet DataStore = bonus perdu au prochain
+		--    join → code / cadeau / admin compté comme triche)
+		task.spawn(function()
+			for attempt = 1, 5 do
+				local ok = pcall(function()
+					capStore:UpdateAsync("cap_" .. userId, function(existing)
+						if not existing or type(existing) ~= "table" then return capData[userId] end
+						existing.devProductBonus = math.max(tonumber(existing.devProductBonus) or 0,
+							capData[userId] and capData[userId].devProductBonus or 0)
+						return existing
+					end)
+				end)
+				if ok then return end
+				task.wait(2 * attempt)
+			end
+			warn(string.format("🚨 AdminBonus PAS persisté pour %d après 5 essais", userId))
 		end)
 
 		print(string.format("🎁 AdminBonus: UserID %d | +%d | nouveau bonus: %d",
@@ -766,6 +811,7 @@ task.spawn(function()
 		initialized[userId]     = nil
 		CapFirstJoinBridge.cleanup(userId)
 		multiplierCache[userId] = nil
+		ownedPasses[userId], passUnknown[userId], capRestricted[userId] = nil, nil, nil
 
 		task.delay(30, function()
 			-- FIX V5.3 CRITIQUE: Ne PAS cleaner si le joueur est revenu (reload AFK)
