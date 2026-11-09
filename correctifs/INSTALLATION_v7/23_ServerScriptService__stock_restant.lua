@@ -116,13 +116,29 @@ end
 -- ========================================
 local function BroadcastStockUpdate(updatedStocks)
 	local success, err = pcall(function()
-		-- On envoie uniquement les clés/valeurs modifiées (ou tout le stock)
-		local payload = {}
-		for key, value in pairs(updatedStocks) do
-			payload[key] = value
+		-- 🩹 MessagingService refuse les messages de plus de 1 Ko : avec 81 UGC, le stock complet
+		--    ne passait JAMAIS (« data exceeded 1kb »). On l'envoie donc en plusieurs morceaux.
+		local Http = game:GetService("HttpService")
+		local chunk, n, sent = {}, 0, 0
+		local function flush()
+			if n == 0 then return end
+			MessagingService:PublishAsync(SYNC_TOPIC, chunk)
+			sent += 1
+			chunk, n = {}, 0
 		end
-		MessagingService:PublishAsync(SYNC_TOPIC, payload)
-		print("📢 [SERVEUR] Broadcast stock envoyé à tous les serveurs")
+		for key, value in pairs(updatedStocks) do
+			chunk[key] = value
+			n += 1
+			if #Http:JSONEncode(chunk) > 850 then
+				chunk[key] = nil
+				n -= 1
+				flush()
+				chunk[key] = value
+				n = 1
+			end
+		end
+		flush()
+		print(("📢 [SERVEUR] Broadcast stock envoyé à tous les serveurs (%d message(s))"):format(sent))
 	end)
 
 	if not success then

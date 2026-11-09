@@ -2554,7 +2554,7 @@ local function renderProfile(body, profile)
 				im.AnchorPoint = Vector2.new(0, 0.5)
 				im.BackgroundColor3 = C.BG_ITEM
 				im.BorderSizePixel = 0
-				im.Image = "rbxassetid://" .. tostring(it.ai or it.a)
+				im.Image = (function(v) v = tostring(v); return v:find("://") and v or ("rbxassetid://" .. v) end)(it.ai or it.a)
 				im.ScaleType = Enum.ScaleType.Fit
 				im.ZIndex = 14
 				im.Parent = line
@@ -4504,8 +4504,9 @@ local ugcState = {
 local screenUGCLog
 
 local function ugcImg(e)
-	local id = e.ai or e.a
-	return "rbxassetid://" .. tostring(id)
+	local id = tostring(e.ai or e.a)
+	if id:find("://") then return id end   -- 🖼️ miniature Roblox (rbxthumb://)
+	return "rbxassetid://" .. id
 end
 
 local function ugcCard(parent, order, e, backFn)
@@ -8979,7 +8980,7 @@ end)()
 		img.Size = UDim2.new(0, imgS, 0, imgS)
 		img.Position = UDim2.new(0, 8, 0.5, 0) ; img.AnchorPoint = Vector2.new(0, 0.5)
 		img.BackgroundColor3 = C.BG_ITEM ; img.BorderSizePixel = 0
-		img.Image = "rbxassetid://" .. tostring(e.ai or e.a or 0)
+		img.Image = (function(v) v = tostring(v); return v:find("://") and v or ("rbxassetid://" .. v) end)(e.ai or e.a or 0)
 		img.ScaleType = Enum.ScaleType.Fit ; img.ZIndex = 12 ; img.Parent = c
 		corner(img, 7)
 
@@ -10210,7 +10211,7 @@ end)()
 		img.AnchorPoint = Vector2.new(0, 0.5)
 		img.BackgroundColor3 = C.BG_ITEM
 		img.BorderSizePixel = 0
-		img.Image = "rbxassetid://" .. tostring(it.imageId or it.assetId)
+		img.Image = (function(v) v = tostring(v); return v:find("://") and v or ("rbxassetid://" .. v) end)(it.imageId or it.assetId)
 		img.ScaleType = Enum.ScaleType.Fit
 		img.ImageTransparency = hidden and 0.6 or 0
 		img.ZIndex = 13
@@ -14331,6 +14332,9 @@ end)()
 		local f = folder()
 		if not f or S.hookedFolder == f then return end
 		S.hookedFolder = f
+		f:GetAttributeChangedSignal("NewIds"):Connect(function()
+			if currentScreen == "shoporder" and not S.busy then screen() end
+		end)
 		f:GetAttributeChangedSignal("Version"):Connect(function()
 			if currentScreen ~= "shoporder" or S.busy then return end
 			if isDirty() then
@@ -14538,6 +14542,7 @@ end)()
 	------------------------------------------------------------------
 	local function itemRow(body, i, k, it, baseIdx, n)
 		local selected = (S.sel == i)
+		local c0IsNew = cfg() and cfg().IsNew
 		local row = Instance.new("TextButton")
 		row.Size = UDim2.new(1, 0, 0, ROW)
 		row.BackgroundColor3 = selected and C.BG_SELECTED or C.BG_DARK
@@ -14598,7 +14603,7 @@ end)()
 			end
 		end
 		if isHidden(k) then sub = sub .. "  ⚫ caché" end
-		if it.IsNew then sub = sub .. "  🆕" end
+		if (c0IsNew and c0IsNew(it)) or (not c0IsNew and it.IsNew) then sub = sub .. "  🆕 NEW" end
 		label(row, {
 			text = sub, richText = true,
 			size = UDim2.new(1, -tx - rightW, 0, IS_MOBILE and 13 or 15),
@@ -14631,12 +14636,32 @@ end)()
 			bar.LayoutOrder = 100 + i * 2 + 1
 			bar.ZIndex = 11
 			bar.Parent = body
+			-- 🆕 badge NEW : enregistré TOUT DE SUITE (pas besoin de 💾), sur tous les serveurs
+			local isNewNow = (c0IsNew and c0IsNew(it)) or false
+			local canNew = c0IsNew ~= nil and not S.busy and tonumber(it.AssetId) ~= nil
 			local specs = {
 				{ "⤒ En haut", i > 1, function() move(i, 1) end },
 				{ "⤓ En bas", i < n, function() move(i, n) end },
+				{ isNewNow and "🆕 NEW ✓" or "🆕 NEW", canNew, function()
+					local r = remote()
+					if not r or S.newBusy then return end
+					S.newBusy = true
+					task.spawn(function()
+						local ok, res = pcall(function()
+							return r:InvokeServer("setnew", { assetId = it.AssetId, on = not isNewNow })
+						end)
+						S.newBusy = false
+						if ok and type(res) == "table" and res.ok then
+							toast(res.msg or "✅", true)
+						else
+							toast((type(res) == "table" and res.msg) or ("❌ " .. tostring(res)), false)
+						end
+						if currentScreen == "shoporder" then screen() end
+					end)
+				end },
 				{ "✕", true, function() S.sel = nil; screen() end },
 			}
-			local w = { 0.42, 0.42, 0.16 }
+			local w = { 0.29, 0.29, 0.29, 0.13 }
 			local xs = 0
 			for j, sp in ipairs(specs) do
 				local c = Instance.new("Frame")
@@ -14647,7 +14672,7 @@ end)()
 				c.Parent = bar
 				xs = xs + w[j]
 				local b = actionButton(c, {
-					color = sp[2] and (j == 3 and C.BG_LIGHT or ACC_D) or C.BG_MEDIUM,
+					color = sp[2] and (j == #specs and C.BG_LIGHT or (j == 3 and isNewNow and C.GREEN_DARK or ACC_D)) or C.BG_MEDIUM,
 					strokeColor = sp[2] and ACC or C.BORDER_SUBTLE,
 					text = sp[1], textSize = IS_MOBILE and 11 or 14, radius = 8, zIndex = 11,
 					textColor = sp[2] and C.TEXT_WHITE or C.TEXT_DIM,
@@ -21737,7 +21762,7 @@ end)()
 	local function ugcName(id, fallback)
 		local u = UGCC and UGCC.GetByAssetId(tonumber(id))
 		return (u and u.Name) or fallback or ("UGC " .. tostring(id)),
-		u and ("rbxassetid://" .. tostring(u.ImageId or u.AssetId))
+		u and (function(v) v = tostring(v); return v:find("://") and v or ("rbxassetid://" .. v) end)(u.ImageId or u.AssetId)
 			or ("rbxthumb://type=Asset&id=" .. tostring(id) .. "&w=150&h=150")
 	end
 

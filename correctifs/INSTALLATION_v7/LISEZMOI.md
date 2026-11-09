@@ -28,6 +28,9 @@ Clique bien DANS le code avant de coller (sinon Studio dit « Clipboard text isn
 | 21 | StarterPlayer › StarterPlayerScripts | PVPmapvoting | LocalScript |
 | 22 | ServerScriptService | securité suplementaire ban | Script |
 | 23 | ServerScriptService | stock restant | Script |
+| 24 | ReplicatedStorage | UGC_CONFIG | ModuleScript |
+| 25 | StarterGui › UGCshop › ShopFrame | UGC SHOP GENERATOR | LocalScript |
+| 26 | ServerScriptService | UGC SHOP ORDER | Script |
 
 Ensuite : Publish, puis « Shut down all servers ».
 
@@ -54,3 +57,7 @@ Ce que ça change :
 - 22 (revue) : cap absolu — un échec de vérification de gamepass ne baisse plus le multiplicateur (pass vu possédé = gardé, vérification sautée si impossible) ; ancien joueur dont la fiche cap est perdue : le temps de jeu réel sert de plancher ; bonus des codes / cadeaux / admin persisté avec relances ; produit AdReward ajouté.
 - 23 (mise à jour) : le stock est lu d'abord par le MOTEUR Roblox (GetProductInfo) : aucun relais, aucun 429 de Cloudflare. Le relais HTTP ne sert plus qu'en secours. Test : _G.UGCStock_TestEngine() dans la barre de commande.
 - 23 (mise à jour 2) : secours HTTP = ta lecture un par un d'avant (celle qui marchait à ~70 %), mais ÉTALÉE sur toute la période de sondage (1 requête / ~7 s au lieu de 81 en 25 s) ; la lecture groupée POST n'est plus utilisée.
+- 24 : UGC_CONFIG réécrit (mêmes valeurs, même rendu) + modèle à copier-coller ; seuls AssetId et Price sont obligatoires (nom, image = miniature Roblox, noms internes : automatiques) ; Thumbnail = true force la miniature ; vérification au démarrage (doublons, prix manquant).
+- 3, 25, 26 : badge NEW géré dans le panel (📦 RÉGLAGES DU STOCK ▸ ↕️ ORDRE DU SHOP ▸ tape un UGC ▸ 🆕 NEW), en direct sur tous les serveurs ; images rbxthumb:// acceptées partout dans le panel.
+- 25 : bug du shop corrigé — après une réorganisation (stock épuisé, ordre changé), survoler / cliquer un UGC le renvoyait à son ancienne place.
+- 23 : « MessagingService … data exceeded 1kb » corrigé (synchro des stocks envoyée en plusieurs morceaux).
