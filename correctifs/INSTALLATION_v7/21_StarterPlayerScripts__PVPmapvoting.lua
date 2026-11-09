@@ -417,6 +417,7 @@ wsG.Offset = Vector2.new(-1.3, 0)
 local win = { round = nil, token = 0, model = nil, conn = nil, waitConn = nil, t0 = nil }
 
 local function stopWinnerScene()
+	if win.anim then win.anim:Disconnect(); win.anim = nil end
 	if win.conn then win.conn:Disconnect(); win.conn = nil end
 	if win.waitConn then win.waitConn:Disconnect(); win.waitConn = nil end
 	if win.model then win.model:Destroy(); win.model = nil end
@@ -483,6 +484,67 @@ local function sceneLoop()
 	end)
 end
 
+-- 🏆 ANIMATION DE VICTOIRE (locale, aucun effet en plus) :
+--    0 → 0,4 s : il tombe sur le podium (petit amorti à l'atterrissage)
+--    0,4 → 1,2 s : il lève son arme vers le ciel (bras droit), poing gauche levé
+--    ensuite : pose tenue, légère respiration et balancement
+--    Les angles se règlent ici (degrés, autour de l'épaule ; + = vers le haut).
+local VICTORY = {
+	DropHeight = 3,   DropTime = 0.4,
+	RaiseStart = 0.4, RaiseTime = 0.8,
+	RightUp = 80,     -- bras droit (arme) levé vers le ciel
+	LeftUp = 150, LeftOut = 25,   -- poing gauche levé, un peu écarté
+	Breath = 0.06, BreathSpeed = 1.6, Sway = 3,   -- studs · cycles/s · degrés
+}
+local function outBack(x)
+	local c = 1.4; local u = x - 1
+	return 1 + (c + 1) * u * u * u + c * u * u
+end
+local function startVictory(m)
+	if win.anim then win.anim:Disconnect(); win.anim = nil end
+	local torso = m:FindFirstChild("Torso")
+	local rw = torso and torso:FindFirstChild("RightArmWeld")
+	local lw = torso and torso:FindFirstChild("LeftArmWeld")
+	local rC0, lC0 = rw and rw.C0, lw and lw.C0
+	-- pivot = épaule, dans le repère du torse (R6)
+	local function around(pivot, rot) return CFrame.new(pivot) * rot * CFrame.new(-pivot) end
+	local rPiv, lPiv = Vector3.new(1, 0.5, 0), Vector3.new(-1, 0.5, 0)
+	local t0 = os.clock()
+	local function step()
+		if not m.Parent then if win.anim then win.anim:Disconnect(); win.anim = nil end return end
+		local t = os.clock() - t0
+		-- chute + amorti
+		local y = 0
+		if t < VICTORY.DropTime then
+			local x = t / VICTORY.DropTime
+			y = VICTORY.DropHeight * (1 - x * x)
+		elseif t < VICTORY.DropTime + 0.25 then
+			local x = (t - VICTORY.DropTime) / 0.25
+			y = -0.25 * math.sin(x * math.pi)
+		end
+		-- bras levés
+		local r = math.clamp((t - VICTORY.RaiseStart) / VICTORY.RaiseTime, 0, 1)
+		local k = r > 0 and outBack(r) or 0
+		if rw and rw.Parent and rC0 then
+			rw.C0 = around(rPiv, CFrame.Angles(math.rad(VICTORY.RightUp * k), 0, 0)) * rC0
+		end
+		if lw and lw.Parent and lC0 then
+			lw.C0 = around(lPiv, CFrame.Angles(math.rad(VICTORY.LeftUp * k), 0, math.rad(-VICTORY.LeftOut * k))) * lC0
+		end
+		-- respiration + balancement une fois posé
+		local settle = math.clamp((t - VICTORY.DropTime - 0.25) / 0.5, 0, 1)
+		local ph = (t * VICTORY.BreathSpeed) * 2 * math.pi
+		y += settle * VICTORY.Breath * math.sin(ph)
+		local yaw = settle * math.rad(VICTORY.Sway) * math.sin(ph * 0.5)
+		m:PivotTo(CFrame.new(0, y, 0) * CFrame.Angles(0, yaw, 0))
+	end
+	step()
+	win.anim = RunService.RenderStepped:Connect(function()
+		if not voteGui.Enabled or not winCol.Visible then return end   -- écran caché : on ne calcule rien
+		step()
+	end)
+end
+
 local function mountModel(src, token)
 	if token ~= win.token or win.model then return end
 	local ok, m = pcall(function() return src:Clone() end)
@@ -492,6 +554,7 @@ local function mountModel(src, token)
 	m:PivotTo(CFrame.new())   -- regarde vers la caméra (côté -Z)
 	m.Parent = winWorld
 	applyPose(m)
+	startVictory(m)
 	win.model = m
 	win.t0 = os.clock()
 	TweenService:Create(winPhoto, TweenInfo.new(0.25), { ImageTransparency = 1 }):Play()
