@@ -1297,13 +1297,22 @@ _G.UGCStock_TestEngine = function(assetId)
 end
 
 -- Ancienne méthode, gardée en secours : un UGC à la fois (lente, sujette aux 429)
+-- 🩹 ÉTALÉE : avant, les 81 requêtes partaient en ~25 s → rafale → 429 (≈ 2 000 refus / jour sur
+--    ton Cloudflare). Maintenant elles sont réparties sur toute la période de sondage
+--    (600 s / 81 ≈ 1 requête toutes les 7 s) : plus jamais de rafale. Les UGC déjà frais dans le
+--    cache partagé ne coûtent rien (pas de requête, pas d'attente).
 local function fetchAllOneByOne()
 	local okN, total, lastErr = 0, 0, nil
+	local n = math.max(1, #UGC_CONFIG.Items)
+	local spacing = math.clamp(StockCfg.pollSeconds / n, 0.3, 7)
 	for _, ugc in ipairs(UGC_CONFIG.Items) do
 		total = total + 1
+		local t0 = os.clock()
 		local ok, msg = readAndApplyOne(ugc.AssetId, false)
 		if ok then okN = okN + 1 else lastErr = msg end
-		task.wait(0.3)
+		-- n'attend que si une vraie requête HTTP vient de partir (sinon lecture du cache, instantanée)
+		if os.clock() - t0 > 0.15 then task.wait(spacing) else task.wait(0.05) end
+		if StockCfg.mode ~= "live" then break end
 	end
 	return okN, total, lastErr
 end
@@ -1318,58 +1327,43 @@ local function fetchAll(reason)
 	local okN, total, lastErr = 0, 0, nil
 
 	local passOK, passErr = pcall(function()
-		if os.clock() < BatchState.unsupportedUntil and os.clock() < EngineState.unsupportedUntil then
-			okN, total, lastErr = fetchAllOneByOne()
-			return
-		end
-		local seqs = {}
-		for _, ugc in ipairs(UGC_CONFIG.Items) do
-			local p = pendingFor(tostring(ugc.AssetId))
-			seqs[tostring(ugc.AssetId)] = p and p.sequence
-		end
-		local requestHost, requestMode = StockCfg.proxyHost, StockCfg.mode
-		local data, at, err, version
+		-- 1) moteur Roblox (aucun HTTP). 2) sinon : ta lecture HTTP d'avant, un UGC à la fois,
+		--    mais étalée (plus de rafale). La lecture groupée POST n'est plus utilisée : Roblox la
+		--    limite beaucoup plus que la lecture un par un.
 		if os.clock() >= EngineState.unsupportedUntil then
-			data, at, err, version = fetchEngine()
-			local fresh = type(data) == "table" and at and (os.time() - at) <= StockCfg.pollSeconds * STALE_FACTOR
-			if not fresh and os.clock() < EngineState.unsupportedUntil then
-				data, at, err, version = fetchBatch()   -- le moteur ne publie pas ces stocks : HTTP
-			elseif not fresh and type(data) ~= "table" then
-				data, at, err, version = nil, nil, err, nil   -- 1re lecture en cours : on attend
+			local seqs = {}
+			for _, ugc in ipairs(UGC_CONFIG.Items) do
+				local p = pendingFor(tostring(ugc.AssetId))
+				seqs[tostring(ugc.AssetId)] = p and p.sequence
 			end
-		else
-			data, at, err, version = fetchBatch()
-		end
-		if StockCfg.proxyHost ~= requestHost or StockCfg.mode ~= requestMode then
-			lastErr = "configuration modifiée pendant la lecture"
-			return
-		end
-		-- un AUTRE serveur a constaté que le relais refuse le POST (erreur partagée) : pareil ici
-		if type(data) ~= "table" and type(err) == "string" and (err:match("^HTTP 40[0345]")
-			or err:match("^HTTP 50[12]") or err:find("illisible", 1, true) or err:find("CSRF", 1, true)) then
-			BatchState.unsupportedUntil = os.clock() + 3600
-		end
-		if type(data) ~= "table" and os.clock() < BatchState.unsupportedUntil
-			and os.clock() < EngineState.unsupportedUntil then
-			-- le relais vient de refuser la lecture groupée : secours immédiat
-			okN, total, lastErr = fetchAllOneByOne()
-			return
-		end
-		lastErr = err
-		local fresh = type(data) == "table" and at and (os.time() - at) <= StockCfg.pollSeconds * STALE_FACTOR
-		for _, ugc in ipairs(UGC_CONFIG.Items) do
-			total = total + 1
-			local key = tostring(ugc.AssetId)
-			local d = type(data) == "table" and data[key] or nil
-			if d and fresh then
-				local ok, msg = applyRead(key, seqs[key], d.rem, d.total, d.name, at, version)
-				if ok then okN = okN + 1 else lastErr = msg end
-			elseif d and not Live[key] then
-				-- 🛡️ donnée ancienne mais RÉELLE : sert de repli au lieu du compteur maison
-				Live[key] = { rem = d.rem, total = d.total, at = at, version = version,
-					name = d.name, rawRem = d.rem, pendingPurchase = false }
+			local requestMode = StockCfg.mode
+			local data, at, err, version = fetchEngine()
+			if StockCfg.mode ~= requestMode then lastErr = "configuration modifiée pendant la lecture"; return end
+			if type(data) == "table" and at then
+				lastErr = err
+				local fresh = (os.time() - at) <= StockCfg.pollSeconds * STALE_FACTOR
+				for _, ugc in ipairs(UGC_CONFIG.Items) do
+					total = total + 1
+					local key = tostring(ugc.AssetId)
+					local d = data[key]
+					if d and fresh then
+						local ok, msg = applyRead(key, seqs[key], d.rem, d.total, d.name, at, version)
+						if ok then okN = okN + 1 else lastErr = msg end
+					elseif d and not Live[key] then
+						-- 🛡️ donnée ancienne mais RÉELLE : sert de repli au lieu du compteur maison
+						Live[key] = { rem = d.rem, total = d.total, at = at, version = version,
+							name = d.name, rawRem = d.rem, pendingPurchase = false }
+					end
+				end
+				if okN > 0 then return end
 			end
+			if os.clock() >= EngineState.unsupportedUntil then
+				lastErr = err or "lecture moteur en cours (un autre serveur s'en occupe)"
+				return
+			end
+			-- le moteur ne publie pas ces stocks : on passe à la lecture HTTP ci-dessous
 		end
+		okN, total, lastErr = fetchAllOneByOne()
 	end)
 	if not passOK then lastErr = tostring(passErr) end
 	LiveState.fetching = false
@@ -1725,10 +1719,9 @@ stockActionFn.OnServerInvoke = function(player, action, payload)
 		if not first then return { ok = false, msg = "Aucun UGC dans la config." } end
 
 		local t0 = os.clock()
-		if os.clock() >= EngineState.unsupportedUntil or os.clock() >= BatchState.unsupportedUntil then
-			local viaEngine = os.clock() >= EngineState.unsupportedUntil
-			local data, at, err
-			if viaEngine then data, at, err = fetchEngine() else data, at, err = fetchBatch() end
+		if os.clock() >= EngineState.unsupportedUntil then
+			local viaEngine = true
+			local data, at, err = fetchEngine()
 			local ms = math.floor((os.clock() - t0) * 1000)
 			if type(data) == "table" and at then
 				local n = 0
@@ -1743,11 +1736,11 @@ stockActionFn.OnServerInvoke = function(player, action, payload)
 						err and (" — dernier souci : " .. tostring(err)) or ""),
 				}
 			end
-			if os.clock() < BatchState.unsupportedUntil then
-				-- relais sans POST : on teste l'ancienne lecture ci-dessous
-			else
-				return { ok = false, msg = string.format("❌ Échec en %d ms — %s", ms, tostring(err)) }
+			if os.clock() >= EngineState.unsupportedUntil then
+				return { ok = false, msg = string.format("⏳ Lecture moteur en cours (%d ms) — %s",
+					ms, tostring(err or "réessaie dans une minute")) }
 			end
+			-- le moteur ne publie pas ces stocks : on teste la lecture HTTP ci-dessous
 		end
 		local ok, rem, tot, msg = fetchOne(first.AssetId)
 		local ms = math.floor((os.clock() - t0) * 1000)
