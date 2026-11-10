@@ -910,6 +910,9 @@ end
 
 local function applyStockCfg(c)
 	for k, v in pairs(c) do StockCfg[k] = v end
+	-- 🛡️ hors mode live, le dernier stock Roblox ne doit JAMAIS écraser le compteur maison
+	--    (sinon un stock déjà vendu « remonterait » à la sauvegarde → survente)
+	if StockCfg.mode ~= "live" then _G.UGCStock_LiveMirror = nil end
 end
 
 local function loadStockCfg()
@@ -1120,6 +1123,9 @@ local function protectConfirmedStock(assetId, remaining)
 	}
 	if l then l.rem = math.min(l.rem, expected) end
 	if CurrentStocks[key] then CurrentStocks[key] = math.min(CurrentStocks[key], expected) end
+	-- 🛡️ la vente confirmée baisse aussi la valeur sauvegardée (jamais de stock qui remonte)
+	local lm = _G.UGCStock_LiveMirror
+	if lm and type(lm[key]) == "number" then lm[key] = math.min(lm[key], expected) end
 end
 
 local applyRead
@@ -1160,8 +1166,10 @@ applyRead = function(key, sequence, rem, tot, msg, at, version)
 	-- 🛡️ le dernier stock RÉEL est TOUJOURS recopié dans le compteur maison (sauvegardé en
 	--    DataStore) : au démarrage d'un serveur, avant la 1re lecture Roblox, le shop affiche
 	--    donc le dernier stock connu au lieu d'un vieux 0. (Avant : seulement si « miroir » était coché.)
-	_G.UGCStock_LiveMirror = _G.UGCStock_LiveMirror or {}
-	_G.UGCStock_LiveMirror[key] = adjusted
+	if StockCfg.mode == "live" then
+		_G.UGCStock_LiveMirror = _G.UGCStock_LiveMirror or {}
+		_G.UGCStock_LiveMirror[key] = adjusted
+	end
 	if DataLoaded and CurrentStocks[key] ~= adjusted then
 		CurrentStocks[key] = adjusted
 	end

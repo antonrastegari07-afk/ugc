@@ -1454,7 +1454,11 @@ function SmartAntiCheat.AnalyzePlayer(player)
 			for _, event in ipairs(data.pointsHistory) do
 				-- 🛡️ FIX FAUX-BAN : TOUS les gains crédités par le serveur (RecordGain : codes, quêtes,
 				--    cadeaux, packs, boxes…) sont légitimes, pas seulement les boxes.
-				if (os.time() - (event.timestamp or 0)) <= timeElapsed then
+				-- ⚠️ JAMAIS les gains « PassiveSuspect » (passif anormal = possible exploit) ni
+				--    d'origine inconnue : les déduire rendrait l'anti-cheat aveugle à ces gains.
+				if (os.time() - (event.timestamp or 0)) <= timeElapsed
+					and event.source ~= "PassiveSuspect" and event.source ~= "Passive"
+					and event.source ~= "unknown" and event.source ~= nil then
 					boxPoints = boxPoints + (event.points or 0)
 				end
 			end
