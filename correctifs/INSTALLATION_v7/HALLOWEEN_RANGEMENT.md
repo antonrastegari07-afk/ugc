@@ -21,13 +21,17 @@
    - le dossier `HalloweenCoinZones`
    - le dossier `JackQuest_PageSpots`
    - le dossier `halloween` (les fantômes)
-   - toute ta déco d'Halloween (citrouilles, toiles, lumières…)
+   - le dossier `HalloweenEventBoards` (les panneaux de l'event)
+   - la déco trouvée dans ta version 11.0 : `Bat`, les 2 `pumpkin 2`, `Pumpkin Hat`
+   - à vérifier toi-même (peut-être pas d'Halloween) : les 4 `Lantern` et les pierres tombales
+     (`tombstone_cross`) qui sont dans un `Model` du Workspace
+   - toute autre déco d'Halloween que tu as posée
    Ce qui est dans ServerStorage n'est envoyé à aucun joueur : invisible et zéro coût.
 4. `StarterPlayer ▸ StarterPlayerScripts ▸ HalloweenGhosts` → coche la propriété `Enabled = false`
    (sinon il cherche le dossier des fantômes pour rien).
 5. Admin panel → 🔔 What's new : dépublie l'annonce d'Halloween (si tu en as une).
-6. Si tu avais changé le Lighting / le ciel pour Halloween, remets l'ancien (ou range l'ancien Sky
-   dans le même dossier pour le ressortir plus tard).
+6. Ciel : les ciels d'Halloween sont rangés dans `Lighting ▸ halloween` (dossier) — ils ne sont pas
+   actifs, tu peux les laisser là. Ne touche pas à `Lighting ▸ day` / `night`.
 7. Publie, puis **Shut down all servers**.
 
 ## Vérifier
