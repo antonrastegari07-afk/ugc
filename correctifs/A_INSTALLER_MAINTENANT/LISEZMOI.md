@@ -1,9 +1,11 @@
-# À installer maintenant (2 scripts)
+# À corriger maintenant
 
-| Fichier | Où dans Studio | Nom du script |
+Les deux scripts s'appellent « UGC SHOP ORDER ». Le code serveur a été collé dans le LocalScript
+(StarterPlayerScripts) au lieu du Script serveur (ServerScriptService).
+
+| Fichier | Où dans Studio | Script |
 |---|---|---|
-| `1_ServerScriptService__UGC_SHOP_ORDER.lua` | ServerScriptService | `UGC SHOP ORDER` (le **Script** serveur, PAS le LocalScript de StarterPlayerScripts) |
-| `2_ServerScriptService__stock_restant.lua` | ServerScriptService | `stock restant` |
+| `1_ServerScriptService__UGC_SHOP_ORDER.lua` | **ServerScriptService** | `UGC SHOP ORDER` — icône de Script (serveur) |
+| `3_StarterPlayerScripts__UGC_SHOP_ORDER__a_REMETTRE.lua` | **StarterPlayer ▸ StarterPlayerScripts** | `UGC SHOP ORDER` — icône de LocalScript : on lui remet son code d'origine |
 
-Pour chacun : ouvre le script dans Studio, sélectionne tout (Ctrl+A), colle le contenu du fichier.
-Puis publie et fais **Shut down all servers**.
+(`stock restant` est déjà bien installé dans ta version 12.)
