@@ -14,7 +14,7 @@ und=[f for f in bm.faces if f[pl]==1 and f.normal.z<-0.35 and f.calc_center_medi
 bmesh.ops.delete(bm,geom=und,context='FACES')
 bmesh.ops.delete(bm,geom=[v for v in bm.verts if not v.link_faces],context='VERTS')
 bandv={v for f in bm.faces if f[pl]==1 for v in f.verts}
-ZMID=-0.10; VS=1.12; BULGE=0.03; EDGE=0.045
+ZMID=-0.10; VS=1.03; BULGE=0.0; EDGE=0.05
 for v in bandv:
     t_=min(max((v.co.z-ZC)/(0.0-ZC),0.0),1.0); r_=math.hypot(v.co.x,v.co.y)
     if r_>1e-4:
@@ -137,7 +137,7 @@ for i in range(NPOM):
     tg_.normalize(); d=tg_+v.cross(tg_)*0.30+Vector((RU(-.09,.09),RU(-.09,.09),RU(-.09,.09)))
     shard(p,v,d,RU(0.05,0.10),RU(0.03,0.045),math.radians(RU(16,32)),pick_roll() if random.random()<0.3 else RU(-0.25,0.25))
 # ================= HAIR: the user's own strand model, kept below the hat =================
-HSC=1.05; CAPR=1.0; ADD_TRIS=0; TARGET_MASS=0; POKE=9.0; HAIR_BUDGET=2270; TUCK=0.02; EASE=0.20; KC=30
+HSC=1.05; CAPR=1.0; ADD_TRIS=0; TARGET_MASS=0; POKE=9.0; HAIR_BUDGET=2270; TUCK=0.03; EASE=0.32; KC=30
 with bpy.data.libraries.load(D+'/hairbase.blend') as (src,dst): dst.meshes=[m for m in src.meshes]
 hm=dst.meshes[0]
 hb=bmesh.new(); hb.from_mesh(hm)
@@ -187,24 +187,38 @@ def soft(d,lim,s=0.07):
     # monotonic squeeze: everything beyond (lim-s) is compressed into the last s under the hat surface (order kept)
     a0=lim-s
     return d if d<=a0 else a0+s*(1-math.exp(-(d-a0)/s))
+# pass 1: each strand moves as a whole (no folding): shift = how far it sticks out where it crosses the band,
+# applied fully above the band bottom and fading out smoothly below it
+sv={}
+for f in hb.faces:
+    if f[cid]!=0:
+        for v in f.verts: sv.setdefault(f[cid],set()).add(v)
+def sstep(x): x=min(max(x,0.0),1.0); return x*x*(3-2*x)
+for k,vs in sv.items():
+    smax=0.0; info_={}
+    for v in vs:
+        pc=MWi@v.co; rad=Vector((pc.x,pc.y,0))
+        if rad.length<1e-4: continue
+        dirc=rad.normalized(); dw=(M3@dirc).normalized(); info_[v]=(pc.z,dw)
+        if ZC-0.02<=pc.z<=ZC+0.14:
+            o_,d_,dh=hit_dist(max(pc.z,ZC+0.03),dirc)
+            if dh is None: continue
+            dv=(v.co-o_).dot(d_); smax=max(smax,dv-(dh-TUCK))
+    if smax<=1e-4: continue
+    for v,(z_,dw) in info_.items():
+        w=sstep((z_-(ZC-EASE))/EASE)
+        if w>0: v.co=v.co-dw*smax*w; ntuck+=1
+# pass 2 (safety): anything still outside the hat above the band bottom is squeezed just under its surface
 for v in hb.verts:
     if v in capv: continue
     pc=MWi@v.co; rad=Vector((pc.x,pc.y,0))
-    if rad.length<1e-4 or pc.z<ZC-EASE: continue
+    if rad.length<1e-4 or pc.z<ZC: continue
     dirc=rad.normalized()
-    if pc.z>=ZC:
-        o_,d_,dh=hit_dist(pc.z,dirc)
-        if dh is None: o_,d_,dh=hit_dist(min(pc.z,0.55),dirc)
-        if dh is None: continue
-        dv=(v.co-o_).dot(d_); nd=soft(dv,max(dh-TUCK,0.1))
-        if nd<dv-1e-5: v.co=v.co-d_*(dv-nd); ntuck+=1
-    else:
-        o_,d_,dh=hit_dist(ZC+0.03,dirc)
-        if dh is None: continue
-        o2=MW@Vector((0,0,pc.z)); dv=(v.co-o2).dot(d_); nd=soft(dv,dh-TUCK)
-        if nd<dv-1e-5:
-            w=((pc.z-(ZC-EASE))/EASE)**2
-            v.co=v.co-d_*(dv-nd)*w; ntuck+=1
+    o_,d_,dh=hit_dist(pc.z,dirc)
+    if dh is None: o_,d_,dh=hit_dist(min(pc.z,0.55),dirc)
+    if dh is None: continue
+    dv=(v.co-o_).dot(d_); nd=soft(dv,max(dh-TUCK,0.1))
+    if nd<dv-1e-5: v.co=v.co-d_*(dv-nd); ntuck+=1
 print('tucked verts',ntuck)
 # real visibility test: a hair vertex is hidden only if NO outward direction reaches the open air
 # (occluders = hat + a head/torso stand-in). Only faces one ring inside the hidden zone are dropped.

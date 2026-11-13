@@ -14,7 +14,7 @@ und=[f for f in bm.faces if f[pl]==1 and f.normal.z<-0.35 and f.calc_center_medi
 bmesh.ops.delete(bm,geom=und,context='FACES')
 bmesh.ops.delete(bm,geom=[v for v in bm.verts if not v.link_faces],context='VERTS')
 bandv={v for f in bm.faces if f[pl]==1 for v in f.verts}
-ZMID=-0.10; VS=1.12; BULGE=0.03; EDGE=0.045
+ZMID=-0.10; VS=1.03; BULGE=0.0; EDGE=0.05
 for v in bandv:
     t_=min(max((v.co.z-ZC)/(0.0-ZC),0.0),1.0); r_=math.hypot(v.co.x,v.co.y)
     if r_>1e-4:
