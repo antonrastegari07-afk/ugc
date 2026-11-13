@@ -13,6 +13,14 @@ ZC=-0.27
 und=[f for f in bm.faces if f[pl]==1 and f.normal.z<-0.35 and f.calc_center_median().z<-0.05 and math.hypot(*f.calc_center_median()[:2])<0.72]
 bmesh.ops.delete(bm,geom=und,context='FACES')
 bmesh.ops.delete(bm,geom=[v for v in bm.verts if not v.link_faces],context='VERTS')
+bandv={v for f in bm.faces if f[pl]==1 for v in f.verts}
+ZMID=-0.10; VS=1.12; BULGE=0.03; EDGE=0.045
+for v in bandv:
+    t_=min(max((v.co.z-ZC)/(0.0-ZC),0.0),1.0); r_=math.hypot(v.co.x,v.co.y)
+    if r_>1e-4:
+        s_=math.sin(math.pi*t_)**0.55; k_=1+(BULGE*s_-EDGE*(1-s_))/r_; v.co.x*=k_; v.co.y*=k_
+    v.co.z=ZMID+(v.co.z-ZMID)*VS
+ZC=ZMID+(ZC-ZMID)*VS
 PC=Vector((-0.779,-0.158,-0.503))
 be=[e for e in bm.edges if len(e.link_faces)==1]
 tail=[e for e in be if ((e.verts[0].co+e.verts[1].co)/2-PC).length<0.33]
@@ -34,9 +42,15 @@ for f in bm.faces:
     if f[pl]==4 and f.normal.z>0: f.normal_flip()
 # ---- pompom core: noisy icosphere at the tail tip
 PR=0.19
-pcen=tc+(tc-Vector((tc.x*0.8,tc.y*0.8,tc.z+0.3))).normalized()*PR*0.75
-r_=math.hypot(pcen.x,pcen.y)
-if r_<0.6+PR+0.03: pcen.x*= (0.6+PR+0.03)/r_; pcen.y*=(0.6+PR+0.03)/r_
+tp=np.array([v.co[:] for e in tail for v in e.verts]); tcn=tp.mean(0)
+_,_,vt_=np.linalg.svd(tp-tcn); taxis=Vector(vt_[2])
+near=[v.co for v in bm.verts if 0.12<(v.co-tc).length<0.40 and v not in bandv and all(f[pl]==0 for f in v.link_faces)]
+body=sum(near,Vector())/max(len(near),1)
+if taxis.dot(tc-body)<0: taxis=-taxis
+rin=Vector((-tc.x,-tc.y,0)).normalized(); inw=taxis.dot(rin)
+if inw>0: taxis=(taxis-rin*inw).normalized()
+pcen=tc+taxis*PR*0.60
+print('tail axis',[round(v,2) for v in taxis],'tail centre',[round(v,3) for v in tc])
 ico=bmesh.ops.create_icosphere(bm,subdivisions=2,radius=PR,matrix=Matrix.Translation(pcen))
 for v in ico['verts']:
     d=(v.co-pcen).normalized(); v.co=pcen+d*PR*(1+0.10*noise.noise(d*2.5))
@@ -55,56 +69,73 @@ ax=MW.to_3x3()@Vector((0,0,1)); org=MW@Vector((0,0,0))
 RU=random.uniform
 # ================= FUR: dense small flat triangles lying on the band, all combed the same way =================
 import os
-FUR=int(os.environ.get('FUR','1080')); NSURF=int(FUR*0.435); NTOP=int(FUR*0.185); NBOT=int(FUR*0.148); NPOM=FUR-NSURF-NTOP-NBOT
+FUR=int(os.environ.get('FUR','1080'))
+fs=[float(x) for x in os.environ.get('FSH','0.44,0.13,0.12,0.08').split(',')]
+NSURF=int(FUR*fs[0]); NBORD=int(FUR*fs[1]); NTOP=int(FUR*fs[2]); NBOT=int(FUR*fs[3]); NPOM=FUR-NSURF-NBORD-NTOP-NBOT
 def pick_roll():
     r=random.random()
-    base=0.0 if r<0.55 else math.pi if r<0.75 else (math.pi/2 if r<0.875 else -math.pi/2)
-    return base+RU(-0.35,0.35)
+    base=0.0 if r<0.78 else math.pi if r<0.90 else (math.pi/2 if r<0.95 else -math.pi/2)
+    return base+RU(-0.25,0.25)
 def shard(p,n,d,L,W,lift,roll=0.0,part=3):
     d=(d-n*d.dot(n)).normalized(); t=d.cross(n).normalized()
-    base=p-n*0.012-d*0.03
-    axis=(d*math.cos(lift)+n*math.sin(lift)).normalized()         # shard length direction
-    up=t.cross(axis).normalized()                                   # ~n : face normal for roll 0
+    base=p-n*0.014-d*0.03
+    axis=(d*math.cos(lift)+n*math.sin(lift)).normalized()
+    up=t.cross(axis).normalized()
     t2=t*math.cos(roll)+up*math.sin(roll); g=up*math.cos(roll)-t*math.sin(roll)
-    tip=base+axis*(L+0.03)+n*0.012+t2*RU(-.25,.25)*W
+    tip=base+axis*(L+0.03)+n*0.014+t2*RU(-.25,.25)*W
     P=[base-t2*W/2,base+t2*W/2,tip]
     var=random.randrange(4); u0=0.75+0.0625*var
     UV=[(u0+0.004,0.005),(u0+0.058,0.005),(u0+0.031,0.095)]
     v=[bm.verts.new(q) for q in P]
     f=bm.faces.new(v); f[pl]=part; f.smooth=True; f.normal_update()
     if f.normal.dot(g)<0: f.normal_flip(); f.normal_update()
-    cnv=(f.normal+n*0.6).normalized()
+    cnv=(f.normal*0.35+n).normalized()
     for q in v: q[cnl]=cnv
     for lp in f.loops: lp[uvl].uv=UV[v.index(lp.vert)]
+ZT=-0.055; ZB=ZC+0.075
+# (a) row along the velvet/fur border: hides the stepped edge, tips combed over the red
+border=[e for e in bm.edges if len(e.link_faces)==2 and {e.link_faces[0][pl],e.link_faces[1][pl]}=={0,1}]
+bl=np.array([e.calc_length() for e in border]); bc=np.cumsum(bl)/bl.sum()
+for i in range(NBORD):
+    e=border[min(int(np.searchsorted(bc,random.random())),len(border)-1)]
+    fr=[f for f in e.link_faces if f[pl]==0][0]
+    p=e.verts[0].co.lerp(e.verts[1].co,random.random()); n=fr.normal.copy()
+    rel=p-org; h=rel.dot(ax); rd=(rel-ax*h).normalized(); tang=ax.cross(rd)
+    et=(e.verts[1].co-e.verts[0].co).normalized(); upv=n.cross(et)
+    if upv.dot(fr.calc_center_median()-p)<0: upv=-upv
+    d=tang+upv*RU(0.15,0.40)+Vector((RU(-.06,.06),RU(-.06,.06),RU(-.06,.06)))
+    shard(p-upv*RU(0.0,0.035)+n*0.006,n,d,RU(0.06,0.10),RU(0.035,0.055),math.radians(RU(4,14)),RU(-0.35,0.35))
+# (b) band surface, top face and bottom rim
 bandf=[f for f in bm.faces if f[pl]==1]
 areas=np.array([f.calc_area() for f in bandf]); cum=np.cumsum(areas)/areas.sum()
 cnt={'s':0,'t':0,'b':0}; lim={'s':NSURF,'t':NTOP,'b':NBOT}; tries=0
-while sum(cnt.values())<NSURF+NTOP+NBOT and tries<200000:
+while sum(cnt.values())<NSURF+NTOP+NBOT and tries<400000:
     tries+=1
     f=bandf[min(int(np.searchsorted(cum,random.random())),len(bandf)-1)]
     n=f.normal.copy(); c=f.calc_center_median(); rel=c-org; h=rel.dot(ax); radial=(rel-ax*h); rd=radial.normalized()
-    if radial.length<0.63: continue
+    if radial.length<0.60: continue
     if n.dot(rd)<-0.05 and n.dot(ax)<0.3: continue
-    kind='t' if h>-0.065 else 'b' if h<-0.20 else 's'
+    kind='t' if h>ZT else 'b' if h<ZB else 's'
     if cnt[kind]>=lim[kind]: continue
     vs=[v.co for v in f.verts]; w=np.random.dirichlet([1,1,1]); p=vs[0]*w[0]+vs[1]*w[1]+vs[2]*w[2]
     tang=ax.cross(rd)
-    if kind=='t': d=tang+ax*RU(0.25,0.55)
-    elif kind=='b': d=tang-ax*RU(0.35,0.65)+rd*0.1
-    else: d=tang-ax*RU(0.05,0.35)
-    d=d+Vector((RU(-.12,.12),RU(-.12,.12),RU(-.12,.12)))
-    if kind=='s': shard(p,n,d,RU(0.06,0.10),RU(0.035,0.055),math.radians(RU(5,16)),RU(-0.4,0.4))
-    else: shard(p,n,d,RU(0.045,0.085),RU(0.03,0.045),math.radians(RU(14,34)),pick_roll())
+    if kind=='t': d=tang+ax*RU(0.10,0.30)
+    elif kind=='b': d=tang-ax*RU(0.20,0.40)+rd*0.1
+    else: d=tang-ax*RU(0.05,0.20)
+    d=d+Vector((RU(-.07,.07),RU(-.07,.07),RU(-.07,.07)))
+    if kind=='s': shard(p,n,d,RU(0.06,0.10),RU(0.035,0.055),math.radians(RU(5,14)),RU(-0.25,0.25))
+    elif kind=='t': shard(p,n,d,RU(0.06,0.10),RU(0.035,0.055),math.radians(RU(8,18)),RU(-0.25,0.25))
+    else: shard(p,n,d,RU(0.05,0.09),RU(0.03,0.05),math.radians(RU(10,24)),pick_roll())
     cnt[kind]+=1
-nsp=sum(cnt.values())
+nsp=sum(cnt.values())+NBORD
+# (c) pompom: combed downward, moderately lifted
 for i in range(NPOM):
     v=Vector((random.gauss(0,1),random.gauss(0,1),random.gauss(0,1))).normalized()
     p=pcw+Vector((v.x*HSX,v.y*HSY,v.z))*PR*0.98
     dn=Vector((0,0,-1)); tg_=(dn-v*dn.dot(v))
     if tg_.length<0.25: tg_=Vector((1,0,0))-v*v.x
-    tg_.normalize(); d=tg_+v.cross(tg_)*0.35+Vector((RU(-.15,.15),RU(-.15,.15),RU(-.15,.15)))
-    shard(p,v,d,RU(0.04,0.08),RU(0.028,0.042),math.radians(RU(18,40)),pick_roll() if random.random()<0.5 else RU(-0.4,0.4))
-
+    tg_.normalize(); d=tg_+v.cross(tg_)*0.30+Vector((RU(-.09,.09),RU(-.09,.09),RU(-.09,.09)))
+    shard(p,v,d,RU(0.05,0.10),RU(0.03,0.045),math.radians(RU(16,32)),pick_roll() if random.random()<0.3 else RU(-0.25,0.25))
 # ================= HAIR: the user's own strand model, kept below the hat =================
 HSC=1.05; CAPR=1.0; ADD_TRIS=0; TARGET_MASS=0; POKE=9.0; HAIR_BUDGET=2270; TUCK=0.02; EASE=0.20; KC=30
 with bpy.data.libraries.load(D+'/hairbase.blend') as (src,dst): dst.meshes=[m for m in src.meshes]
@@ -206,12 +237,16 @@ for k,fs in cf0.items():
     vs={v for f in fs for v in f.verts}
     if k!=0 and all(hid[v] for v in vs): kill+=fs; stats[0]+=1; continue
     kill+=[f for f in fs if all(deepv[v] for v in f.verts)]
+# nothing of the hair may exist above the top of the fur band: there it is either inside the dome or poking through it
+high={v:((MWi@v.co).z>0.02) for v in hb.verts}
+kill+=[f for f in hb.faces if any(high[v] for v in f.verts)]
 print('strands fully hidden',stats[0],'| hidden verts',sum(hid.values()),'of',len(hid))
 bmesh.ops.delete(hb,geom=list(set(kill)),context='FACES')
 bmesh.ops.delete(hb,geom=[v for v in hb.verts if not v.link_faces],context='VERTS')
 hb.faces.ensure_lookup_table()
 cut_co=MW@Vector((0,0,ZC))
 capn=sum(len(f.verts)-2 for f in hb.faces if f[cid]==0); strn=sum(len(f.verts)-2 for f in hb.faces if f[cid]!=0)
+HAIR_BUDGET=3965-sum(len(f.verts)-2 for f in bm.faces if f[pl]!=4)
 STR=min(1.0,(HAIR_BUDGET-capn)/strn)
 print('hair tris kept',capn+strn,'cap',capn,'strands',strn,'-> strand ratio',round(STR,3))
 hb.faces.ensure_lookup_table()

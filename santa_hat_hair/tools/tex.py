@@ -53,17 +53,17 @@ band=hatreg&cov&(part==1)
 th=np.arctan2(pc[...,1],pc[...,0]); zc=-pc[...,2]+0.25*(np.hypot(pc[...,0],pc[...,1])-0.75)
 tuft,fib=furshade(th,zc,0)
 def furcol(tuft,fib,aoc,light):
-    s=0.70+0.30*np.clip((tuft-0.25)/0.5,0,1)
-    s=s*(0.66+0.34*aoc**0.9)*(0.86+0.18*light)
-    s=np.clip(s*1.10,0,1)[...,None]
-    shadow=np.array([0.48,0.51,0.61]); white=np.array([0.99,0.99,1.0])
+    s=0.90+0.10*np.clip((tuft-0.25)/0.5,0,1)
+    s=s*(0.90+0.10*aoc**0.6)*(0.93+0.09*light)
+    s=np.clip(s*1.06,0,1)[...,None]
+    shadow=np.array([0.70,0.72,0.79]); white=np.array([1.0,1.0,1.0])
     return shadow+(white-shadow)*s
-c=furcol(tuft*0.5+0.25,fib,aoc,light)*np.array([0.93,0.93,0.95]); col[band]=c[band]; rough[band]=0.95; hgt[band]=(tuft*0.8+fib*0.2)[band]
+c=furcol(tuft*0.5+0.25,fib,aoc,light); col[band]=c[band]; rough[band]=0.95; hgt[band]=(tuft*0.8+fib*0.2)[band]
 pom=hatreg&cov&(part==2)
 dv=pos-pcw; rr=np.linalg.norm(dv,axis=-1)+1e-9; thp=np.arctan2(dv[...,1],dv[...,0]); pol=np.arccos(np.clip(dv[...,2]/rr,-1,1))
 tuft,fib=furshade(thp,pol*PR*1.2,5,circ=1.0)
-c=furcol(tuft,fib,np.clip(aoc*1.15,0,1),light); col[pom]=c[pom]; rough[pom]=0.95; hgt[pom]=tuft[pom]
-lin=hatreg&cov&(part==4); col[lin]=np.array([0.42,0.44,0.52]); rough[lin]=0.9
+c=furcol(tuft*0.4+0.4,fib,np.clip(aoc*0.5+0.5,0,1),light); col[pom]=c[pom]; rough[pom]=0.95; hgt[pom]=tuft[pom]
+lin=hatreg&cov&(part==4); col[lin]=np.array([0.90,0.91,0.94]); rough[lin]=0.9
 # dilate hat region into gutters (avoid seams)
 def dilate(img,mask,n=10):
     img=img.copy(); m=mask.copy()
@@ -93,8 +93,8 @@ def fibres(uu,vv,col_id,dens=(11,27,61)):
 # shards: v 0..0.125
 sh_m=strip&(V<0.10); vv=V/0.095
 fb=fibres(uu,vv,sv_i,(7,17,39))
-s=np.clip(0.70+0.34*np.clip(vv,0,1)**0.7,0,1)*(0.93+0.07*fb)
-shadow=np.array([0.50,0.53,0.62]); white=np.array([0.99,0.99,1.0])
+s=np.clip(0.80+0.24*np.clip(vv,0,1)**0.6,0,1)*(0.96+0.04*fb)
+shadow=np.array([0.62,0.64,0.72]); white=np.array([1.0,1.0,1.0])
 c=shadow+(white-shadow)*np.clip(s,0,1)[...,None]
 col[sh_m]=c[sh_m]; rough[sh_m]=0.95; hgt[sh_m]=fb[sh_m]*0.6
 # undercap texels (u~.76-.78, v .02-.1) share the shard root tone: overwrite small patch

@@ -21,7 +21,7 @@ RES=int(a[3]) if len(a)>3 else 500
 sc.render.engine='CYCLES'; sc.cycles.samples=24; sc.render.resolution_x=RES; sc.render.resolution_y=RES; sc.view_settings.view_transform='Standard'
 V={'front':(0,8),'34':(-40,15),'side':(-90,8),'back':(180,12),'34r':(45,15),'below':(-20,-45)}
 CLOSE=1
-if len(a)>5: tg=Vector((0,0,HEADZ+0.35)); V={'c34':(-35,12),'cback':(150,10),'cfront':(10,5)} if a[5]=='close' else {'cleft':(-95,8),'ctop':(-20,62),'cface':(0,0)} if a[5]=='close2' else {'x1':(60,50),'x2':(120,45),'x3':(20,40)}
+if len(a)>5: tg=Vector((0,0,HEADZ+0.35)) if a[5]!='close4' else Vector((-0.45,0,HEADZ+0.25)); V={'c34':(-35,12),'cback':(150,10),'cfront':(10,5)} if a[5]=='close' else {'cleft':(-95,8),'ctop':(-20,62),'cface':(0,0)} if a[5]=='close2' else {'x1':(60,50),'x2':(120,45),'x3':(20,40)} if a[5]=='close3' else {'p1':(-60,5),'p2':(-125,10),'t1':(-20,62)}
 D=float(a[4]) if len(a)>4 else 6.0
 for n,(az,el) in V.items():
     A=math.radians(az); e=math.radians(el)
