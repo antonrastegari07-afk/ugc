@@ -2,7 +2,7 @@
 # usage: run.sh tag [close]
 cd /tmp/claude-0/-home-user-ugc/fafe1d93-7aa1-5198-bd6e-efebdda97893/scratchpad/hat
 B=../bvenv/bin/python
-$B assemble.py -- $PWD 2>&1 | grep -E "TRIS|rror|Trace|locks" || exit 1
+$B assemble3.py -- $PWD 2>&1 | grep -E "TRIS|rror|Trace|hair tris" || exit 1
 $B uvbake.py -- $PWD 2>&1 | grep -iE "error|Trace"
 python3 tex.py 2>&1 | grep -iE "error|Trace"
 $B mktex.py -- $PWD 2>&1 | grep -iE "error|Trace"
