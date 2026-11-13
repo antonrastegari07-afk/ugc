@@ -100,16 +100,16 @@ col[sh_m]=c[sh_m]; rough[sh_m]=0.95; hgt[sh_m]=fb[sh_m]*0.6
 # undercap texels (u~.76-.78, v .02-.1) share the shard root tone: overwrite small patch
 ucm=strip&(U<0.775)&(V<0.11)&(V>0.0)  # (kept as shard strip; undercap uses dark root part)
 # base cap patch
-cp=strip&(V>=0.10)&(V<0.13); col[cp]=np.array([0.90,0.91,0.94]); rough[cp]=0.6
+cp=strip&(V>=0.10)&(V<0.13); col[cp]=np.array([0.95,0.95,0.97]); rough[cp]=0.6
 # hair: 3 tone columns (inner dark -> outer bright), root at the top of the strip
 hm_=strip&(V>=0.13); cf=(U-0.75)/0.0833; ci=np.floor(cf); uu3=cf-ci; s_=np.clip(1-(V-0.134)/0.862,0,1)
-tone=np.choose(np.clip(ci,0,2).astype(int),[0.74,0.88,1.0])
+tone=np.choose(np.clip(ci,0,2).astype(int),[0.88,0.96,1.0])
 fb=fibres(uu3,s_*2.0,ci,(4,9,19))
 ridge=np.exp(-((uu3-0.5)/0.22)**2); edge=np.abs(uu3-0.5)*2
 root=np.clip(1-s_/0.35,0,1)**1.3
-val=tone*(0.86+0.08*fb+0.05*ridge)*(1-0.20*edge**3)*(1-0.22*root)
+val=tone*(0.90+0.06*fb+0.04*ridge)*(1-0.12*edge**3)*(1-0.10*root)
 val=np.clip(val,0,1)[...,None]
-shadow=np.array([0.46,0.49,0.58]); white=np.array([0.99,0.99,1.0])
+shadow=np.array([0.62,0.64,0.70]); white=np.array([1.0,1.0,1.0])
 c=shadow+(white-shadow)*val
 col[hm_]=c[hm_]; rough[hm_]=0.55; hgt[hm_]=(fb*0.7+ridge*0.3)[hm_]
 # ---------- normal map from height

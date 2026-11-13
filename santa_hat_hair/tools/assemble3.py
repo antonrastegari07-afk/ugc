@@ -44,15 +44,18 @@ for v in ico['verts']:
     for f in v.link_faces: f[pl]=2; f.smooth=True
 print('pompom centre',[round(v,3) for v in pcen])
 # ---- place the hat on the head (canonical -> world)
-TILT=math.radians(-5); HS=1.06
-MW=Matrix.Translation((0,0.02,2.12))@Matrix.Rotation(TILT,4,'X')@Matrix.Diagonal((HS,HS,1.0,1.0))
+import os
+E=lambda k,d: float(os.environ.get(k,d))
+TILT=math.radians(E('TILT',-4)); HSX=E('HSX',1.12); HSY=E('HSY',1.04); HZ=E('HZ',2.20); HY=E('HY',0.05)
+MW=Matrix.Translation((0,HY,HZ))@Matrix.Rotation(TILT,4,'X')@Matrix.Diagonal((HSX,HSY,1.0,1.0))
 bmesh.ops.transform(bm,matrix=MW,verts=bm.verts[:]); bm.normal_update()
 pcw=MW@pcen
 
 ax=MW.to_3x3()@Vector((0,0,1)); org=MW@Vector((0,0,0))
 RU=random.uniform
 # ================= FUR: dense small flat triangles lying on the band, all combed the same way =================
-NSURF=470; NTOP=200; NBOT=160; NPOM=250
+import os
+FUR=int(os.environ.get('FUR','1080')); NSURF=int(FUR*0.435); NTOP=int(FUR*0.185); NBOT=int(FUR*0.148); NPOM=FUR-NSURF-NTOP-NBOT
 def pick_roll():
     r=random.random()
     base=0.0 if r<0.55 else math.pi if r<0.75 else (math.pi/2 if r<0.875 else -math.pi/2)
@@ -96,14 +99,14 @@ while sum(cnt.values())<NSURF+NTOP+NBOT and tries<200000:
 nsp=sum(cnt.values())
 for i in range(NPOM):
     v=Vector((random.gauss(0,1),random.gauss(0,1),random.gauss(0,1))).normalized()
-    p=pcw+v*PR*0.98
+    p=pcw+Vector((v.x*HSX,v.y*HSY,v.z))*PR*0.98
     dn=Vector((0,0,-1)); tg_=(dn-v*dn.dot(v))
     if tg_.length<0.25: tg_=Vector((1,0,0))-v*v.x
     tg_.normalize(); d=tg_+v.cross(tg_)*0.35+Vector((RU(-.15,.15),RU(-.15,.15),RU(-.15,.15)))
     shard(p,v,d,RU(0.04,0.08),RU(0.028,0.042),math.radians(RU(18,40)),pick_roll() if random.random()<0.5 else RU(-0.4,0.4))
 
 # ================= HAIR: the user's own strand model, kept below the hat =================
-HSC=1.08; CAPR=1.0; STR=1.0; ADD_TRIS=0; TARGET_MASS=0
+HSC=1.05; CAPR=1.0; ADD_TRIS=0; TARGET_MASS=0; POKE=9.0; HAIR_BUDGET=2270; TUCK=0.02; EASE=0.20; KC=30
 with bpy.data.libraries.load(D+'/hairbase.blend') as (src,dst): dst.meshes=[m for m in src.meshes]
 hm=dst.meshes[0]
 hb=bmesh.new(); hb.from_mesh(hm)
@@ -127,11 +130,90 @@ comps.sort(key=len,reverse=True)
 for i,c in enumerate(comps):
     rs=[math.hypot(v.co.x,v.co.y) for f in c for v in f.verts]; mr=sum(rs)/len(rs)
     for f in c: f[cid]=i; f[tone]=0 if mr<0.74 else (1 if mr<0.86 else 2)
-# keep only what hangs below the fur band (cut plane = band bottom, tilted with the hat)
-cut_co=MW@Vector((0,0,ZC+0.05)); 
-r=bmesh.ops.bisect_plane(hb,geom=hb.verts[:]+hb.edges[:]+hb.faces[:],plane_co=cut_co,plane_no=ax,clear_outer=True,dist=1e-5)
+# ---- nothing visible is cut: only faces lying completely inside the hat (hidden) are dropped
+from mathutils.bvhtree import BVHTree
+hv=[v.co.copy() for v in bm.verts]; vi={v:i for i,v in enumerate(bm.verts)}
+hf=[[vi[v] for v in f.verts] for f in bm.faces if f[pl] in (0,1)]
+bvh=BVHTree.FromPolygons(hv,hf)
+MWi=MW.inverted(); M3=MW.to_3x3()
+def covered(p,margin=0.0):
+    pc=MWi@p
+    if pc.z<=ZC+margin: return False
+    rad=Vector((pc.x,pc.y,0))
+    if rad.length<1e-4: rad=Vector((1,0,0))
+    d1=(M3@rad).normalized()
+    d2=(d1*0.8-ax*0.6).normalized()
+    ok=bvh.ray_cast(p,ax,3.0)[0] is not None and bvh.ray_cast(p,d1,3.0)[0] is not None
+    if ok and pc.z<ZC+0.22: ok=bvh.ray_cast(p,d2,3.0)[0] is not None
+    return ok
+# tuck the hair under the hat: anything that would poke through is pulled inside (no cut), easing in below the band
+def hit_dist(zc,dirc):
+    o_=MW@Vector((0,0,zc)); d_=(M3@dirc).normalized(); h_=bvh.ray_cast(o_,d_,4.0)
+    return (o_,d_,h_[3] if h_[0] is not None else None)
+capv={v for f in hb.faces if f[cid]==0 for v in f.verts}
+ntuck=0
+def soft(d,lim,s=0.07):
+    # monotonic squeeze: everything beyond (lim-s) is compressed into the last s under the hat surface (order kept)
+    a0=lim-s
+    return d if d<=a0 else a0+s*(1-math.exp(-(d-a0)/s))
+for v in hb.verts:
+    if v in capv: continue
+    pc=MWi@v.co; rad=Vector((pc.x,pc.y,0))
+    if rad.length<1e-4 or pc.z<ZC-EASE: continue
+    dirc=rad.normalized()
+    if pc.z>=ZC:
+        o_,d_,dh=hit_dist(pc.z,dirc)
+        if dh is None: o_,d_,dh=hit_dist(min(pc.z,0.55),dirc)
+        if dh is None: continue
+        dv=(v.co-o_).dot(d_); nd=soft(dv,max(dh-TUCK,0.1))
+        if nd<dv-1e-5: v.co=v.co-d_*(dv-nd); ntuck+=1
+    else:
+        o_,d_,dh=hit_dist(ZC+0.03,dirc)
+        if dh is None: continue
+        o2=MW@Vector((0,0,pc.z)); dv=(v.co-o2).dot(d_); nd=soft(dv,dh-TUCK)
+        if nd<dv-1e-5:
+            w=((pc.z-(ZC-EASE))/EASE)**2
+            v.co=v.co-d_*(dv-nd)*w; ntuck+=1
+print('tucked verts',ntuck)
+# real visibility test: a hair vertex is hidden only if NO outward direction reaches the open air
+# (occluders = hat + a head/torso stand-in). Only faces one ring inside the hidden zone are dropped.
+occ_v=list(hv); occ_f=list(hf)
+def add_prism(pts,z0,z1):
+    b0=len(occ_v); n=len(pts)
+    for z in (z0,z1):
+        for x,y in pts: occ_v.append(Vector((x,y,z)))
+    for i in range(n):
+        j=(i+1)%n; occ_f.append([b0+i,b0+j,b0+n+j,b0+n+i])
+    occ_f.append([b0+i for i in range(n)]); occ_f.append([b0+n+i for i in range(n)])
+add_prism([(0.585*math.cos(2*math.pi*i/24),0.585*math.sin(2*math.pi*i/24)) for i in range(24)],1.0,2.19)
+add_prism([(-1,-0.5),(1,-0.5),(1,0.5),(-1,0.5)],-1.0,1.0)
+obvh=BVHTree.FromPolygons(occ_v,occ_f)
+ND=96; dirs=[]
+for i in range(ND):
+    zz=1-2*(i+0.5)/ND; rr=math.sqrt(max(0,1-zz*zz)); th=i*2.399963
+    dirs.append(Vector((rr*math.cos(th),rr*math.sin(th),zz)))
+def hidden(p):
+    for d in dirs:
+        if obvh.ray_cast(p+d*0.004,d,6.0)[0] is None: return False
+    return True
+hid={v:hidden(v.co) for v in hb.verts}
+deepv={v:(hid[v] and all(hid[e.other_vert(v)] for e in v.link_edges)) for v in hb.verts}
+below={v:((MWi@v.co).z<=ZC) for v in hb.verts}
+cf0={}
+for f in hb.faces: cf0.setdefault(f[cid],[]).append(f)
+kill=[]; stats=[0,0,0]
+for k,fs in cf0.items():
+    vs={v for f in fs for v in f.verts}
+    if k!=0 and all(hid[v] for v in vs): kill+=fs; stats[0]+=1; continue
+    kill+=[f for f in fs if all(deepv[v] for v in f.verts)]
+print('strands fully hidden',stats[0],'| hidden verts',sum(hid.values()),'of',len(hid))
+bmesh.ops.delete(hb,geom=list(set(kill)),context='FACES')
+bmesh.ops.delete(hb,geom=[v for v in hb.verts if not v.link_faces],context='VERTS')
 hb.faces.ensure_lookup_table()
-print('hair tris kept',sum(len(f.verts)-2 for f in hb.faces),'cap',sum(len(f.verts)-2 for f in hb.faces if f[cid]==0))
+cut_co=MW@Vector((0,0,ZC))
+capn=sum(len(f.verts)-2 for f in hb.faces if f[cid]==0); strn=sum(len(f.verts)-2 for f in hb.faces if f[cid]!=0)
+STR=min(1.0,(HAIR_BUDGET-capn)/strn)
+print('hair tris kept',capn+strn,'cap',capn,'strands',strn,'-> strand ratio',round(STR,3))
 hb.faces.ensure_lookup_table()
 # ---- add strands: copies of the user's own hanging strands, turned around the head to fill thin areas (back/sides)
 def comp_faces():
@@ -187,15 +269,26 @@ def to_obj(faces,name,ratio,with_uv):
             if with_uv:
                 u,v=l1[huv].uv; un=min(max((u-0.09)/0.47,0),1); vn=min(max((v-0.08)/0.87,0),1)
                 l2[tu].uv=(0.75+f[tone]*0.0833+0.004+un*0.0753,0.134+vn*0.862)
-            else: l2[tu].uv=(0.80,0.114)
+            else:
+                cc=f.calc_center_median(); azc=math.atan2(cc.x,-cc.y) % (2*math.pi); cell=math.floor(azc*KC/(2*math.pi))
+                co=l1.vert.co; az_=math.atan2(co.x,-co.y) % (2*math.pi)
+                if az_-azc>math.pi: az_-=2*math.pi
+                if azc-az_>math.pi: az_+=2*math.pi
+                t_=min(max(az_*KC/(2*math.pi)-cell,0.0),1.0)
+                vn=min(max((co.z-1.05)/1.30,0),1)
+                l2[tu].uv=(0.75+0.004+t_*0.0753,0.134+vn*0.862)
     tm=bpy.data.meshes.new(name); tmp.to_mesh(tm); tmp.free(); to=bpy.data.objects.new(name,tm); sc.collection.objects.link(to)
     if ratio<0.999:
         md=to.modifiers.new('d','DECIMATE'); md.ratio=ratio; bpy.context.view_layer.objects.active=to; bpy.ops.object.modifier_apply(modifier='d')
     r=bmesh.new(); r.from_mesh(tm); bpy.data.objects.remove(to); return r
 for faces,prt,ratio,wuv in (([f for f in hb.faces if f[cid]==0],6,CAPR,False),([f for f in hb.faces if f[cid]!=0],5,STR,True)):
-    r=to_obj(faces,'t',ratio,wuv); ru=r.loops.layers.uv.active; vm3={}
+    r=to_obj(faces,'t',ratio,wuv); ru=r.loops.layers.uv.active; vm3={}; r.normal_update()
     for f in r.faces:
         nf=bm.faces.new([vm3.setdefault(v,bm.verts.new(v.co)) for v in f.verts]); nf.smooth=True; nf[pl]=prt
+        if prt==6:
+            for v in f.verts:
+                rad_=Vector((v.co.x,v.co.y-0.05,(v.co.z-1.75)*0.5)); 
+                vm3[v][cnl]=(rad_.normalized()*0.65+v.normal*0.35).normalized()
         for l2,l1 in zip(nf.loops,f.loops): l2[uvl].uv=l1[ru].uv
     r.free()
 hb.free()
