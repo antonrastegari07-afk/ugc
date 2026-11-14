@@ -4,7 +4,7 @@ from mathutils import Vector
 from PIL import Image
 D=sys.argv[-1]
 bpy.ops.wm.read_factory_settings(use_empty=True); sc=bpy.context.scene
-R=0.55; r=0.05; M=198; N=10          # major/minor radius (studs), segments -> 2*M*N = 3960 triangles
+R=0.542; r=0.058; M=198; N=10          # major/minor radius (studs), segments -> 2*M*N = 3960 triangles
 ZH=3.0                                # ring centre height for the preview (head centre 1.6 -> 1.4 above)
 bm=bmesh.new(); uvl=bm.loops.layers.uv.new('UVMap')
 V=[[bm.verts.new(((R+r*math.cos(2*math.pi*j/N))*math.cos(2*math.pi*i/M),(R+r*math.cos(2*math.pi*j/N))*math.sin(2*math.pi*i/M),r*math.sin(2*math.pi*j/N))) for j in range(N)] for i in range(M)]
