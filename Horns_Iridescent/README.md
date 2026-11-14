@@ -1,14 +1,14 @@
-# Horns Iridescent v6
+# Horns Iridescent v7
 
 ## Contenu du modèle
 | Partie | Change de couleur ? | Détail |
 |---|---|---|
 | Cornes | oui | Volume de ton modèle d'origine, **lissé à la base** (les piques qui dépassaient sont retirées). Coupées en **tranches verticales régulières** (plans X et Y). |
-| Halo | oui | Anneau fin à la place du trou noir (même centre, même inclinaison), mêmes tranches verticales |
+| Halo | oui | Anneau fin à la place du trou noir (même centre), **parfaitement horizontal**, mêmes tranches verticales |
 | Contour du halo | non | Noir, mat |
-| Ailerons (4 par corne) | non | **Bracelet large qui serre la corne + double lame verticale** (2 pointes, une vers le haut et une vers le bas, encoche au milieu), accrochée sur toute la hauteur du bracelet. Corps sombre + contour néon, mats |
+| Ailerons (4 par corne) | non | **Pointes de flèche plates traversées par la corne** : grande pointe vers l'extérieur et 2 barbes rabattues (avant/arrière). Légèrement inclinées vers le bas et vers l'avant pour bien se voir de face. Corps sombre + contour néon, mats |
 
-Chaînes : supprimées. **3 966 triangles**.
+Chaînes : supprimées. **3 912 triangles**.
 
 ## Textures (à mettre dans le SurfaceAppearance)
 - `Horns_<nom>_Color.png` → ColorMap
@@ -20,4 +20,4 @@ Laisse **DoubleSided désactivé** (par défaut), sinon l'effet et les contours 
 ## Variantes
 `holo/`, `galaxy/`, `toxic/`, `inferno/` : chaque direction a un dégradé de 2 couleurs, soit 8 couleurs en tournant.
 
-`_scripts/` : `field.py` (volume d'origine), `build8.py` (géométrie), `export8.py` (FBX, OBJ, textures).
+`_scripts/` : `field.py` (volume d'origine), `build9.py` (géométrie), `export9.py` (FBX, OBJ, textures).

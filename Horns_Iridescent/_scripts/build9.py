@@ -30,7 +30,7 @@ def horn_radius(c,t):
     P=_P[np.abs((_P-c)@t)<0.012]; P=P[np.linalg.norm(P-c,axis=1)<0.2]
     d=np.linalg.norm((P-c)-np.outer((P-c)@t,t),axis=1)
     return np.percentile(d,92) if len(d) else 0.05
-RC=np.array([0,0,0.458]); RN=np.array([0.139,0.206,-0.969]); RN/=np.linalg.norm(RN)
+RC=np.array([0,0,0.458]); RN=np.array([0.0,0.0,1.0])   # halo perfectly horizontal; RN/=np.linalg.norm(RN)
 RING_R,RING_r=0.30,0.042
 def ring_field():
     R=0.008; lo=RC-0.40; n=int(0.80/R)+1; ax=[lo[i]+np.arange(n)*R for i in range(3)]
@@ -98,28 +98,29 @@ def band(c,t,u,v,r,h,nseg=10,outward=True):
     flip=out!=outward; T[flip]=T[flip][:,[0,2,1]]; return T
 nfin=0; OL=0.010
 _Pall=_P
+def arrow(r,sc):
+    """broad arrowhead pierced by the horn: big point outward (+u), two barbs swept back (front/back)"""
+    L=r+0.19*sc; W=0.15*sc
+    pts=[(L,0),(0.035*sc,W*0.95),(-0.075*sc,W*1.25),(-r*0.55,W*0.55),(-r-0.012,0.0),(-r*0.55,-W*0.55),(-0.075*sc,-W*1.25),(0.035*sc,-W*0.95)]
+    return SP(pts).buffer(0).difference(SP([(r*0.8*np.cos(a),r*0.8*np.sin(a)) for a in np.linspace(0,2*np.pi,10,endpoint=False)]))
 for sgn in (1,-1):
     C=CL*[sgn,1,1]; _P=_Pall[_Pall[:,0]*sgn>0]
     for k,sv in enumerate([0.36,0.53,0.68,0.81]):
         i=int(sv*(len(C)-1)); c=C[i]; t=C[min(i+10,len(C)-1)]-C[max(i-10,0)]; t/=np.linalg.norm(t)
-        r=horn_radius(c,t)*0.9+0.008
-        y=np.array([0,1.,0]); u=np.cross(y,t); u/=np.linalg.norm(u)
-        if u[0]*sgn<0: u=-u
-        v=np.cross(t,u)
-        sc=1.35-0.15*k; h=0.03*sc+0.012
-        B=band(c,t,u,v,r,h,12,True); add_tris(B,blk_uv('spike',len(B)))
-        Bi=band(c,t,u,v,r-0.004,h,12,False); add_tris(Bi,blk_uv('spike',len(Bi)))
-        Bo=band(c,t,u,v,r+OL*0.8,h+2*OL,12,False); add_tris(Bo,blk_uv('spike_ol',len(Bo)))
-        nfin+=3*len(B)
-        # vertical double blade (two prongs + notch), rooted along the full bracelet height
-        hh=h/2
-        shp=SP([(r-0.004,hh),(r+0.06*sc,hh+0.03*sc),(r+0.17*sc,hh+0.085*sc),(r+0.11*sc,hh+0.012*sc),
-                (r+0.065*sc,0.0),
-                (r+0.10*sc,-hh-0.012*sc),(r+0.15*sc,-hh-0.075*sc),(r+0.05*sc,-hh-0.025*sc),(r-0.004,-hh)]).buffer(0)
-        ol=shp.buffer(OL,join_style=2,mitre_limit=2.5)
-        for nrm in (y,-y):
-            T=cap(shp,c,u,t,nrm,0.0); add_tris(T,blk_uv('spike',len(T))); nfin+=len(T)
-            T=cap(ol,c,u,t,nrm,-0.006); add_tris(T,blk_uv('spike_ol',len(T))); nfin+=len(T)
+        r=horn_radius(c,t)*0.85
+        a0=np.array([sgn,0.,0.]); ea=a0-(a0@t)*t; ea/=np.linalg.norm(ea); eb=np.cross(t,ea)*sgn   # ea outward, eb front/back (mirrored)
+        sc=1.2-0.1*k
+        dr=np.radians(15)   # outward point droops down (like the reference)
+        ea,t=ea*np.cos(dr)-t*np.sin(dr), t*np.cos(dr)+ea*np.sin(dr)
+        fr=np.array([0,1.,0]); fr=fr-(fr@ea)*ea-(fr@t)*t; fr/=np.linalg.norm(fr)
+        ft=np.radians(40)   # front edge tilts down toward the viewer
+        fr,t=fr*np.cos(ft)-t*np.sin(ft), t*np.cos(ft)+fr*np.sin(ft)
+        eb=fr
+        sh=arrow(r,sc).simplify(0.002)
+        ol=sh.buffer(OL,join_style=2,mitre_limit=2.5).simplify(0.002)
+        for nrm in (t,-t):
+            T=cap(sh,c,ea,eb,nrm,0.0); add_tris(T,blk_uv('spike',len(T))); nfin+=len(T)
+            T=cap(ol,c,ea,eb,nrm,-0.006); add_tris(T,blk_uv('spike_ol',len(T))); nfin+=len(T)
 _P=_Pall
 print('fin tris',nfin)
 # ---------------- ring outline (inverted hull torus)
@@ -165,5 +166,5 @@ T=np.vstack(VV); UVt=np.vstack(UU); N=np.vstack(NN)
 print('FINAL spacing',round(s,4),'TOTAL TRIS',len(T))
 # weld vertices
 P=T.reshape(-1,3); key=np.round(P,6); uniq,inv=np.unique(key,axis=0,return_inverse=True)
-np.savez('mesh8.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
+np.savez('mesh9.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
 import json; json.dump(BLK,open('blk.json','w'))

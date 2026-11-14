@@ -3,7 +3,7 @@ from fbxio import read,write,child
 import numpy as np; from PIL import Image
 SRC='/root/.claude/uploads/2a2dc869-38e2-54de-8e85-531b1a0ba8eb/807479b3-HornsBlackHole_UGC.fbx'
 OUT=sys.argv[1]
-M=np.load('mesh8.npz'); V,F,UV,N,SW=M['V'],M['F'],M['UV'],M['N'],M['SW']; BLK=json.load(open('blk.json'))
+M=np.load('mesh9.npz'); V,F,UV,N,SW=M['V'],M['F'],M['UV'],M['N'],M['SW']; BLK=json.load(open('blk.json'))
 def H(c): return np.array([int(c[i:i+2],16)/255 for i in (1,3,5)])
 # per direction (top colour, bottom colour); d: +X(right), -X(left), +Y(back), -Y(front)
 PAL={
