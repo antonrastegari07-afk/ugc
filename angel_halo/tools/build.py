@@ -22,9 +22,15 @@ ob=bpy.data.objects.new('AngelHalo_UGC',me); sc.collection.objects.link(ob)
 nl=[]
 for v in me.vertices:
     c=Vector((v.co.x,v.co.y,0)).normalized()*R; nl.append(tuple((v.co-c).normalized()))
+# tilt measured on the reference video: 12.5 deg, front edge (-Y) higher than the back edge, no sideways roll
+from mathutils import Matrix as _M
+TILT=math.radians(12.5); RT=_M.Rotation(-TILT,3,'X')
+for v in me.vertices: v.co=RT@v.co
+nl=[tuple(RT@Vector(n)) for n in nl]
 me.normals_split_custom_set_from_vertices(nl)
 # roundness check: every vertex exactly on the torus
-dev=max(abs((Vector((v.co.x,v.co.y,0)).normalized()*R-v.co).length-r) for v in me.vertices)
+RTi=RT.inverted(); dev=max(abs((Vector(((RTi@v.co).x,(RTi@v.co).y,0)).normalized()*R-(RTi@v.co)).length-r) for v in me.vertices)
+fz=max(v.co.z for v in me.vertices if v.co.y<-0.5); bz=min(v.co.z for v in me.vertices if v.co.y>0.5); print('front edge z',round(fz,3),'back edge z',round(bz,3))
 print('tris',len(me.polygons),'verts',len(me.vertices),'max deviation from torus',dev,'outer diameter',2*(R+r),'tube diameter',2*r)
 # textures
 S=256
@@ -53,9 +59,9 @@ w=bpy.data.worlds.new('w'); sc.world=w; w.use_nodes=True; w.node_tree.nodes['Bac
 l=bpy.data.lights.new('k','AREA'); l.energy=250; l.size=4; Lo=bpy.data.objects.new('k',l); sc.collection.objects.link(Lo); Lo.location=(-3,-4,5); Lo.rotation_euler=(Lo.location-Vector((0,0,2))).to_track_quat('Z','Y').to_euler()
 cam=bpy.data.objects.new('c',bpy.data.cameras.new('c')); sc.collection.objects.link(cam); sc.camera=cam; cam.data.lens=50
 RES=700; sc.render.engine='CYCLES'; sc.cycles.samples=32; sc.render.resolution_x=RES; sc.render.resolution_y=RES; sc.view_settings.view_transform='Standard'
-tg=Vector((0,0,2.3)); views={'front':(0,24,5.0),'34':(-40,28,5.0),'top':(0,89,4.5),'close':(20,22,2.6)}
+tg=Vector((0,0,2.3)); views={'front':(0,20,5.0),'side':(-90,3,5.0),'34':(-40,24,5.0),'top':(0,89,4.5)}
 for n,(az,el,dist) in views.items():
-    t=tg if n!='close' else Vector((0,0,ZH))
+    t=tg
     A=math.radians(az); e=math.radians(el)
     cam.location=t+Vector((math.sin(A)*math.cos(e)*dist,-math.cos(A)*math.cos(e)*dist,math.sin(e)*dist)); cam.rotation_euler=(cam.location-t).to_track_quat('Z','Y').to_euler()
     sc.render.filepath=f'{D}/p_{n}.png'; bpy.ops.render.render(write_still=True)
