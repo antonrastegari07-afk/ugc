@@ -29,6 +29,24 @@ b2=(lambda r: (np.mgrid[-r:r+1,-r:r+1,-r:r+1]**2).sum(0)<=r*r)(2)
 _open2=gaussian_filter(binary_opening(_B,structure=b2).astype(float),1.2)
 w2=np.clip((zc-0.30)/0.12,0,1)[None,None,:]; wt=np.clip((zc-0.56)/0.06,0,1)[None,None,:]
 HW=_open*(1-w2)+_open2*w2; HW=HW*(1-wt)+_soft*wt; HLO=_lo; HR=_R
+# ---- rebuild the lower part as a smooth tube (removes the bump at the base), blended into the horn
+from scipy.spatial import cKDTree
+from scipy.ndimage import uniform_filter1d as _uf
+rs=[]
+for j in range(len(CL)):
+    c=CL[j]; t=CL[min(j+10,len(CL)-1)]-CL[max(j-10,0)]; t/=np.linalg.norm(t)
+    q=_P[(_P[:,0]>0)&(np.abs((_P-c)@t)<0.012)]; q=q[np.linalg.norm(q-c,axis=1)<0.25]
+    d=np.linalg.norm((q-c)-np.outer((q-c)@t,t),axis=1); rs.append(np.percentile(d,55) if len(d)>5 else 0.0)
+rs=_uf(np.array(rs),61,mode='nearest')
+_G=np.stack(np.meshgrid(*[_lo[i]+np.arange(_B.shape[i])*_R for i in range(3)],indexing='ij'),-1).reshape(-1,3)
+TB=np.zeros(len(_G))
+for sgn in (1,-1):
+    Cs=CL*[sgn,1,1]; d,i=cKDTree(Cs).query(_G,k=1)
+    f=np.clip(0.5-(d-rs[i])/(2*_R),0,1); t0=Cs[6]-Cs[0]; t0/=np.linalg.norm(t0); f[(_G-Cs[0])@t0<0]=0
+    TB=np.maximum(TB,f)
+TB=gaussian_filter(TB.reshape(_B.shape),0.8)
+wb=np.clip((zc-(-0.22))/0.2,0,1)[None,None,:]          # 0 = base (tube), 1 = higher (original shape)
+HW=TB*(1-wb)+HW*wb
 def horn_radius(c,t):
     P=_P[np.abs((_P-c)@t)<0.012]; P=P[np.linalg.norm(P-c,axis=1)<0.2]
     d=np.linalg.norm((P-c)-np.outer((P-c)@t,t),axis=1)
