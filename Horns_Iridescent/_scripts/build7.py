@@ -9,7 +9,34 @@ import mapbox_earcut as earcut
 SRC='/root/.claude/uploads/2a2dc869-38e2-54de-8e85-531b1a0ba8eb/807479b3-HornsBlackHole_UGC.fbx'
 OUT=sys.argv[1]; BUDGET=3990
 # ---------------- volumes
-Z=np.load('field.npz'); HW=gaussian_filter(Z['W'],0.9); HLO=Z['lo']; HR=float(Z['R'])
+Z=np.load('field.npz'); _W=gaussian_filter(Z['W'],0.9); _lo=Z['lo']; _R=float(Z['R'])
+_P=_lo+np.argwhere(_W>0.5)*_R; _Q=_P[_P[:,0]>0]; _pts=[]
+for z in np.arange(_Q[:,2].min()+0.02,_Q[:,2].max(),0.03):
+    q=_Q[np.abs(_Q[:,2]-z)<0.012]
+    if len(q)>2: _pts.append([np.median(q[:,0]),0.0,z])
+_pts=np.array(_pts); _pts=np.vstack([_pts,[_pts[-1]+(_pts[-1]-_pts[-3])*0.6]])
+from scipy.ndimage import uniform_filter1d
+_pts[:,0]=uniform_filter1d(_pts[:,0],5,mode='nearest')
+seg=np.r_[0,np.cumsum(np.linalg.norm(np.diff(_pts,axis=0),axis=1))]; sN=np.linspace(0,seg[-1],600)
+CL=np.c_[[np.interp(sN,seg,_pts[:,i]) for i in range(3)]].T; CS=sN/seg[-1]   # centreline + param 0 base ->1 tip
+def tube_r(s):   # reference-like profile: thick lower segment, step down after the bend, sharp tapered tip
+    s=np.asarray(s,float); low=0.088; up=0.058*(1-np.clip((s-0.42)/0.58,0,1))**0.9+0.002
+    w=np.clip((s-0.30)/0.14,0,1); w=w*w*(3-2*w)
+    return low*(1-w)+up*w
+from scipy.spatial import cKDTree
+HR=0.006; HLO=np.array([-0.98,-0.12,-0.56]); n=(np.array([0.98,0.12,0.72])-HLO)/HR
+ax=[HLO[i]+np.arange(int(n[i])+1)*HR for i in range(3)]
+G=np.stack(np.meshgrid(*ax,indexing='ij'),-1).reshape(-1,3)
+HW=np.zeros(len(G))
+for sgn in (1,-1):
+    C=CL*[sgn,1,1]; tr=cKDTree(C); d,i=tr.query(G,k=1)
+    f=np.clip(0.5-(d-tube_r(CS[i]))/(2*HR),0,1)
+    t0=C[6]-C[0]; t0/=np.linalg.norm(t0); f[(G-C[0])@t0<0]=0        # flat cut at the base like the reference
+    HW=np.maximum(HW,f)
+# blend with the ORIGINAL crystal volume -> shape halfway between reference and original model
+co=((G-_lo)/_R).T
+O=map_coordinates(_W,co,order=1,cval=0.0)
+HW=(0.6*HW+0.4*O).reshape([len(x) for x in ax])
 RC=np.array([0,0,0.458]); RN=np.array([0.139,0.206,-0.969]); RN/=np.linalg.norm(RN)
 RING_R,RING_r=0.30,0.042
 def ring_field():
@@ -60,33 +87,46 @@ BLK={'spike':(20,800,180,200),'spike_ol':(220,800,180,200),'ring_ol':(420,800,18
 def blk_uv(name,n):
     x,y,w,h=BLK[name]; c=np.array([(x+w/2)/1024,1-(y+h/2)/1024]); d=np.array([[-.01,-.01],[.01,-.01],[0,.01]])
     return np.broadcast_to(c+d,(n,3,2)).copy()
-# ---------------- crystal spikes (fixed colour) + inverted-hull outline
-def shard(base,d,L,wv,wy):
-    d=d/np.linalg.norm(d); side=np.cross(d,[0,1,0]); side/=np.linalg.norm(side); yax=np.array([0,1.0,0])
-    ring0=[base+side*wv*0.55,base+yax*wy*0.55,base-side*wv*0.55,base-yax*wy*0.55]
-    m=base+d*L*0.38; ring1=[m+side*wv,m+yax*wy,m-side*wv,m-yax*wy]; tip=base+d*L+side*wv*0.25
+# ---------------- fins: bracelet around the horn + vertical arrow blade (fixed colour, outlined, matte)
+from shapely.geometry import Polygon as SP
+def cap(poly2d,origin,ea,eb,nrm,off):
+    rings=[np.array(poly2d.exterior.coords)[:-1]]+[np.array(r.coords)[:-1] for r in poly2d.interiors]
+    vt=np.vstack(rings); ends=np.cumsum([len(r) for r in rings]).astype(np.uint32)
+    ii=np.array(earcut.triangulate_float64(vt,ends)).reshape(-1,3)
+    T=(origin+nrm*off+vt[:,:1]*ea+vt[:,1:]*eb)[ii]
+    cr=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0])@nrm; T[cr<0]=T[cr<0][:,[0,2,1]]; return T
+def band(c,t,u,v,r,h,nseg=10,outward=True):
     T=[]
-    for i in range(4):
-        j=(i+1)%4; T+= [[ring0[i],ring1[i],ring1[j]],[ring0[i],ring1[j],ring0[j]],[ring1[i],tip,ring1[j]]]
-    T=np.array(T); c=base+d*L*0.4
-    n=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0]); flip=np.einsum('ij,ij->i',n,T.mean(1)-c)<0
-    T[flip]=T[flip][:,[0,2,1]]
-    return T
-def hull(T,t):
-    P=T.reshape(-1,3); key=[tuple(np.round(p,6)) for p in P]; acc={}
-    n=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0]); n/=np.linalg.norm(n,axis=1)[:,None]
-    for i,k in enumerate(key): acc[k]=acc.get(k,0)+n[i//3]
-    off=np.array([acc[k]/np.linalg.norm(acc[k]) for k in key]).reshape(T.shape)
-    return (T+off*t)[:,[0,2,1]]             # pushed out + flipped = outline shell
-idx=np.argwhere(HW>0.5); HP=HLO+idx*HR
-nspk=0
+    for i in range(nseg):
+        a0,a1=2*np.pi*i/nseg,2*np.pi*(i+1)/nseg
+        p=lambda a,s_: c+(u*np.cos(a)+v*np.sin(a))*r+t*s_*h/2
+        q=[p(a0,-1),p(a1,-1),p(a1,1),p(a0,1)]; T+=[[q[0],q[1],q[2]],[q[0],q[2],q[3]]]
+    T=np.array(T); n_=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0]); out=np.einsum('ij,ij->i',n_,T.mean(1)-c)>0
+    flip=out!=outward; T[flip]=T[flip][:,[0,2,1]]; return T
+nfin=0; OL=0.010
 for sgn in (1,-1):
-    Q=HP[HP[:,0]*sgn>0]
-    for k,z in enumerate([-0.16,-0.02,0.11,0.23,0.35,0.46]):
-        m=np.abs(Q[:,2]-z)<0.015; q=Q[m]; s_=q[np.argmax(q[:,0]*sgn)]
-        L=0.24-0.02*k; d=np.array([sgn,0,0.5+0.07*k])
-        T=shard(s_-np.array([sgn*0.04,0,0]),d,L,0.06-0.004*k,0.032)
-        add_tris(T,blk_uv('spike',len(T))); H=hull(T,0.013); add_tris(H,blk_uv('spike_ol',len(H))); nspk+=2*len(T)
+    C=CL*[sgn,1,1]
+    for k,sv in enumerate([0.36,0.47,0.57,0.67,0.76,0.85]):
+        i=int(sv*(len(C)-1)); c=C[i]; t=C[min(i+8,len(C)-1)]-C[max(i-8,0)]; t/=np.linalg.norm(t)
+        r=tube_r(CS[i])+0.006
+        y=np.array([0,1.,0]); u=np.cross(y,t); u/=np.linalg.norm(u)          # u: in front plane, perpendicular to horn
+        if u[0]*sgn<0: u=-u                                                   # point outward
+        v=np.cross(t,u)
+        h=0.026
+        # bracelet: outer face, inner face, inverted-hull outline
+        B=band(c,t,u,v,r,h,10,True); add_tris(B,blk_uv('spike',len(B)))
+        Bi=band(c,t,u,v,r-0.004,h,10,False); add_tris(Bi,blk_uv('spike',len(Bi)))
+        Bo=band(c,t,u,v,r+OL*0.8,h+2*OL,10,False); add_tris(Bo,blk_uv('spike_ol',len(Bo)))
+        nfin+=len(B)*3
+        # vertical arrow blade in the front plane (normal = +/-Y), on the outer side, tip slightly up
+        sc=1.0-0.06*k
+        shp=SP([(r-0.01,0.02*sc),(r+0.035*sc,0.065*sc),(r+0.16*sc,0.035*sc),(r+0.04*sc,-0.012*sc),(r+0.02*sc,-0.05*sc),(r-0.01,-0.02*sc)]).buffer(0)
+        ol=shp.buffer(OL,join_style=2,mitre_limit=2.5)
+        # 2D axes: x along u (outward), y along t (horn direction)
+        for nrm in (y,-y):
+            T=cap(shp,c,u,t,nrm,0.0); add_tris(T,blk_uv('spike',len(T))); nfin+=len(T)
+            T=cap(ol,c,u,t,nrm,-0.006); add_tris(T,blk_uv('spike_ol',len(T))); nfin+=len(T)
+print('fin tris',nfin)
 # ---------------- ring outline (inverted hull torus)
 e1=np.cross(RN,[1,0,0]); e1/=np.linalg.norm(e1); e2=np.cross(RN,e1)
 NU,NV=22,6; ro=RING_r+0.013
@@ -130,5 +170,5 @@ T=np.vstack(VV); UVt=np.vstack(UU); N=np.vstack(NN)
 print('FINAL spacing',round(s,4),'TOTAL TRIS',len(T))
 # weld vertices
 P=T.reshape(-1,3); key=np.round(P,6); uniq,inv=np.unique(key,axis=0,return_inverse=True)
-np.savez('mesh5.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
+np.savez('mesh7.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
 import json; json.dump(BLK,open('blk.json','w'))
