@@ -2,6 +2,8 @@ import sys,os,numpy as np,trimesh; sys.path.insert(0,'tools')
 from fbxio import read,write,child
 U='/root/.claude/uploads/2a2dc869-38e2-54de-8e85-531b1a0ba8eb/'
 def export(V,F,UVc,out_fbx,tex_name='Hair_Color.png'):
+    CEN=(V.min(0)+V.max(0))/2; V=V-CEN            # origin = centre of the volume (bounding box)
+    print('volume centre (studs, rig space)',CEN.round(4),'| size',(V.max(0)-V.min(0)).round(3))
     ver,nodes,h,f=read(U+'c0c73cca-tripo_convert_24749a36-9b5c-47a0-b54c-83df27b9ee46.fbx')
     _,rnodes,_,_=read(U+'b3aed151-r6_rigged.fbx')
     gi=[i for i,n in enumerate(nodes) if n[0]=='GlobalSettings'][0]; nodes[gi]=[n for n in rnodes if n[0]=='GlobalSettings'][0]   # same units/axes as the rig
@@ -22,7 +24,7 @@ def export(V,F,UVc,out_fbx,tex_name='Hair_Color.png'):
     m=[k for k in obj[2] if k[0]=='Model'][0]; P=child(m,'Properties70')[0]
     P[2]=[p for p in P[2] if p[1][0][1] not in (b'Lcl Rotation',b'Lcl Translation',b'Lcl Scaling')]
     mk=lambda n,x: ['P',[('S',n),('S',n),('S',b''),('S',b'A'),('D',float(x[0])),('D',float(x[1])),('D',float(x[2]))],[]]
-    P[2]=[mk(b'Lcl Translation',(0,100,0)),mk(b'Lcl Rotation',(0,0,0)),mk(b'Lcl Scaling',(100,100,100))]+P[2]   # identical to the rig mesh node
+    P[2]=[mk(b'Lcl Translation',(CEN[0]*100,100+CEN[1]*100,CEN[2]*100)),mk(b'Lcl Rotation',(0,0,0)),mk(b'Lcl Scaling',(100,100,100))]+P[2]   # identical to the rig mesh node
     for k in obj[2]:
         if k[0] in ('Texture','Video'):
             for c in k[2]:
@@ -31,7 +33,7 @@ def export(V,F,UVc,out_fbx,tex_name='Hair_Color.png'):
     write(out_fbx,ver,nodes,h,f)
     # OBJ backup (studs, Y-up, same placement as the rig head)
     with open(out_fbx[:-4]+'.obj','w') as o:
-        o.write('# Hair fitted to R6 head (studs, Y-up)\nmtllib Hair.mtl\nusemtl hair\n')
+        o.write('# Hair fitted to R6 head (studs, Y-up), origin at volume centre; offset from rig origin: %.4f %.4f %.4f\n'%tuple(CEN)+'mtllib Hair.mtl\nusemtl hair\n')
         o.writelines('v %.6f %.6f %.6f\n'%tuple(v) for v in V); o.writelines('vt %.6f %.6f\n'%tuple(t) for t in UVc.reshape(-1,2))
         o.writelines('vn %.6f %.6f %.6f\n'%tuple(n) for n in VN)
         o.writelines('f '+' '.join('%d/%d/%d'%(fi[j]+1,i*3+j+1,fi[j]+1) for j in range(3))+'\n' for i,fi in enumerate(F))
