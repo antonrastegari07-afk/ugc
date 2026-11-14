@@ -1,4 +1,4 @@
-# Horns Iridescent v14
+# Horns Iridescent v15
 
 ## Contenu du modèle
 | Partie | Change de couleur ? | Détail |
@@ -35,3 +35,11 @@ Laisse **DoubleSided désactivé** (par défaut), sinon l'effet et les contours 
 `holo/`, `galaxy/`, `toxic/`, `inferno/` : chaque direction a un **dégradé de 3 couleurs** (haut, milieu, bas), soit 12 teintes en tournant. Toutes les couleurs sont vives : plus de bas de dégradé sombre.
 
 `_scripts/` : `field.py`, `build10.py` (géométrie), `export10.py` (FBX, OBJ, textures).
+
+## Thèmes texturés (vraies textures, pas seulement des dégradés)
+| Dossier | Texture | Couleurs selon l'angle | Émission | Brillance |
+|---|---|---|---|---|
+| `nebula/` | Nuages de gaz en volutes + étoiles avec halo | rose/violet, cyan/bleu, orange/magenta, indigo/lavande | étoiles + cœurs lumineux des nuages ; l'espace sombre ne brille pas | mi-mate, étoiles brillantes |
+| `ocean/`  | Eau liquide en volutes + reflets blancs (caustiques) | azur, turquoise, bleu roi, lagon | reflets blancs et eau claire ; l'eau profonde ne brille pas | très brillante (effet mouillé) |
+
+Mêmes fichiers que les autres dossiers : 2 FBX (avec et sans contour) + 5 textures. Script : `_scripts/themes.py`.
