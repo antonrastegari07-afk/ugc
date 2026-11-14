@@ -7,10 +7,10 @@ M=np.load('mesh10.npz'); V,F,UV,N,SW=M['V'],M['F'],M['UV'],M['N'],M['SW']; BLK=j
 def H(c): return np.array([int(c[i:i+2],16)/255 for i in (1,3,5)])
 # per direction (top colour, bottom colour); d: +X(right), -X(left), +Y(back), -Y(front)
 PAL={   # per direction 3-stop gradient (top, middle, bottom); d: +X(right), -X(left), +Y(back), -Y(front)
- 'holo':   {'dirs':[('#00FFF0','#2B6BFF','#7A2BFF'),('#FFF200','#FF8A00','#FF1A3C'),('#C6FF00','#00FF6A','#00B8A0'),('#FF6BF0','#FF1FA8','#8A1BFF')],'spike':'#0B0912','spike_ol':'#00E5FF','ring_ol':'#06060A'},
- 'galaxy': {'dirs':[('#7DF9FF','#2B4BFF','#3A00B8'),('#FFB3F5','#FF2BD6','#7A00FF'),('#B8A6FF','#6A5CFF','#0090FF'),('#FF6BF0','#B026FF','#2B0B8A')],'spike':'#0B0912','spike_ol':'#B026FF','ring_ol':'#06060A'},
- 'toxic':  {'dirs':[('#9CFFF0','#00FFC6','#0068FF'),('#FFF700','#9CFF00','#00C83C'),('#E6FF00','#39FF14','#00806A'),('#00FFA0','#00C8FF','#0040C0')],'spike':'#07120A','spike_ol':'#39FF14','ring_ol':'#06060A'},
- 'inferno':{'dirs':[('#FFF27A','#FFB000','#FF4D00'),('#FF7AC8','#FF1F6A','#8A0018'),('#FFD600','#FF6A00','#C80000'),('#FF9A3C','#FF1744','#9A0060')],'spike':'#120707','spike_ol':'#FF5A00','ring_ol':'#06060A'},
+ 'holo':   {'dirs':[('#00FFF0','#2B6BFF','#7A2BFF'),('#FFF200','#FF8A00','#FF1A3C'),('#C6FF00','#00FF6A','#00B8A0'),('#FF6BF0','#FF1FA8','#8A1BFF')],'spike':'#0B0912','spike_ol':'#00E5FF','ring_ol':'#000000'},
+ 'galaxy': {'dirs':[('#7DF9FF','#2B4BFF','#3A00B8'),('#FFB3F5','#FF2BD6','#7A00FF'),('#B8A6FF','#6A5CFF','#0090FF'),('#FF6BF0','#B026FF','#2B0B8A')],'spike':'#0B0912','spike_ol':'#B026FF','ring_ol':'#000000'},
+ 'toxic':  {'dirs':[('#9CFFF0','#00FFC6','#0068FF'),('#FFF700','#9CFF00','#00C83C'),('#E6FF00','#39FF14','#00806A'),('#00FFA0','#00C8FF','#0040C0')],'spike':'#07120A','spike_ol':'#39FF14','ring_ol':'#000000'},
+ 'inferno':{'dirs':[('#FFF27A','#FFB000','#FF4D00'),('#FF7AC8','#FF1F6A','#8A0018'),('#FFD600','#FF6A00','#C80000'),('#FF9A3C','#FF1744','#9A0060')],'spike':'#120707','spike_ol':'#FF5A00','ring_ol':'#000000'},
 }
 def edges(F):
     seen=set();E=[]
@@ -22,7 +22,7 @@ def edges(F):
 ED=edges(F)
 for name,P in PAL.items():
     d=f'{OUT}/{name}'; os.makedirs(d,exist_ok=True)
-    img=np.zeros((1024,1024,3))+0.03
+    img=np.zeros((1024,1024,3))
     for k,(x,y,w,h) in enumerate(SW):
         c0,c1,c2=[H(x) for x in P['dirs'][k]]; yy,xx=np.mgrid[0:h,0:w]; t=(yy/h)[...,None]
         col=np.where(t<0.5, c0*(1-2*t)+c1*(2*t), c1*(2-2*t)+c2*(2*t-1))
@@ -32,6 +32,7 @@ for name,P in PAL.items():
     Image.fromarray((img*255).astype(np.uint8)).save(f'{d}/Horns_{name}_Color.png')
     rough=np.full((1024,1024),0.65)                       # slices: soft sheen
     for b,(x,y,w,h) in BLK.items(): rough[y:y+h,x:x+w]=1.0  # fins + outlines: fully matte, no reflection
+    rough[776:,:]=1.0   # whole bottom band matte so far-away mip levels stay matte too
     Image.fromarray((rough*255).astype(np.uint8)).save(f'{d}/Horns_{name}_Roughness.png')
     Image.fromarray(np.zeros((1024,1024),np.uint8)).save(f'{d}/Horns_{name}_Metalness.png')
     em=np.zeros((1024,1024))

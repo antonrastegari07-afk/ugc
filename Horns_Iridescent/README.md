@@ -1,12 +1,12 @@
-# Horns Iridescent v10
+# Horns Iridescent v11
 
 ## Contenu du modèle
 | Partie | Change de couleur ? | Détail |
 |---|---|---|
 | Cornes | oui | Volume de ton modèle d'origine, **lissé sur toute la longueur** (piques irrégulières retirées, pointe conservée), coupé en **tranches verticales régulières** (plans X et Y) |
-| Contour des cornes | non | **Noir, mat** (inverted hull) |
+| Contour des cornes | non | **Noir pur (#000000), 100 % mat, non métallique, aucune émission** (inverted hull) |
 | Halo | oui | Anneau fin à la place du trou noir, **parfaitement horizontal**, mêmes tranches verticales |
-| Contour du halo | non | Noir, mat |
+| Contour du halo | non | Noir pur, 100 % mat, non métallique, aucune émission |
 
 Piques, chaînes et trou noir : supprimés. **3 986 triangles**.
 
