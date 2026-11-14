@@ -22,10 +22,13 @@ CL=np.c_[[np.interp(sN,seg,_pts[:,i]) for i in range(3)]].T; CS=sN/seg[-1]   # c
 from scipy.ndimage import binary_opening
 _B=Z['W']>0.5
 rr=3; zz,yy,xx=np.mgrid[-rr:rr+1,-rr:rr+1,-rr:rr+1]; ball=(xx**2+yy**2+zz**2)<=rr*rr
-_open=gaussian_filter(binary_opening(_B,structure=ball).astype(float),1.1)   # spikes removed, body kept
+_open=gaussian_filter(binary_opening(_B,structure=ball).astype(float),1.5)   # spikes removed, body kept
 _soft=gaussian_filter(Z['W'],0.9)
-zc=_lo[2]+np.arange(_B.shape[2])*_R; wz=np.clip((zc-(-0.02))/0.12,0,1)[None,None,:]   # 0 at base -> 1 higher up
-HW=_open*(1-wz)+_soft*wz; HLO=_lo; HR=_R
+zc=_lo[2]+np.arange(_B.shape[2])*_R; wz=np.clip((zc-0.42)/0.12,0,1)[None,None,:]   # 0 at base -> 1 higher up
+b2=(lambda r: (np.mgrid[-r:r+1,-r:r+1,-r:r+1]**2).sum(0)<=r*r)(2)
+_open2=gaussian_filter(binary_opening(_B,structure=b2).astype(float),1.2)
+w2=np.clip((zc-0.30)/0.12,0,1)[None,None,:]; wt=np.clip((zc-0.56)/0.06,0,1)[None,None,:]
+HW=_open*(1-w2)+_open2*w2; HW=HW*(1-wt)+_soft*wt; HLO=_lo; HR=_R
 def horn_radius(c,t):
     P=_P[np.abs((_P-c)@t)<0.012]; P=P[np.linalg.norm(P-c,axis=1)<0.2]
     d=np.linalg.norm((P-c)-np.outer((P-c)@t,t),axis=1)
