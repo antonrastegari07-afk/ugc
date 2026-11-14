@@ -96,33 +96,23 @@ def band(c,t,u,v,r,h,nseg=10,outward=True):
         q=[p(a0,-1),p(a1,-1),p(a1,1),p(a0,1)]; T+=[[q[0],q[1],q[2]],[q[0],q[2],q[3]]]
     T=np.array(T); n_=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0]); out=np.einsum('ij,ij->i',n_,T.mean(1)-c)>0
     flip=out!=outward; T[flip]=T[flip][:,[0,2,1]]; return T
-nfin=0; OL=0.010
-_Pall=_P
-def arrow(r,sc):
-    """broad arrowhead pierced by the horn: big point outward (+u), two barbs swept back (front/back)"""
-    L=r+0.19*sc; W=0.15*sc
-    pts=[(L,0),(0.035*sc,W*0.95),(-0.075*sc,W*1.25),(-r*0.55,W*0.55),(-r-0.012,0.0),(-r*0.55,-W*0.55),(-0.075*sc,-W*1.25),(0.035*sc,-W*0.95)]
-    return SP(pts).buffer(0).difference(SP([(r*0.8*np.cos(a),r*0.8*np.sin(a)) for a in np.linspace(0,2*np.pi,10,endpoint=False)]))
-for sgn in (1,-1):
-    C=CL*[sgn,1,1]; _P=_Pall[_Pall[:,0]*sgn>0]
-    for k,sv in enumerate([0.36,0.53,0.68,0.81]):
-        i=int(sv*(len(C)-1)); c=C[i]; t=C[min(i+10,len(C)-1)]-C[max(i-10,0)]; t/=np.linalg.norm(t)
-        r=horn_radius(c,t)*0.85
-        a0=np.array([sgn,0.,0.]); ea=a0-(a0@t)*t; ea/=np.linalg.norm(ea); eb=np.cross(t,ea)*sgn   # ea outward, eb front/back (mirrored)
-        sc=1.2-0.1*k
-        dr=np.radians(15)   # outward point droops down (like the reference)
-        ea,t=ea*np.cos(dr)-t*np.sin(dr), t*np.cos(dr)+ea*np.sin(dr)
-        fr=np.array([0,1.,0]); fr=fr-(fr@ea)*ea-(fr@t)*t; fr/=np.linalg.norm(fr)
-        ft=np.radians(40)   # front edge tilts down toward the viewer
-        fr,t=fr*np.cos(ft)-t*np.sin(ft), t*np.cos(ft)+fr*np.sin(ft)
-        eb=fr
-        sh=arrow(r,sc).simplify(0.002)
-        ol=sh.buffer(OL,join_style=2,mitre_limit=2.5).simplify(0.002)
-        for nrm in (t,-t):
-            T=cap(sh,c,ea,eb,nrm,0.0); add_tris(T,blk_uv('spike',len(T))); nfin+=len(T)
-            T=cap(ol,c,ea,eb,nrm,-0.006); add_tris(T,blk_uv('spike_ol',len(T))); nfin+=len(T)
-_P=_Pall
-print('fin tris',nfin)
+# ---------------- horn outline: inverted hull of the horn volume (black, matte)
+from scipy.ndimage import distance_transform_edt
+from skimage.measure import marching_cubes
+import fast_simplification
+inside=HW>0.5
+dist=distance_transform_edt(~inside)*HR - distance_transform_edt(inside)*HR
+OFF=0.016
+vv,ff,_,_=marching_cubes(np.pad(dist,2,constant_values=1.0),level=OFF)
+vv=HLO+(vv-2)*HR
+vv,ff=fast_simplification.simplify(vv.astype(np.float32),ff.astype(np.int32),target_reduction=1-700/len(ff))
+vv=vv.astype(float); T=vv[ff]
+# make outward then flip -> inverted hull
+n=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0]); vol=np.einsum('ij,ij->i',T[:,0],n).sum()
+if vol<0: T=T[:,[0,2,1]]
+T=T[:,[0,2,1]]
+add_tris(T,blk_uv('ring_ol',len(T))); nfin=len(T)
+print('horn outline tris',nfin)
 # ---------------- ring outline (inverted hull torus)
 e1=np.cross(RN,[1,0,0]); e1/=np.linalg.norm(e1); e2=np.cross(RN,e1)
 NU,NV=22,6; ro=RING_r+0.013
@@ -164,7 +154,8 @@ for vi,ax,c,vt,idx in sl:
         add_tris(P3[ii],uv[ii])
 T=np.vstack(VV); UVt=np.vstack(UU); N=np.vstack(NN)
 print('FINAL spacing',round(s,4),'TOTAL TRIS',len(T))
+SCALE=1.2/(T.reshape(-1,3)[:,0].max()-T.reshape(-1,3)[:,0].min()); T=T*SCALE; print('scale',round(SCALE,4),'size X,Y,Z (Blender)',(T.reshape(-1,3).max(0)-T.reshape(-1,3).min(0)).round(3))
 # weld vertices
 P=T.reshape(-1,3); key=np.round(P,6); uniq,inv=np.unique(key,axis=0,return_inverse=True)
-np.savez('mesh9.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
+np.savez('mesh10.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
 import json; json.dump(BLK,open('blk.json','w'))
