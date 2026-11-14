@@ -1,45 +1,52 @@
-# Horns Iridescent v15
+# Horns Iridescent : 6 couleurs selon l'angle, 13 thèmes
 
-## Contenu du modèle
-| Partie | Change de couleur ? | Détail |
+## Le modèle
+- **Cornes** : volume de ton modèle d'origine, lissé (piques irrégulières retirées, bosse de la base et pointe conservées).
+- **Halo** : anneau fin, parfaitement horizontal, à la place du trou noir.
+- **Effet** : 3 séries de tranches **verticales** (pivotées de 60° l'une par rapport à l'autre, rien de penché ni d'horizontal).
+  Chaque tranche a 2 faces d'un seul côté, ce qui donne **6 directions = 6 couleurs différentes** en tournant autour (une tous les 60°, dont une pile de face).
+  Vu de dessus, on voit à travers.
+- Taille : environ **1,2 × 0,68 × 0,46 studs**, sans déformation.
+
+## Deux versions (mêmes textures)
+| Fichier | Contour | Triangles |
 |---|---|---|
-| Cornes | oui | Volume de ton modèle d'origine, **lissé sur toute la longueur** (piques irrégulières retirées, bosse de la base et pointe conservées), coupé en **tranches verticales régulières** (plans X et Y) |
-| Contour des cornes | non | **Noir pur (#000000), 100 % mat, non métallique, aucune émission** (inverted hull) |
-| Halo | oui | Anneau fin à la place du trou noir, **parfaitement horizontal**, mêmes tranches verticales |
-| Contour du halo | non | Noir pur, 100 % mat, non métallique, aucune émission |
+| `Horns_<thème>.fbx` | contour noir partout (cornes + halo) | 3 848 |
+| `Horns_<thème>_NoOutline.fbx` | aucun contour ; tranches un peu plus serrées | 3 874 |
 
-Piques, chaînes et trou noir : supprimés.
+Un `.obj` de secours est fourni pour chaque version.
 
-## Deux versions du modèle (mêmes textures)
-| Fichier | Contour noir sur les cornes | Triangles |
-|---|---|---|
-| `Horns_<nom>.fbx` | **contour noir partout** (cornes + halo) | 3 986 |
-| `Horns_<nom>_NoOutline.fbx` | **aucun contour** (ni cornes ni halo) ; tranches un peu plus serrées | 3 864 |
+## Textures (dans chaque dossier de thème)
+| Fichier | Où le mettre (SurfaceAppearance) |
+|---|---|
+| `Horns_<thème>_Color.png` | ColorMap |
+| `Horns_<thème>_Roughness.png` | RoughnessMap (contours 100 % mats) |
+| `Horns_<thème>_Metalness.png` | MetalnessMap (noir partout sauf les veines dorées de Royal) |
+| `Horns_<thème>_Emissive.png` | masque d'émission (régler la teinte et l'intensité dans Studio) |
+| `Horns_<thème>_EmissiveColor.png` | version colorée de l'émission, si besoin |
 
-## Taille
-Mise à l'échelle **sans déformation** : environ **1,2 × 0,68 × 0,46** (largeur × hauteur × profondeur).
-Si Studio affiche une taille très différente (100× trop grand ou trop petit), règle l'unité d'échelle dans les réglages de fichier du 3D Importer.
-
-## Textures (SurfaceAppearance)
-- `Horns_<nom>_Color.png` → ColorMap
-- `Horns_<nom>_Roughness.png` → RoughnessMap (contours 100 % mats)
-- `Horns_<nom>_Metalness.png` → MetalnessMap (tout noir)
-- `Horns_<nom>_Emissive.png` → masque d'émission en niveaux de gris, **équilibré** : les couleurs déjà lumineuses (cyan, rose, jaune) brillent un peu moins et les plus sombres un peu plus, pour que toutes ressortent pareil. Noir sur les contours. À mettre dans le masque d'émission du SurfaceAppearance, avec la teinte et l'intensité d'émission réglées dans Studio.
-- `Horns_<nom>_EmissiveColor.png` → même chose en couleur, pour les outils qui utilisent une émission colorée.
-
-À vérifier : l'émission dans le SurfaceAppearance est une fonction récente de Roblox ; contrôle dans Studio qu'elle est disponible et acceptée pour un accessoire UGC.
-
+Contours : noir pur, mats, non métalliques, aucune émission.
 Laisse **DoubleSided désactivé** (par défaut), sinon l'effet et les contours disparaissent.
+À vérifier : l'émission dans le SurfaceAppearance est récente sur Roblox, contrôle qu'elle est acceptée pour un accessoire UGC.
 
-## Variantes
-`holo/`, `galaxy/`, `toxic/`, `inferno/` : chaque direction a un **dégradé de 3 couleurs** (haut, milieu, bas), soit 12 teintes en tournant. Toutes les couleurs sont vives : plus de bas de dégradé sombre.
+## Les 13 thèmes (6 couleurs différentes chacun)
+| Dossier | Texture | Les 6 couleurs | Ce qui brille |
+|---|---|---|---|
+| `holo/` | dégradé + hachures | cyan, bleu, rose, rouge, jaune, vert | tout, équilibré |
+| `galaxy/` | dégradé + hachures | cyan, bleu, violet, magenta, corail, or | tout, équilibré |
+| `toxic/` | dégradé + hachures | vert, jaune, orange, violet, cyan, menthe | tout, équilibré |
+| `inferno/` | dégradé + hachures | jaune, orange, rouge, rose, violet, bleu flamme | tout, équilibré |
+| `nebula/` | nuages de gaz + étoiles | magenta, cyan, orange, violet, émeraude, rouge | étoiles + cœurs des nuages |
+| `ocean/` | eau en volutes + reflets | azur, turquoise, vert d'eau, blanc nacré, corail, indigo | reflets + eau claire |
+| `lava/` | roche sombre + veines lumineuses | jaune, orange, rouge, rose, violet, bleu | les veines seulement |
+| `frost/` | givre + cristaux + paillettes | bleu glacier, argent, lavande, menthe, bleu roi, rose | cristaux + paillettes |
+| `radioactive/` | liquide toxique + bulles | vert, jaune, cyan, violet, orange, rose | le liquide + bulles |
+| `vaporwave/` | coucher de soleil + lignes de scan + grille | rose, bleu, violet, jaune, menthe, orange | dégradé + grille |
+| `void/` | fumée noire + fissures néon | violet, rouge, cyan, vert, or, rose | les fissures néon seulement |
+| `candy/` | barbe à papa pastel + paillettes | rose, menthe, lavande, bleu bébé, pêche, citron | doux partout + paillettes |
+| `royal/` | marbre + veines dorées métalliques | or, ivoire, violet royal, noir, émeraude, rubis | veines dorées |
 
-`_scripts/` : `field.py`, `build10.py` (géométrie), `export10.py` (FBX, OBJ, textures).
+Aperçus : `turntable.gif` / `turntable_NoOutline.gif` dans chaque dossier, et `OVERVIEW_all_themes.png` (chaque thème vu sous 6 angles).
 
-## Thèmes texturés (vraies textures, pas seulement des dégradés)
-| Dossier | Texture | Couleurs selon l'angle | Émission | Brillance |
-|---|---|---|---|---|
-| `nebula/` | Nuages de gaz en volutes + étoiles avec halo | rose/violet, cyan/bleu, orange/magenta, indigo/lavande | étoiles + cœurs lumineux des nuages ; l'espace sombre ne brille pas | mi-mate, étoiles brillantes |
-| `ocean/`  | Eau liquide en volutes + reflets blancs (caustiques) | azur, turquoise, bleu roi, lagon | reflets blancs et eau claire ; l'eau profonde ne brille pas | très brillante (effet mouillé) |
-
-Mêmes fichiers que les autres dossiers : 2 FBX (avec et sans contour) + 5 textures. Script : `_scripts/themes.py`.
+## Scripts (`_scripts/`)
+`field.py` (volume d'origine), `build11.py` (géométrie 6 directions ; `NOOL=1` pour la version sans contour), `all_themes.py` (textures + FBX/OBJ de tous les thèmes).

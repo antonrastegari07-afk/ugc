@@ -54,26 +54,32 @@ def ring_field():
     return np.clip(0.5-d/(2*R),0,1),lo,R
 RW,RLO,RR=ring_field()
 VOLS=[(HW,HLO,HR),(RW,RLO,RR)]
-def section(W,lo,R,ax,c,r2=0.004):
-    hi=lo+(np.array(W.shape)-1)*R; o=[i for i in range(3) if i!=ax]
-    if not (lo[ax]<=c<=hi[ax]): return None
-    u=np.arange(lo[o[0]],hi[o[0]],r2); v=np.arange(lo[o[1]],hi[o[1]],r2); U,Vv=np.meshgrid(u,v,indexing='ij')
-    co=np.zeros((3,)+U.shape); co[ax]=(c-lo[ax])/R; co[o[0]]=(U-lo[o[0]])/R; co[o[1]]=(Vv-lo[o[1]])/R
-    S=np.pad(map_coordinates(W,co.reshape(3,-1),order=1).reshape(U.shape),1); geo=None
+NFAM=3; ANG=[np.radians(30+60*f) for f in range(NFAM)]      # 3 families of VERTICAL planes, normals at 30/90/150 deg
+def frame(f):
+    th=ANG[f]; n=np.array([np.cos(th),np.sin(th),0.]); e1=np.array([-np.sin(th),np.cos(th),0.]); return n,e1
+def corners(lo,hi): return np.array([[x,y,z] for x in (lo[0],hi[0]) for y in (lo[1],hi[1]) for z in (lo[2],hi[2])])
+def section(W,lo,R,f,c,r2=0.004):
+    hi=lo+(np.array(W.shape)-1)*R; n,e1=frame(f); K=corners(lo,hi)
+    if not ((K@n).min()<=c<=(K@n).max()): return None
+    u=np.arange((K@e1).min(),(K@e1).max(),r2); v=np.arange(lo[2],hi[2],r2); U,Vv=np.meshgrid(u,v,indexing='ij')
+    P=n*c+U[...,None]*e1+Vv[...,None]*np.array([0,0,1.])
+    co=((P-lo)/R).reshape(-1,3).T
+    S=np.pad(map_coordinates(W,co,order=1,cval=0.0).reshape(U.shape),1); geo=None
     for cont in find_contours(S,0.5):
         if len(cont)<4: continue
-        p=Polygon(np.c_[lo[o[0]]+(cont[:,0]-1)*r2, lo[o[1]]+(cont[:,1]-1)*r2]).buffer(0)
+        p=Polygon(np.c_[u[0]+(cont[:,0]-1)*r2, v[0]+(cont[:,1]-1)*r2]).buffer(0)
         if not p.is_empty: geo=p if geo is None else geo.symmetric_difference(p)
     return geo
 def slices(s,tol):
     out=[]
-    glo=np.minimum(HLO,RLO)
+    GK=np.vstack([corners(lo,lo+(np.array(W.shape)-1)*R) for (W,lo,R) in VOLS])
     for vi,(W,lo,R) in enumerate(VOLS):
-        hi=lo+(np.array(W.shape)-1)*R
-        for ax in (0,1):                       # vertical planes only
-            first=glo[ax]+s*0.5+np.ceil((lo[ax]-glo[ax]-s*0.5)/s)*s   # shared global lattice
-            for c in np.arange(first,hi[ax],s):
-                G=section(W,lo,R,ax,c)
+        hi=lo+(np.array(W.shape)-1)*R; K=corners(lo,hi)
+        for f in range(NFAM):
+            n,e1=frame(f); g0=(GK@n).min(); lo_n,hi_n=(K@n).min(),(K@n).max()
+            first=g0+s*0.5+np.ceil((lo_n-g0-s*0.5)/s)*s          # shared global lattice per family
+            for c in np.arange(first,hi_n,s):
+                G=section(W,lo,R,f,c)
                 if G is None or G.is_empty: continue
                 G=G.simplify(tol,preserve_topology=True)
                 for P in ([G] if G.geom_type=='Polygon' else [p for p in getattr(G,'geoms',[]) if p.geom_type=='Polygon']):
@@ -81,7 +87,7 @@ def slices(s,tol):
                     rings=[np.array(P.exterior.coords)[:-1]]+[np.array(r.coords)[:-1] for r in P.interiors]
                     vt=np.vstack(rings); ends=np.cumsum([len(r) for r in rings]).astype(np.uint32)
                     idx=np.array(earcut.triangulate_float64(vt,ends)).reshape(-1,3)
-                    if len(idx): out.append((vi,ax,c,vt,idx))
+                    if len(idx): out.append((vi,f,c,vt,idx))
     return out
 # ---------------- mesh accumulator
 VV=[];FF=[];UU=[];NN=[]   # per-triangle: 3 verts, 3 uvs, 1 normal
@@ -89,7 +95,7 @@ def add_tris(T,UVt):     # T (n,3,3) world, UVt (n,3,2)
     n=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0]); n/=np.linalg.norm(n,axis=1)[:,None]+1e-12
     VV.append(T); UU.append(UVt); NN.append(n)
 # texture layout (pixels): 4 direction swatches + solid blocks
-SW=[(6+(d%2)*510, 6+(d//2)*390, 500, 380) for d in range(4)]   # d: 0 +X,1 -X,2 +Y,3 -Y
+SW=[(6+(d%3)*340, 6+(d//3)*390, 332, 380) for d in range(6)]   # 6 swatches; d=2*family+side
 BLK={'spike':(20,800,180,200),'spike_ol':(220,800,180,200),'ring_ol':(420,800,180,200)}
 def blk_uv(name,n):
     x,y,w,h=BLK[name]; c=np.array([(x+w/2)/1024,1-(y+h/2)/1024]); d=np.array([[-.01,-.01],[.01,-.01],[0,.01]])
@@ -156,14 +162,13 @@ for it in range(10):
     if budget*0.95<=n<=budget: break
     s*=(n/budget)**0.6
 s,sl=best
-for vi,ax,c,vt,idx in sl:
-    W,lo,R=VOLS[vi]; hi=lo+(np.array(W.shape)-1)*R; o=[i for i in range(3) if i!=ax]
-    P3=np.zeros((len(vt),3)); P3[:,ax]=c; P3[:,o[0]]=vt[:,0]; P3[:,o[1]]=vt[:,1]
-    nvec=np.zeros(3); nvec[ax]=1; T=P3[idx]
-    cr=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0])@nvec; idx=np.where(cr[:,None]>0,idx,idx[:,[0,2,1]])
-    q=(vt-lo[o])/(hi[o]-lo[o])
+for vi,f,c,vt,idx in sl:
+    W,lo,R=VOLS[vi]; hi=lo+(np.array(W.shape)-1)*R; n,e1=frame(f); K=corners(lo,hi)
+    P3=n*c+vt[:,:1]*e1+vt[:,1:]*np.array([0,0,1.]); T=P3[idx]
+    cr=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0])@n; idx=np.where(cr[:,None]>0,idx,idx[:,[0,2,1]])
+    q=np.c_[(vt[:,0]-(K@e1).min())/((K@e1).max()-(K@e1).min()), (vt[:,1]-lo[2])/(hi[2]-lo[2])]
     for side in (0,1):
-        x,y,w,h=SW[2*ax+side]; qq=q.copy()
+        x,y,w,h=SW[2*f+side]; qq=q.copy()
         if side: qq[:,0]=1-qq[:,0]
         uv=np.c_[(x+8+qq[:,0]*(w-16))/1024, 1-(y+8+(1-qq[:,1])*(h-16))/1024]
         ii=idx if side==0 else idx[:,[0,2,1]]
@@ -173,5 +178,5 @@ print('FINAL spacing',round(s,4),'TOTAL TRIS',len(T))
 SCALE=1.2/(T.reshape(-1,3)[:,0].max()-T.reshape(-1,3)[:,0].min()); T=T*SCALE; print('scale',round(SCALE,4),'size X,Y,Z (Blender)',(T.reshape(-1,3).max(0)-T.reshape(-1,3).min(0)).round(3))
 # weld vertices
 P=T.reshape(-1,3); key=np.round(P,6); uniq,inv=np.unique(key,axis=0,return_inverse=True)
-np.savez('mesh10_nool.npz' if NOOL else 'mesh10.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
+np.savez('mesh11_nool.npz' if NOOL else 'mesh11.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
 import json; json.dump(BLK,open('blk.json','w'))
