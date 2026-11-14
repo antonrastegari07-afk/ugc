@@ -7,7 +7,7 @@
 4. **Pénétrations** : les pointes de mèches qui rentraient dans la tête ont été ressorties de 2 cm.
 5. **Triangles** : 8 167 → **3 949** (limite UGC : 4 000), UV reprojetées.
 6. **Taille** : environ 2,4 × 2,3 × 2,1 studs.
-7. **Bout du bonnet sans twist** : la fin de la queue du bonnet partait vers l'avant (pompon 26° devant la verticale). Elle a été tournée dans le sens horaire, vue de côté, autour d'un axe horizontal passant par le début de la queue. La rotation est progressive (0 au départ de la queue, 26° au pompon) et pondérée par la distance le long de la surface. Résultat : le pompon pend droit sous la queue, sur le côté. Le bord du bonnet, le dôme et les cheveux n'ont pas bougé (670 vertices déplacés, tous sur la queue et le pompon).
+7. **Bout du bonnet sans twist** : juste avant le pompon, la fin de la queue était un ruban aplati qui se tordait (plis en spirale). Elle est remplacée par un **cône rond et lisse** autour d'un axe droit, du départ de la queue jusqu'au pompon. Le rayon diminue régulièrement (8 cm → 2 cm) et se raccorde en douceur au bonnet. Seule la surface de la queue a été prise (122 vertices) : le bord du bonnet juste dessous est une surface séparée et n'a pas bougé. Le pompon, le dôme et les cheveux sont identiques.
 8. **Origine au centre du volume** : le pivot du mesh est au centre de sa boîte englobante. Le nœud FBX garde le décalage (0,209 ; 2,179 ; −0,041 studs depuis l'origine du rig), donc importé avec le rig, il reste bien placé sur la tête. Le `.obj` est centré et ce décalage est noté dans son en-tête.
 
 ## Fichiers
