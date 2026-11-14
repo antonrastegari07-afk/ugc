@@ -15,5 +15,8 @@
 - `previews/` : avant/après vu de dessous, ton original comparé au nouveau sous 4 angles, ajusté sur la tête avec le visage, et chargé avec ton rig (damier = contrôle des UV).
 
 ## Texture
-Ton FBX Tripo ne contient pas l'image de texture (seulement un lien vers un fichier externe).
-Envoie l'image PNG `tripo_image_24749a36…` : `_scripts/texfix.py` baisse la saturation et adoucit les zones trop lumineuses.
+- `Hair_Color.png` (2048×2048) : texture corrigée, à mettre en ColorMap. Elle vient du GLB Tripo (mêmes UV que le modèle, vérifiées à l'identique).
+  - Rouge du bonnet plus profond et moins saturé (plus aucun pixel au-dessus de 80 % de saturation, contre 17,5 % avant).
+  - Blancs adoucis (luminosité moyenne 0,93 → 0,80) et légèrement chauds, avec le détail des mèches et de la fourrure récupéré.
+- `Hair_Color_original_tripo.jpg` : la texture d'origine, pour comparer.
+- `previews/texture_before_after.png` : avant/après sur le rig.
