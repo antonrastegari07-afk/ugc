@@ -6,11 +6,11 @@ OUT=sys.argv[1]
 M=np.load('mesh10.npz'); V,F,UV,N,SW=M['V'],M['F'],M['UV'],M['N'],M['SW']; BLK=json.load(open('blk.json'))
 def H(c): return np.array([int(c[i:i+2],16)/255 for i in (1,3,5)])
 # per direction (top colour, bottom colour); d: +X(right), -X(left), +Y(back), -Y(front)
-PAL={
- 'holo':   {'dirs':[('#00E5FF','#2B4BFF'),('#FF8A00','#FF1A1A'),('#FFE600','#39FF14'),('#FF2BD6','#8A2BFF')],'spike':'#0B0912','spike_ol':'#00E5FF','ring_ol':'#06060A'},
- 'galaxy': {'dirs':[('#00E5FF','#2B4BFF'),('#FF6BF0','#B026FF'),('#7A5CFF','#00B8FF'),('#FF2BD6','#6A00FF')],'spike':'#0B0912','spike_ol':'#B026FF','ring_ol':'#06060A'},
- 'toxic':  {'dirs':[('#00FFC6','#00A2FF'),('#FFE600','#7CFF00'),('#B6FF00','#00FF6A'),('#39FF14','#00C8A0')],'spike':'#07120A','spike_ol':'#39FF14','ring_ol':'#06060A'},
- 'inferno':{'dirs':[('#FFE14D','#FF8A00'),('#FF2E9A','#B00020'),('#FFB000','#FF3D00'),('#FF1744','#FF8A00')],'spike':'#120707','spike_ol':'#FF5A00','ring_ol':'#06060A'},
+PAL={   # per direction 3-stop gradient (top, middle, bottom); d: +X(right), -X(left), +Y(back), -Y(front)
+ 'holo':   {'dirs':[('#00FFF0','#2B6BFF','#7A2BFF'),('#FFF200','#FF8A00','#FF1A3C'),('#C6FF00','#00FF6A','#00B8A0'),('#FF6BF0','#FF1FA8','#8A1BFF')],'spike':'#0B0912','spike_ol':'#00E5FF','ring_ol':'#06060A'},
+ 'galaxy': {'dirs':[('#7DF9FF','#2B4BFF','#3A00B8'),('#FFB3F5','#FF2BD6','#7A00FF'),('#B8A6FF','#6A5CFF','#0090FF'),('#FF6BF0','#B026FF','#2B0B8A')],'spike':'#0B0912','spike_ol':'#B026FF','ring_ol':'#06060A'},
+ 'toxic':  {'dirs':[('#9CFFF0','#00FFC6','#0068FF'),('#FFF700','#9CFF00','#00C83C'),('#E6FF00','#39FF14','#00806A'),('#00FFA0','#00C8FF','#0040C0')],'spike':'#07120A','spike_ol':'#39FF14','ring_ol':'#06060A'},
+ 'inferno':{'dirs':[('#FFF27A','#FFB000','#FF4D00'),('#FF7AC8','#FF1F6A','#8A0018'),('#FFD600','#FF6A00','#C80000'),('#FF9A3C','#FF1744','#9A0060')],'spike':'#120707','spike_ol':'#FF5A00','ring_ol':'#06060A'},
 }
 def edges(F):
     seen=set();E=[]
@@ -24,8 +24,8 @@ for name,P in PAL.items():
     d=f'{OUT}/{name}'; os.makedirs(d,exist_ok=True)
     img=np.zeros((1024,1024,3))+0.03
     for k,(x,y,w,h) in enumerate(SW):
-        top,bot=H(P['dirs'][k][0]),H(P['dirs'][k][1]); yy,xx=np.mgrid[0:h,0:w]; t=(yy/h)[...,None]
-        col=top*(1-t)+bot*t
+        c0,c1,c2=[H(x) for x in P['dirs'][k]]; yy,xx=np.mgrid[0:h,0:w]; t=(yy/h)[...,None]
+        col=np.where(t<0.5, c0*(1-2*t)+c1*(2*t), c1*(2-2*t)+c2*(2*t-1))
         hatch=0.86+0.14*np.sign(np.sin((xx+yy)*2*np.pi/7))[...,None]
         img[y:y+h,x:x+w]=np.clip(col*hatch*1.05,0,1)
     for b,(x,y,w,h) in BLK.items(): img[y:y+h,x:x+w]=H(P[b])
@@ -34,6 +34,10 @@ for name,P in PAL.items():
     for b,(x,y,w,h) in BLK.items(): rough[y:y+h,x:x+w]=1.0  # fins + outlines: fully matte, no reflection
     Image.fromarray((rough*255).astype(np.uint8)).save(f'{d}/Horns_{name}_Roughness.png')
     Image.fromarray(np.zeros((1024,1024),np.uint8)).save(f'{d}/Horns_{name}_Metalness.png')
+    em=np.zeros((1024,1024))
+    for (x,y,w,h) in SW: em[y:y+h,x:x+w]=1.0                 # colour-shifting slices glow, outlines stay black
+    Image.fromarray((em*255).astype(np.uint8)).save(f'{d}/Horns_{name}_Emissive.png')
+    Image.fromarray((img*em[...,None]*255).astype(np.uint8)).save(f'{d}/Horns_{name}_EmissiveColor.png')
     ver,nodes,hd,ft=read(SRC); g=child([n for n in nodes if n[0]=='Objects'][0],'Geometry')[0]
     pvi=F.reshape(-1).astype(np.int32).copy(); pvi[2::3]=~pvi[2::3]
     child(g,'Vertices')[0][1][0]=('d',V.reshape(-1).astype(np.float64))
