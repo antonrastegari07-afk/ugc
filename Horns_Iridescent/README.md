@@ -1,9 +1,9 @@
-# Horns Iridescent v13
+# Horns Iridescent v14
 
 ## Contenu du modèle
 | Partie | Change de couleur ? | Détail |
 |---|---|---|
-| Cornes | oui | Volume de ton modèle d'origine, **lissé sur toute la longueur** (piques irrégulières et bosse de la base retirées, pointe conservée), coupé en **tranches verticales régulières** (plans X et Y) |
+| Cornes | oui | Volume de ton modèle d'origine, **lissé sur toute la longueur** (piques irrégulières retirées, bosse de la base et pointe conservées), coupé en **tranches verticales régulières** (plans X et Y) |
 | Contour des cornes | non | **Noir pur (#000000), 100 % mat, non métallique, aucune émission** (inverted hull) |
 | Halo | oui | Anneau fin à la place du trou noir, **parfaitement horizontal**, mêmes tranches verticales |
 | Contour du halo | non | Noir pur, 100 % mat, non métallique, aucune émission |
@@ -13,8 +13,8 @@ Piques, chaînes et trou noir : supprimés.
 ## Deux versions du modèle (mêmes textures)
 | Fichier | Contour noir sur les cornes | Triangles |
 |---|---|---|
-| `Horns_<nom>.fbx` | oui | 3 898 |
-| `Horns_<nom>_NoOutline.fbx` | non (le halo garde le sien) ; tranches un peu plus serrées | 3 950 |
+| `Horns_<nom>.fbx` | **contour noir partout** (cornes + halo) | 3 986 |
+| `Horns_<nom>_NoOutline.fbx` | **aucun contour** (ni cornes ni halo) ; tranches un peu plus serrées | 3 864 |
 
 ## Taille
 Mise à l'échelle **sans déformation** : environ **1,2 × 0,68 × 0,46** (largeur × hauteur × profondeur).

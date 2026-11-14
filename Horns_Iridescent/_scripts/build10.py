@@ -33,20 +33,13 @@ HW=_open*(1-w2)+_open2*w2; HW=HW*(1-wt)+_soft*wt; HLO=_lo; HR=_R
 from scipy.spatial import cKDTree
 from scipy.ndimage import uniform_filter1d as _uf
 rs=[]
-for j in range(len(CL)):
+for j in ([] if True else range(len(CL))):
     c=CL[j]; t=CL[min(j+10,len(CL)-1)]-CL[max(j-10,0)]; t/=np.linalg.norm(t)
     q=_P[(_P[:,0]>0)&(np.abs((_P-c)@t)<0.012)]; q=q[np.linalg.norm(q-c,axis=1)<0.25]
     d=np.linalg.norm((q-c)-np.outer((q-c)@t,t),axis=1); rs.append(np.percentile(d,55) if len(d)>5 else 0.0)
-rs=_uf(np.array(rs),61,mode='nearest')
-_G=np.stack(np.meshgrid(*[_lo[i]+np.arange(_B.shape[i])*_R for i in range(3)],indexing='ij'),-1).reshape(-1,3)
-TB=np.zeros(len(_G))
-for sgn in (1,-1):
-    Cs=CL*[sgn,1,1]; d,i=cKDTree(Cs).query(_G,k=1)
-    f=np.clip(0.5-(d-rs[i])/(2*_R),0,1); t0=Cs[6]-Cs[0]; t0/=np.linalg.norm(t0); f[(_G-Cs[0])@t0<0]=0
-    TB=np.maximum(TB,f)
-TB=gaussian_filter(TB.reshape(_B.shape),0.8)
+
 wb=np.clip((zc-(-0.22))/0.2,0,1)[None,None,:]          # 0 = base (tube), 1 = higher (original shape)
-HW=TB*(1-wb)+HW*wb
+pass   # base tube blend disabled: keep the original bump at the bottom (user preference)
 def horn_radius(c,t):
     P=_P[np.abs((_P-c)@t)<0.012]; P=P[np.linalg.norm(P-c,axis=1)<0.2]
     d=np.linalg.norm((P-c)-np.outer((P-c)@t,t),axis=1)
@@ -152,7 +145,7 @@ cen=RC+ (e1*np.cos(0)) *0  # orient outward then flip -> inward-facing shell
 core=lambda p: RC+((p-RC)-((p-RC)@RN)*RN)/np.linalg.norm((p-RC)-((p-RC)@RN)*RN)*RING_R
 out=np.array([n[i]@(RT[i].mean(0)-core(RT[i].mean(0))) for i in range(len(RT))])>0
 RT[~out]=RT[~out][:,[0,2,1]]; RT=RT[:,[0,2,1]]     # flip -> inverted hull
-add_tris(RT,blk_uv('ring_ol',len(RT)))
+if os.environ.get('NOOL')!='1': add_tris(RT,blk_uv('ring_ol',len(RT)))   # halo outline only in the outlined version
 fixed=sum(len(x) for x in VV); budget=(BUDGET-fixed)//2
 print('fixed tris (spikes+outlines)',fixed,'| slice budget per side',budget)
 # ---------------- fit slice spacing to budget
