@@ -28,7 +28,7 @@ for name,P in PAL.items():
         col=np.where(t<0.5, c0*(1-2*t)+c1*(2*t), c1*(2-2*t)+c2*(2*t-1))
         hatch=0.86+0.14*np.sign(np.sin((xx+yy)*2*np.pi/7))[...,None]
         img[y:y+h,x:x+w]=np.clip(col*hatch*1.05,0,1)
-    for b,(x,y,w,h) in BLK.items(): img[y:y+h,x:x+w]=H(P[b])
+    img[776:,:]=0.0   # outline zone (and unused old spike blocks): pure black
     Image.fromarray((img*255).astype(np.uint8)).save(f'{d}/Horns_{name}_Color.png')
     rough=np.full((1024,1024),0.65)                       # slices: soft sheen
     for b,(x,y,w,h) in BLK.items(): rough[y:y+h,x:x+w]=1.0  # fins + outlines: fully matte, no reflection
