@@ -37,8 +37,11 @@ def build():
             if np.cross(T[1]-T[0],T[2]-T[0])@((T[0]+T[1]+T[2])/3-ctr)<0: T=[T[0],T[2],T[1]]
             tris.append(T); uvs.append([eu[a],eu[b],eu[c]])
     return np.array(tris),np.array(uvs)
-def tex(img_path,out=None):
+def tex(img_path,out=None,focus=None):
     im=Image.open(img_path).convert('RGB'); x0,y0,x1,y1=FR; W,H=x1-x0,y1-y0
+    if focus:                                   # focus=(cx,cy,h) in source pixels: crop a portrait window centred on the subject
+        cx,cy,h=focus; w=h*W/H; l=min(max(cx-w/2,0),im.width-w); t=min(max(cy-h/2,0),im.height-h)
+        im=im.crop((round(l),round(t),round(l+w),round(t+h)))
     s=max(W/im.width,H/im.height); im=im.resize((round(im.width*s),round(im.height*s)),Image.LANCZOS)
     l=(im.width-W)//2; t=(im.height-H)//2; im=im.crop((l,t,l+W,t+H))           # cover-crop: centre kept, never stretched
     A=Image.new('RGB',(N,N)); A.paste(im,(x0,y0))
@@ -48,7 +51,7 @@ def tex(img_path,out=None):
     edge=tuple((np.asarray(im).reshape(-1,3).mean(0)*0.5).astype(int)); A.paste(edge,ED)
     out=out or os.path.join(OUTDIR,'Cape_Color.png'); A.save(out); print('texture ->',out); return out
 if __name__=='__main__':
-    if sys.argv[1]=='tex': tex(sys.argv[2],sys.argv[3] if len(sys.argv)>3 else None)
+    if sys.argv[1]=='tex': tex(sys.argv[2],sys.argv[3] if len(sys.argv)>3 else None,tuple(map(float,sys.argv[4:7])) if len(sys.argv)>6 else None)
     else:
         T,UVt=build(); np.savez(os.path.join(HERE,'cape_geo.npz'),V=T.reshape(-1,3),F=np.arange(len(T)*3).reshape(-1,3),UVc=UVt)
         print('triangles',len(T))

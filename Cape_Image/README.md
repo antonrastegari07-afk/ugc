@@ -12,6 +12,6 @@
 ```
 python3 _scripts/cape.py tex mon_image.png
 ```
-→ crée `Cape_Color.png`. L'image est recadrée au centre aux proportions de la cape (environ 4:5, portrait) : rien n'est étiré, seuls les bords qui dépassent sont coupés. Pour un rendu idéal, envoie une image en portrait avec le sujet au centre ; les coins du haut sont un peu coupés par la forme en trapèze.
+→ crée `Cape_Color.png`. Pour centrer un sujet : `python3 _scripts/cape.py tex image.png sortie.png CX CY H` (centre du sujet et hauteur du cadre, en pixels de l image source). L'image est recadrée au centre aux proportions de la cape (environ 4:5, portrait) : rien n'est étiré, seuls les bords qui dépassent sont coupés. Pour un rendu idéal, envoie une image en portrait avec le sujet au centre ; les coins du haut sont un peu coupés par la forme en trapèze.
 
 `Cape_Color_example.png` : exemple avec le chat. `preview_on_rig.png` : aperçu sur le rig.
