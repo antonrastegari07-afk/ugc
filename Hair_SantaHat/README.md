@@ -1,17 +1,17 @@
 # Hair + Santa hat : refait depuis le modèle d'origine
 
 ## Ce qui a été fait
-1. **Emboîtement circulaire** : vu de dessous, l'intérieur des cheveux était ovale (plus long d'avant en arrière, les côtés de la frange partaient tout droit). Il est maintenant **circulaire** : rayon constant à ±5 % tout autour.
-2. **Cheveux élargis** : les côtés sont écartés d'environ 20 % (épaisseur des mèches conservée), pour remplir le chapeau au lieu d'être plus étroits que lui. Le dôme du bonnet et le pompon ne sont pas modifiés.
-3. **Ajusté sur la tête du rig R6** : la tête du rig est un cylindre de rayon 0,6. Le cercle intérieur fait 0,63 (3 cm de marge) et il est centré sur l'axe de la tête. Le bonnet est posé sur le haut de la tête, les deux yeux restent visibles.
-4. **Même repère que le rig** : mêmes axes, unités et transformation de nœud que `r6_rigged.fbx`. Importés ensemble, ils s'alignent.
-5. **Pénétrations** : les quelques pointes de mèches qui rentraient dans la tête ont été ressorties de 2 cm.
-6. **Triangles** : 8 167 → **3 950** (limite UGC : 4 000), UV reprojetées.
+1. **Emboîtement circulaire, rien d'autre** : seule la paroi intérieure des cheveux (la partie qui touche la tête) est recalée sur un cercle. C'est le cercle le plus proche de ton emboîtement, agrandi de 4 %. Plus un point est loin de cette paroi, moins il bouge : au-delà de 7 cm, rien ne bouge. Les mèches extérieures, la frange, le bonnet et le pompon sont comme dans ton modèle d'origine. 15 % des vertices ont bougé, de 2,5 cm en moyenne.
+2. **Ajusté sur la tête du rig R6** : la tête du rig est un cylindre de rayon 0,6. L'emboîtement fait 0,62 (2 cm de marge) et il est centré sur la tête, avec le bonnet posé dessus. Les deux yeux restent visibles.
+3. **Même repère que le rig** : mêmes axes, unités et transformation de nœud que `r6_rigged.fbx`. Importés ensemble, ils s'alignent.
+4. **Pénétrations** : les pointes de mèches qui rentraient dans la tête ont été ressorties de 2 cm.
+5. **Triangles** : 8 167 → **3 949** (limite UGC : 4 000), UV reprojetées.
+6. **Taille** : environ 2,4 studs de large et 2,3 de haut.
 
 ## Fichiers
 - `Hair_SantaHat.fbx` : modèle final, la texture attendue s'appelle `Hair_Color.png`.
 - `Hair_SantaHat.obj` : secours, en studs, Y vers le haut.
-- `previews/` : avant/après vu de dessous, ajusté sur la tête avec le visage, et chargé avec ton rig (damier = contrôle des UV).
+- `previews/` : avant/après vu de dessous, ton original comparé au nouveau sous 4 angles, ajusté sur la tête avec le visage, et chargé avec ton rig (damier = contrôle des UV).
 
 ## Texture
 Ton FBX Tripo ne contient pas l'image de texture (seulement un lien vers un fichier externe).
