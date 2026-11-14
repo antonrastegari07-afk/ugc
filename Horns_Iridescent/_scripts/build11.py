@@ -157,7 +157,7 @@ print('fixed tris (spikes+outlines)',fixed,'| slice budget per side',budget)
 # ---------------- fit slice spacing to budget
 s=0.035;best=None
 for it in range(10):
-    sl=slices(s,s*0.1); n=sum(len(x[4]) for x in sl); print(f'spacing {s:.4f} -> {n}',flush=True)
+    sl=slices(s,s*0.22); n=sum(len(x[4]) for x in sl); print(f'spacing {s:.4f} -> {n}',flush=True)
     if n<=budget: best=(s,sl)
     if budget*0.95<=n<=budget: break
     s*=(n/budget)**0.6

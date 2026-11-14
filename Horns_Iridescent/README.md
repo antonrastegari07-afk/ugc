@@ -11,8 +11,8 @@
 ## Deux versions (mêmes textures)
 | Fichier | Contour | Triangles |
 |---|---|---|
-| `Horns_<thème>.fbx` | contour noir partout (cornes + halo) | 3 848 |
-| `Horns_<thème>_NoOutline.fbx` | aucun contour ; tranches un peu plus serrées | 3 874 |
+| `Horns_<thème>.fbx` | contour noir partout (cornes + halo) | 3 948 |
+| `Horns_<thème>_NoOutline.fbx` | aucun contour ; tranches un peu plus serrées | 3 800 |
 
 Un `.obj` de secours est fourni pour chaque version.
 
