@@ -5,8 +5,9 @@
 2. **Ajusté sur la tête du rig R6** : la tête du rig est un cylindre de rayon 0,6. L'emboîtement fait 0,62 (2 cm de marge) et il est centré sur la tête, avec le bonnet posé dessus. Les deux yeux restent visibles.
 3. **Même repère que le rig** : mêmes axes, unités et transformation de nœud que `r6_rigged.fbx`. Importés ensemble, ils s'alignent.
 4. **Pénétrations** : les pointes de mèches qui rentraient dans la tête ont été ressorties de 2 cm.
-5. **Triangles** : 8 167 → **3 949** (limite UGC : 4 000), UV reprojetées.
+5. **Triangles** : 8 167 → **3 967** (limite UGC : 4 000), UV reprojetées.
 6. **Taille** : environ 2,4 × 2,3 × 2,1 studs.
+8. **Imperfections corrigées** : 10 petits trous bouchés (dont ceux de la bande blanche à l'avant), et les points blancs sur le dessus du bonnet supprimés (12 faces dont les UV traversaient du blanc, + quelques pixels gris isolés dans le rouge). Texture des cheveux inchangée.
 7. **Origine au centre du volume** : le pivot du mesh est au centre de sa boîte englobante. Le nœud FBX garde le décalage (0,209 ; 2,179 ; −0,041 studs depuis l'origine du rig), donc importé avec le rig, il reste bien placé sur la tête. Le `.obj` est centré et ce décalage est noté dans son en-tête.
 
 ## Fichiers
