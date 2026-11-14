@@ -6,9 +6,9 @@
 3. **Même repère que le rig** : mêmes axes, unités et transformation de nœud que `r6_rigged.fbx`. Importés ensemble, ils s'alignent.
 4. **Pénétrations** : les pointes de mèches qui rentraient dans la tête ont été ressorties de 2 cm.
 5. **Triangles** : 8 167 → **3 949** (limite UGC : 4 000), UV reprojetées.
-6. **Taille** : environ 2,5 × 2,3 × 2,1 studs.
-7. **Bout du bonnet sans twist** : la queue du bonnet se tordait vers l'avant juste avant le pompon (pompon à 64° de l'avant). Seuls la fin de la queue et le pompon ont tourné, progressivement, autour de l'axe du bonnet : le pompon est maintenant pile sur le côté (90°). Le dôme, le bord et les cheveux n'ont pas bougé.
-8. **Origine au centre du volume** : le pivot du mesh est au centre de sa boîte englobante. Le nœud FBX garde le décalage (0,255 ; 2,190 ; −0,041 studs depuis l'origine du rig), donc importé avec le rig, il reste bien placé sur la tête. Le `.obj` est centré et ce décalage est noté dans son en-tête.
+6. **Taille** : environ 2,4 × 2,3 × 2,1 studs.
+7. **Bout du bonnet sans twist** : la fin de la queue du bonnet partait vers l'avant (pompon 26° devant la verticale). Elle a été tournée dans le sens horaire, vue de côté, autour d'un axe horizontal passant par le début de la queue. La rotation est progressive (0 au départ de la queue, 26° au pompon) et pondérée par la distance le long de la surface. Résultat : le pompon pend droit sous la queue, sur le côté. Le bord du bonnet, le dôme et les cheveux n'ont pas bougé (670 vertices déplacés, tous sur la queue et le pompon).
+8. **Origine au centre du volume** : le pivot du mesh est au centre de sa boîte englobante. Le nœud FBX garde le décalage (0,209 ; 2,179 ; −0,041 studs depuis l'origine du rig), donc importé avec le rig, il reste bien placé sur la tête. Le `.obj` est centré et ce décalage est noté dans son en-tête.
 
 ## Fichiers
 - `Hair_SantaHat.fbx` : modèle final, la texture attendue s'appelle `Hair_Color.png`.
