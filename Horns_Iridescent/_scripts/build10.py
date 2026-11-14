@@ -132,7 +132,9 @@ vv=vv.astype(float); T=vv[ff]
 n=np.cross(T[:,1]-T[:,0],T[:,2]-T[:,0]); vol=np.einsum('ij,ij->i',T[:,0],n).sum()
 if vol<0: T=T[:,[0,2,1]]
 T=T[:,[0,2,1]]
-add_tris(T,blk_uv('ring_ol',len(T))); nfin=len(T)
+NOOL=os.environ.get('NOOL')=='1'
+if not NOOL: add_tris(T,blk_uv('ring_ol',len(T)))
+nfin=0 if NOOL else len(T)
 print('horn outline tris',nfin)
 # ---------------- ring outline (inverted hull torus)
 e1=np.cross(RN,[1,0,0]); e1/=np.linalg.norm(e1); e2=np.cross(RN,e1)
@@ -178,5 +180,5 @@ print('FINAL spacing',round(s,4),'TOTAL TRIS',len(T))
 SCALE=1.2/(T.reshape(-1,3)[:,0].max()-T.reshape(-1,3)[:,0].min()); T=T*SCALE; print('scale',round(SCALE,4),'size X,Y,Z (Blender)',(T.reshape(-1,3).max(0)-T.reshape(-1,3).min(0)).round(3))
 # weld vertices
 P=T.reshape(-1,3); key=np.round(P,6); uniq,inv=np.unique(key,axis=0,return_inverse=True)
-np.savez('mesh10.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
+np.savez('mesh10_nool.npz' if NOOL else 'mesh10.npz',V=uniq,F=inv.reshape(-1,3),UV=UVt.reshape(-1,2),N=N,SW=np.array(SW))
 import json; json.dump(BLK,open('blk.json','w'))

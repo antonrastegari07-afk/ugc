@@ -3,14 +3,15 @@ from fbxio import read,write,child
 import numpy as np; from PIL import Image
 SRC='/root/.claude/uploads/2a2dc869-38e2-54de-8e85-531b1a0ba8eb/807479b3-HornsBlackHole_UGC.fbx'
 OUT=sys.argv[1]
-M=np.load('mesh10.npz'); V,F,UV,N,SW=M['V'],M['F'],M['UV'],M['N'],M['SW']; BLK=json.load(open('blk.json'))
+MESH=sys.argv[2] if len(sys.argv)>2 else 'mesh10.npz'; SUF=sys.argv[3] if len(sys.argv)>3 else ''
+M=np.load(MESH); V,F,UV,N,SW=M['V'],M['F'],M['UV'],M['N'],M['SW']; BLK=json.load(open('blk.json'))
 def H(c): return np.array([int(c[i:i+2],16)/255 for i in (1,3,5)])
 # per direction (top colour, bottom colour); d: +X(right), -X(left), +Y(back), -Y(front)
-PAL={   # per direction 3-stop gradient (top, middle, bottom); d: +X(right), -X(left), +Y(back), -Y(front)
- 'holo':   {'dirs':[('#00FFF0','#2B6BFF','#7A2BFF'),('#FFF200','#FF8A00','#FF1A3C'),('#C6FF00','#00FF6A','#00B8A0'),('#FF6BF0','#FF1FA8','#8A1BFF')],'spike':'#0B0912','spike_ol':'#00E5FF','ring_ol':'#000000'},
- 'galaxy': {'dirs':[('#7DF9FF','#2B4BFF','#3A00B8'),('#FFB3F5','#FF2BD6','#7A00FF'),('#B8A6FF','#6A5CFF','#0090FF'),('#FF6BF0','#B026FF','#2B0B8A')],'spike':'#0B0912','spike_ol':'#B026FF','ring_ol':'#000000'},
- 'toxic':  {'dirs':[('#9CFFF0','#00FFC6','#0068FF'),('#FFF700','#9CFF00','#00C83C'),('#E6FF00','#39FF14','#00806A'),('#00FFA0','#00C8FF','#0040C0')],'spike':'#07120A','spike_ol':'#39FF14','ring_ol':'#000000'},
- 'inferno':{'dirs':[('#FFF27A','#FFB000','#FF4D00'),('#FF7AC8','#FF1F6A','#8A0018'),('#FFD600','#FF6A00','#C80000'),('#FF9A3C','#FF1744','#9A0060')],'spike':'#120707','spike_ol':'#FF5A00','ring_ol':'#000000'},
+PAL={   # per direction 3-stop gradient (top, middle, bottom); d: +X(right), -X(left), +Y(back), -Y(front) -- all stops bright/saturated
+ 'holo':   {'dirs':[('#00FFF0','#00A8FF','#7A6BFF'),('#FFF200','#FF9A00','#FF4040'),('#DFFF00','#4DFF2B','#00FFB8'),('#FF85F5','#FF2BD6','#B44BFF')],'spike':'#000000','spike_ol':'#000000','ring_ol':'#000000'},
+ 'galaxy': {'dirs':[('#7DF9FF','#3D6BFF','#7A4BFF'),('#FFB3F5','#FF2BD6','#A64BFF'),('#C8B8FF','#7A6BFF','#2BA8FF'),('#FF85F5','#C04BFF','#7A3BFF')],'spike':'#000000','spike_ol':'#000000','ring_ol':'#000000'},
+ 'toxic':  {'dirs':[('#9CFFF0','#00FFC6','#2B9BFF'),('#FFF700','#B0FF00','#00F060'),('#EEFF00','#4DFF2B','#00E8B8'),('#00FFA8','#00D8FF','#4D8BFF')],'spike':'#000000','spike_ol':'#000000','ring_ol':'#000000'},
+ 'inferno':{'dirs':[('#FFF27A','#FFB800','#FF5A00'),('#FF85D0','#FF2E7A','#F0203A'),('#FFE14D','#FF7A00','#FF2E1A'),('#FFAA4D','#FF2E55','#F0309A')],'spike':'#000000','spike_ol':'#000000','ring_ol':'#000000'},
 }
 def edges(F):
     seen=set();E=[]
@@ -36,7 +37,8 @@ for name,P in PAL.items():
     Image.fromarray((rough*255).astype(np.uint8)).save(f'{d}/Horns_{name}_Roughness.png')
     Image.fromarray(np.zeros((1024,1024),np.uint8)).save(f'{d}/Horns_{name}_Metalness.png')
     em=np.zeros((1024,1024))
-    for (x,y,w,h) in SW: em[y:y+h,x:x+w]=1.0                 # colour-shifting slices glow, outlines stay black
+    lum=0.2126*img[...,0]+0.7152*img[...,1]+0.0722*img[...,2]
+    for (x,y,w,h) in SW: em[y:y+h,x:x+w]=np.clip(0.42/np.maximum(lum[y:y+h,x:x+w],1e-3),0,1)   # bright hues glow less, dark hues more -> balanced
     Image.fromarray((em*255).astype(np.uint8)).save(f'{d}/Horns_{name}_Emissive.png')
     Image.fromarray((img*em[...,None]*255).astype(np.uint8)).save(f'{d}/Horns_{name}_EmissiveColor.png')
     ver,nodes,hd,ft=read(SRC); g=child([n for n in nodes if n[0]=='Objects'][0],'Geometry')[0]
@@ -46,8 +48,8 @@ for name,P in PAL.items():
     child(g,'Edges')[0][1][0]=('i',ED)
     nl=child(g,'LayerElementNormal')[0]; child(nl,'Normals')[0][1][0]=('d',N.reshape(-1).astype(np.float64)); child(nl,'NormalsIndex')[0][1][0]=('i',np.repeat(np.arange(len(F)),3).astype(np.int32))
     ul=child(g,'LayerElementUV')[0]; child(ul,'UV')[0][1][0]=('d',UV.reshape(-1).astype(np.float64)); child(ul,'UVIndex')[0][1][0]=('i',np.arange(len(F)*3).astype(np.int32))
-    write(f'{d}/Horns_{name}.fbx',ver,nodes,hd,ft)
-    with open(f'{d}/Horns_{name}.obj','w') as o:
+    write(f'{d}/Horns_{name}{SUF}.fbx',ver,nodes,hd,ft)
+    with open(f'{d}/Horns_{name}{SUF}.obj','w') as o:
         o.write(f'# Horns sliced lenticular v4 {name}\n')
         for v in V: o.write('v %.6f %.6f %.6f\n'%(v[0],v[2],-v[1]))
         for t in UV: o.write('vt %.6f %.6f\n'%tuple(t))
