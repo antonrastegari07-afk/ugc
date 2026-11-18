@@ -3,13 +3,13 @@
 ## ⚡ INSTALLATION RAPIDE (recommandée, environ 2 minutes)
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous* (sécurité en plus).
-   Si un ancien dossier `UPDATE_2026_11_18` est déjà dans le Workspace (essai précédent), **supprime-le d'abord**.
+   ⚠️ Si un ancien dossier `UPDATE_2026_11_18` (sans « _v2 ») est dans le Workspace, **supprime-le d’abord** : c’est l’ancien installateur qui plante.
 2. Dans Studio, fais un clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18.rbxmx`.
-   Un dossier `UPDATE_2026_11_18` apparaît dans le Workspace. Les scripts dedans sont désactivés et ne font rien.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v2.rbxmx`.
+   Un dossier `UPDATE_2026_11_18_v2` apparaît dans le Workspace. Les scripts dedans sont désactivés et ne font rien.
 3. Ouvre la barre de commande : *Affichage (View) ▸ Barre de commande (Command Bar)*. Colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v2.INSTALL)()
    ```
 4. La fenêtre **Output** affiche le résultat : « ✅ INSTALLATION TERMINÉE : 28 scripts remplacés, 5 créés… ».
    S'il y a une ligne « ⚠️ À VÉRIFIER », lis-la : ce script-là est à faire à la main (voir plus bas).
