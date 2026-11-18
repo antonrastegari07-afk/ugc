@@ -17,7 +17,7 @@ Ne change ni le nom ni l'emplacement du script.
 
 ---
 
-## Étape 1 — Créer les 4 nouveaux objets
+## Étape 1 — Créer les 5 nouveaux objets
 
 | Où dans Studio | Créer | Nom exact | Fichier |
 |---|---|---|---|
@@ -25,6 +25,7 @@ Ne change ni le nom ni l'emplacement du script.
 | ReplicatedStorage | ModuleScript | `PopupGate` | `ReplicatedStorage/PopupGate.module.lua` |
 | ReplicatedStorage | ModuleScript | `LeaderboardStyle` | `ReplicatedStorage/LeaderboardStyle.module.lua` |
 | ServerScriptService | Script | `PopupControl_Server` | `ServerScriptService/PopupControl_Server.server.lua` |
+| StarterPlayer ▸ StarterPlayerScripts | LocalScript | `ArenaViewKeeper` | `StarterPlayer/StarterPlayerScripts/ArenaViewKeeper.client.lua` |
 
 ## Étape 2 — Remplacer le code de ces 27 scripts
 
@@ -59,7 +60,7 @@ Ne change ni le nom ni l'emplacement du script.
 ### StarterGui (LocalScripts)
 | Script dans Studio | Fichier | Point |
 |---|---|---|
-| `ShiftLockButton` ▸ `ImageButton` ▸ `ShiftGUI` | `StarterGui/ShiftLockButton/ImageButton/ShiftGUI.client.lua` | 5 |
+| `ShiftLockButton` ▸ `ImageButton` ▸ `ShiftGUI` | `StarterGui/ShiftLockButton/ImageButton/ShiftGUI.client.lua` | 5, vue PvP |
 | `VIP offer` ▸ `make pop th add` | `StarterGui/VIP offer/make pop th add.client.lua` | 7 |
 
 ### StarterPlayer ▸ StarterPlayerScripts (LocalScripts)
@@ -156,6 +157,15 @@ son ScreenGui en `ResetOnSpawn = false` au lancement.
 - Le bouton DONATE du board de dons marche toujours.
 - **Revenir à l'apparence d'avant :** dans `ReplicatedStorage ▸ LeaderboardStyle`, mets `Style = "classic"`. C'est exactement l'ancien rendu.
 
+### Vue PvP gardée sans arme (nouveau script `ArenaViewKeeper`)
+- **Avant :** en arène, en vue « lock », ranger ton arme rendait la caméra libre de Roblox.
+- **Maintenant :** sans arme, la vue reste la même que celle des armes. En mode **lock**, la caméra reste derrière l'épaule, la souris reste bloquée au centre et le perso suit la caméra (même distance, même décalage).
+- **En 1re personne :** sur mobile et console, ça reste en 1re personne. Sur PC, l'arme utilise déjà la caméra normale de Roblox, donc rien ne change.
+- Quand tu ressors une arme, elle reprend la caméra **exactement là où tu regardais** : aucun saut.
+- **Hors arène :** rien ne change, et le script ne tourne même pas.
+- **Revenir à avant :** dans `ArenaViewKeeper`, mets `ENABLED = false` à la ligne 18, ou supprime le script.
+- Le bouton lock mobile ne s'ajoute pas par-dessus (pas de double décalage).
+
 ### 10. Invitations d'amis
 - Le parrainage ne paie que si l'invité est un **vrai nouveau joueur** : moins de 10 min de jeu enregistrées avant cette session, et 1re arrivée il y a moins de 30 min. Sinon **personne** n'est payé.
 - Ça ferme les deux failles :
@@ -167,7 +177,7 @@ son ScreenGui en `ResetOnSpawn = false` au lancement.
 
 ## Vérifications faites (et ce qui reste à tester dans Studio)
 Fait de mon côté, sur tous les fichiers livrés :
-- les 31 fichiers passent un analyseur de syntaxe Luau (le même analyseur valide les 669 scripts d'origine sans erreur) ;
+- les 32 fichiers passent un analyseur de syntaxe Luau (le même analyseur valide les 669 scripts d'origine sans erreur) ;
 - aucune fonction ou variable de niveau principal n'a disparu par erreur (comparaison avec l'original). Ce contrôle a permis de trouver et corriger un bloc mal déplacé dans `new donation board server` ;
 - recherche de variables non déclarées ;
 - `time` reste à 199 variables locales de niveau principal (limite Luau : 200), aucune ajoutée ;
@@ -178,12 +188,13 @@ Fait de mon côté, sur tous les fichiers livrés :
 1. **Leaderboards :** regarde le rendu sur chaque board. Clique ALL / FRIENDS / FIND ME. Vérifie que le bouton DONATE est toujours visible.
 2. **Admin ▸ 🔔 POPUPS :** change un réglage, puis vérifie qu'il reste après avoir rouvert le panel.
 3. **Admin ▸ fiche d'un joueur :** badges + « il y a X j Y h ».
-4. **Mobile** (émulateur Studio) :
+4. **Arène PvP :** en vue lock, range ton arme. La vue doit rester verrouillée. Ressors-la : aucun saut de caméra. Sors de l'arène : la caméra redevient normale.
+5. **Mobile** (émulateur Studio) :
    - active le lock, meurs : il doit rester ON ;
    - entre en arène : le lock se met en pause ;
    - curseur plus gros.
-5. **Obby :** meurs 10 fois → l'offre de points apparaît (si activée).
-6. **À vérifier sur un vrai serveur publié** (MessagingService et TeleportService ne marchent pas en Studio) :
+6. **Obby :** meurs 10 fois → l'offre de points apparaît (si activée).
+7. **À vérifier sur un vrai serveur publié** (MessagingService et TeleportService ne marchent pas en Studio) :
    - un don → effet sur un 2e serveur ;
    - un reload AFK → retour à la bonne place ;
    - un réglage popup → appliqué sur les autres serveurs.

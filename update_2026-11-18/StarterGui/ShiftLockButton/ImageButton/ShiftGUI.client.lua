@@ -76,6 +76,8 @@ local function apply(moveCamera)
 	local on
 	if inArena() then
 		on = arenaManual == true          -- en arène : OFF sauf si allumé à la main
+		-- ArenaViewKeeper garde déjà la vue lock sans arme : on ne double pas le décalage
+		if player:GetAttribute("ArenaViewKept") == true then on = false end
 	else
 		on = wanted
 	end
@@ -116,6 +118,7 @@ player:GetAttributeChangedSignal("InArena"):Connect(function()
 	arenaManual = nil
 	apply(false)
 end)
+player:GetAttributeChangedSignal("ArenaViewKept"):Connect(function() apply(false) end)
 
 -- (même liaison qu'avant, protégée : elle ne doit jamais casser le bouton)
 pcall(function()
