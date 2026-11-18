@@ -74,7 +74,7 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 - **Leaderboards :**
   - `ReplicatedStorage ▸ LeaderboardStyle` : `Tabs = false` → boards exactement d'origine ;
   - `Style = "modern"` → le look moderne de la v2.
-- **Vue PvP sans arme :** `ArenaViewKeeper`, mets `ENABLED = false` (ligne 21).
+- **Vue PvP sans arme :** `ArenaViewKeeper`, mets `ENABLED = false` (ligne 23).
 - **Arc-en-ciel :** dans ` ADMIN ABUSE — DÉGRADÉ…`, mets `ANY_TEMP_BOOST = false` → seulement pendant l'Admin Abuse, comme avant.
 
 ---
