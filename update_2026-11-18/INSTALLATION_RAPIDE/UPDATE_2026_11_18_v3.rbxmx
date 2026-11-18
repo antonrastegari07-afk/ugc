@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v2</string>
+			<string name="Name">UPDATE_2026_11_18_v3</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,11 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v2.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v3.INSTALL)()
+--
+--  v3 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 (les versions v2 vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_2026_11_18 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v3 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -28,27 +31,28 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v2 (échange des scripts entiers) — démarrage…")
+	print("🚀 Installateur v3 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v3"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
 
 	-- l'install ne doit tourner qu'une fois (sinon la copie de secours contiendrait déjà les nouveaux scripts)
-	local old = ServerStorage:FindFirstChild("BACKUP_avant_maj_2026_11_18")
+	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ Déjà installé (ServerStorage ▸ BACKUP_avant_maj_2026_11_18 existe). Rien n'a été fait.")
+			warn("⚠️ v3 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation précédente s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour du 18/11 » (ou supprime le dossier BACKUP s'il est vide), puis relance.")
+			warn("⚠️ Une installation v3 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v3 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour du 18/11") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v3") end)
 
 	local backup = Instance.new("Folder")
-	backup.Name = "BACKUP_avant_maj_2026_11_18"
+	backup.Name = BACKUP_NAME
 	backup.Parent = ServerStorage   -- tout de suite : un ancien script n'est jamais « perdu » en cours de route
 
 	local replaced, created, problems = {}, {}, {}
@@ -136,7 +140,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour du 18/11 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v3 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -145,7 +149,7 @@ return function()
 		warn("⚠️ À VÉRIFIER (" .. #problems .. ") :")
 		for _, p in ipairs(problems) do warn("   • " .. p) end
 	else
-		print("   Aucun problème. Les anciennes versions sont dans ServerStorage ▸ BACKUP_avant_maj_2026_11_18.")
+		print("   Aucun problème. Les versions remplacées sont dans ServerStorage ▸ " .. BACKUP_NAME .. ".")
 	end
 end
 ]]></ProtectedString>
@@ -1535,6 +1539,11 @@ function WeaponController.Setup(tool, userConfig)
 	-- 🆕 Touche H : cache / réaffiche les lignes de contrôles. La ligne "H" reste
 	-- TOUJOURS visible ; son texte bascule "Cacher" ↔ "Afficher".
 	ToggleControls = function()
+		if MyPlayer then
+			MyPlayer:SetAttribute("ControlsHidden", not (MyPlayer:GetAttribute("ControlsHidden") == true))
+			Extra.applyControlsHidden()
+			return
+		end
 		ControlsHidden = not ControlsHidden
 		local hud = WeaponGui and WeaponGui:FindFirstChild("AmmoHud"); if not hud then return end
 		local list = hud:FindFirstChild("KeyInstructions"); if not list then return end
@@ -2419,6 +2428,25 @@ function WeaponController.Setup(tool, userConfig)
 		idleRoot = CFrame.new(),
 		cocked = false,         -- l'arme a déjà été armée cette vie
 	}
+	-- 🆕 l'état « contrôles cachés » est PARTAGÉ (attribut local du joueur) : il reste
+	--    le même d'une arme à l'autre et sans arme (ArenaViewKeeper lit le même attribut).
+	--    (dans Extra : Setup est à la limite des 200 variables locales ; défini ICI,
+	--     juste après la création de la table Extra)
+	Extra.applyControlsHidden = function()
+		ControlsHidden = MyPlayer ~= nil and MyPlayer:GetAttribute("ControlsHidden") == true
+		local hud = WeaponGui and WeaponGui:FindFirstChild("AmmoHud"); if not hud then return end
+		local list = hud:FindFirstChild("KeyInstructions"); if not list then return end
+		for _, row in ipairs(list:GetChildren()) do
+			if row:IsA("Frame") then
+				if row.Name == "Row_H" then
+					local desc = row:FindFirstChild("Desc", true)
+					if desc then desc.Text = ControlsHidden and "Reveal Controls" or "Hide Controls" end
+				else
+					row.Visible = not ControlsHidden
+				end
+			end
+		end
+	end
 	-- L'intention (bouton maintenu) survit au reload ; la visée effective non.
 	Extra.aimInput = { mouse = false, key = false, mobile = false, pad = false }   -- [Combat C3] pad = manette
 	Extra.aimLead = function(duration)
@@ -6352,6 +6380,7 @@ function WeaponController.Setup(tool, userConfig)
 			table.insert(keys, {key="B",action="Views"})
 			table.insert(keys, {key="H",action="Hide Controls"})   -- 🆕 toujours en bas
 			styleAmmoHud(keys)
+			Extra.applyControlsHidden()   -- 🆕 garde l'état « cachés » choisi avant (autre arme / sans arme)
 			UpdateAmmo(AmmoInClip)
 		end
 		local recoilAnim = tool:FindFirstChild("Recoil")
@@ -7006,7 +7035,7 @@ local Core = {}
 --   "modern"  : look Paramètres / CombatHUD + ALL / FRIENDS / FIND ME + ta ligne
 --   "classic" : EXACTEMENT l'apparence d'avant (le code d'origine est inchangé)
 --==============================================================================
-local STYLE = { Style = "modern", Tabs = true, YourRow = true, UpdateBar = true, FriendsCacheSeconds = 600 }
+local STYLE = { Style = "classic", Tabs = true, YourRow = false, UpdateBar = false, FriendsCacheSeconds = 600 }
 do
 	local m = ReplicatedStorage:FindFirstChild("LeaderboardStyle")
 	if m and m:IsA("ModuleScript") then
@@ -7016,7 +7045,8 @@ do
 		end
 	end
 end
-local MODERN = STYLE.Style ~= "classic"
+local MODERN = STYLE.Style == "modern"
+local TABS = STYLE.Tabs ~= false   -- ALL / FRIENDS / FIND ME (marche avec les deux looks)
 Core.Style = STYLE
 
 -- même famille de police que les Paramètres et le CombatHUD
@@ -7924,6 +7954,12 @@ local function applyEntry(E, rank, data)
 
 	local raw = data[cfg.valueKey] or 0
 	E.valLbl.Text = (cfg.formatValue or fmtDefault)(raw)
+	-- 👥 ami HORS du top (onglet FRIENDS) : « -- » à la place du rang, rangé après le top
+	if data.noRank then
+		E.rankLbl.Text = "--"
+		E.holder.LayoutOrder = 100000 + (tonumber(data._ord) or 0)
+		if data.pending then E.valLbl.Text = "…" end
+	end
 
 	-- contour du body : doré pour les VIP, neutre pour tout le monde d'autre
 	if isVip then
@@ -8186,6 +8222,76 @@ local function buildBoardUI(cfg, sg)
 	local tc = Instance.new("UITextSizeConstraint", title)
 	tc.MaxTextSize = 46; tc.MinTextSize = 20
 
+	-- 👥 ALL / FRIENDS (à gauche) + 🔍 FIND ME discret (à droite), dans l'en-tête d'avant.
+	--    Le titre reste centré : on lui laisse juste la place du milieu.
+	local tabs = nil
+	if TABS then
+		title.AnchorPoint = Vector2.new(0.5, 0)
+		title.Position    = UDim2.new(0.5, 0, 0, 0)
+		title.Size        = UDim2.new(0.52, 0, 1, 0)
+		local accent = p.accent1 or Color3.new(1, 1, 1)
+		local dark   = p.panel or Color3.fromRGB(20, 20, 26)
+
+		local seg = Instance.new("Frame")
+		seg.Name = "Tabs"
+		seg.AnchorPoint = Vector2.new(0, 0.5)
+		seg.Position = UDim2.new(0.012, 0, 0.5, 0)
+		seg.Size = UDim2.new(0.21, 0, 0.6, 0)
+		seg.BackgroundColor3 = dark
+		seg.BorderSizePixel = 0
+		seg.Parent = header
+		Instance.new("UICorner", seg).CornerRadius = UDim.new(1, 0)
+		local ss = Instance.new("UIStroke") ; ss.Color = accent ; ss.Thickness = 2 ; ss.Transparency = 0.35 ; ss.Parent = seg
+		local function half(text, x)
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(0.5, -4, 1, -8)
+			b.Position = UDim2.new(x, x == 0 and 4 or 0, 0, 4)
+			b.BackgroundColor3 = accent
+			b.BackgroundTransparency = 1
+			b.AutoButtonColor = false
+			b.Text = text
+			b.Font = Enum.Font.FredokaOne
+			b.TextScaled = true
+			b.TextColor3 = p.muted or Color3.fromRGB(170, 170, 180)
+			b.Parent = seg
+			Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+			local c = Instance.new("UITextSizeConstraint", b) ; c.MaxTextSize = 24 ; c.MinTextSize = 8
+			local pd = Instance.new("UIPadding", b) ; pd.PaddingTop = UDim.new(0.14, 0) ; pd.PaddingBottom = UDim.new(0.14, 0)
+			return b
+		end
+		local allB = half("ALL", 0)
+		local frB  = half("FRIENDS", 0.5)
+
+		local find = Instance.new("TextButton")
+		find.Name = "FindMe"
+		find.AnchorPoint = Vector2.new(1, 0.5)
+		find.Position = UDim2.new(0.988, 0, 0.5, 0)
+		find.Size = UDim2.new(0, 0, 0.6, 0)
+		find.BackgroundColor3 = dark
+		find.BackgroundTransparency = 0.2
+		find.AutoButtonColor = true
+		find.Text = "🔍"
+		find.TextScaled = true
+		find.TextColor3 = Color3.new(1, 1, 1)
+		find.Parent = header
+		Instance.new("UIAspectRatioConstraint", find).AspectRatio = 1
+		Instance.new("UICorner", find).CornerRadius = UDim.new(1, 0)
+		local fs = Instance.new("UIStroke") ; fs.Color = accent ; fs.Thickness = 1.5 ; fs.Transparency = 0.5 ; fs.Parent = find
+		local fp = Instance.new("UIPadding", find) ; fp.PaddingTop = UDim.new(0.2, 0) ; fp.PaddingBottom = UDim.new(0.2, 0)
+
+		tabs = {
+			all = allB, friends = frB, findMe = find, frL = frB, friendsText = "FRIENDS",
+			setSelected = function(which)
+				for _, pair in ipairs({ { allB, "all" }, { frB, "friends" } }) do
+					local on = pair[2] == which
+					pair[1].BackgroundTransparency = on and 0 or 1
+					pair[1].TextColor3 = on and Color3.fromRGB(20, 16, 8) or (p.muted or Color3.fromRGB(170, 170, 180))
+				end
+			end,
+		}
+		tabs.setSelected("all")
+	end
+
 	local divider = Instance.new("Frame")
 	divider.Size             = UDim2.new(0.95, 0, 0, 2)
 	divider.Position         = UDim2.new(0.025, 0, 0.09, 1)
@@ -8277,6 +8383,7 @@ local function buildBoardUI(cfg, sg)
 		scroll     = scroll,
 		footer     = footer,
 		refreshLbl = refreshLbl,
+		tabs       = tabs,
 	}
 end
 
@@ -8535,6 +8642,7 @@ end
 -- 👥 AMIS (lus une fois, gardés en mémoire) — pour l'onglet FRIENDS
 --==============================================================================
 local friendSet, friendsAt, friendsLoading = nil, -1e9, false
+local friendNames = {}   -- [userId] = nom affiché (pour les amis hors du top)
 local friendWaiters = {}
 local function withFriends(cb)
 	if friendSet and os.clock() - friendsAt < (STYLE.FriendsCacheSeconds or 600) then cb() return end
@@ -8546,7 +8654,10 @@ local function withFriends(cb)
 		local ok = pcall(function()
 			local pages = Players:GetFriendsAsync(LocalPlayer.UserId)
 			for _ = 1, 8 do   -- 8 pages max (≈ 400 amis) : largement assez
-				for _, f in ipairs(pages:GetCurrentPage()) do set[f.Id] = true end
+				for _, f in ipairs(pages:GetCurrentPage()) do
+					set[f.Id] = true
+					friendNames[f.Id] = f.DisplayName or f.Username
+				end
 				if pages.IsFinished then break end
 				pages:AdvanceToNextPageAsync()
 			end
@@ -8635,14 +8746,73 @@ function Core.mount(cfg)
 			MODERN_PALETTE.muted:ToHex(), math.min(#ctx.data, cfg.topSize))
 	end
 
-	-- 🏆 liste montrée par un board : tout le monde, ou toi + tes amis (rang réel gardé)
-	local function renderBoard(b)
+	-- 👥 score des amis HORS du top (FriendsBoard_Server), gardé 5 min
+	local BOARD_KEY = ({ GetPointsLeaderboard = "Points", GetRebirthLeaderboard = "Rebirths",
+		GetStreakLeaderboard = "Streak", GetKillLeaderboard = "Kills", GetLeaderboardData = "Donations" })[cfg.getFunctionName or ""]
+	local friendVals, friendValsAt, friendValsBusy = {}, -1e9, false
+	local renderBoard
+	local function fetchFriendValues(ids)
+		if not BOARD_KEY or friendValsBusy or #ids == 0 then return end
+		if os.clock() - friendValsAt < 300 then return end
+		local fn = ReplicatedStorage:FindFirstChild("GetFriendsBoardValues")
+		if not fn then return end
+		friendValsBusy = true
+		task.spawn(function()
+			local res
+			for _ = 1, 3 do
+				local ok, r = pcall(function() return fn:InvokeServer(BOARD_KEY, ids) end)
+				if ok and type(r) == "table" and not r.throttled then res = r break end
+				task.wait(3.2)
+			end
+			friendValsBusy = false
+			friendValsAt = os.clock()
+			if type(res) == "table" then
+				for k, v in pairs(res) do
+					local id = tonumber(k)
+					if id and type(v) == "number" then friendVals[id] = v end
+				end
+			end
+			for _, bb in ipairs(ctx.boards) do
+				if bb.filter == "friends" and bb.scroll and bb.scroll.Parent then renderBoard(bb) end
+			end
+		end)
+	end
+
+	-- 🏆 liste montrée par un board : tout le monde, ou toi + TOUS tes amis
+	--    (ceux du top avec leur vraie place, les autres avec « -- » en dessous)
+	renderBoard = function(b)
 		if not ctx.data then return end
 		if b.filter == "friends" then
 			local me = LocalPlayer and LocalPlayer.UserId
-			local out = {}
+			local out, inTop = {}, {}
 			for _, e in ipairs(ctx.data) do
-				if e.userId == me or (friendSet and friendSet[e.userId]) then table.insert(out, e) end
+				if e.userId == me or (friendSet and friendSet[e.userId]) then
+					table.insert(out, e)
+					inTop[e.userId] = true
+				end
+			end
+			-- amis (et toi) hors du top : affichés quand même, rang « -- »
+			local others, missing = {}, {}
+			local function addOther(id, name)
+				if inTop[id] then return end
+				local v = friendVals[id]
+				if v == nil then table.insert(missing, id) end
+				table.insert(others, { userId = id, name = name, [cfg.valueKey] = v or 0,
+					noRank = true, pending = (v == nil) and BOARD_KEY ~= nil })
+			end
+			if me then addOther(me, LocalPlayer.DisplayName) end
+			for id in pairs(friendSet or {}) do addOther(id, friendNames[id] or ("User " .. id)) end
+			table.sort(others, function(a, c)
+				local va, vc = a[cfg.valueKey] or 0, c[cfg.valueKey] or 0
+				if va ~= vc then return va > vc end
+				return tostring(a.name) < tostring(c.name)
+			end)
+			for i, e in ipairs(others) do e._ord = i ; e.rank = 9999 ; table.insert(out, e) end
+			if #missing > 0 then
+				table.sort(missing)
+				local ids = {}
+				for i = 1, math.min(#missing, 50) do ids[i] = missing[i] end
+				fetchFriendValues(ids)
 			end
 			if #out == 0 then
 				b.view.lastList = nil   -- sinon un repaint VIP réafficherait la liste complète ici
@@ -8660,7 +8830,7 @@ function Core.mount(cfg)
 		for _, b in ipairs(ctx.boards) do
 			if b.scroll and b.scroll.Parent then
 				if b.loader then b.loader:Destroy(); b.loader = nil end
-				if MODERN then renderBoard(b) else b.view:render(ctx.data) end
+				if MODERN or TABS then renderBoard(b) else b.view:render(ctx.data) end
 			end
 		end
 	end
@@ -8876,12 +9046,13 @@ function Core.mount(cfg)
 			barFill    = ui.barFill,
 		}
 		b.view = Core.newListView(ui.scroll, cfg)
-		b.view.useDataRank = MODERN
+		b.view.useDataRank = MODERN or TABS
 		table.insert(ctx.boards, b)
 
 		if ui.tabs then
 			local t = ui.tabs
 			local function paint()
+				if t.setSelected then t.setSelected(b.filter) return end   -- look d'avant
 				t.allColor(b.filter == "all" and BTN.blue or BTN.grey)
 				t.friendsColor(b.filter == "friends" and BTN.blue or BTN.grey)
 			end
@@ -8897,7 +9068,7 @@ function Core.mount(cfg)
 				b.scroll.CanvasPosition = Vector2.zero
 				t.frL.Text = "…"
 				withFriends(function()
-					t.frL.Text = "FRIENDS"
+					t.frL.Text = t.friendsText or "FRIENDS"
 					if b.filter == "friends" and b.scroll.Parent then renderBoard(b) end
 				end)
 			end)
@@ -8909,7 +9080,7 @@ function Core.mount(cfg)
 		end
 
 		if ctx.data then
-			if MODERN then renderBoard(b) else b.view:render(ctx.data) end   -- board ajouté en cours de partie
+			if MODERN or TABS then renderBoard(b) else b.view:render(ctx.data) end   -- board ajouté en cours de partie
 		else
 			b.loader = createLoader(ui.content, cfg)
 			task.delay(cfg.firstLoadDelay, function()
@@ -8946,21 +9117,24 @@ return Core]]></ProtectedString>
 					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
 -- 🏆 LeaderboardStyle — ModuleScript dans ReplicatedStorage   (NOUVEAU)
 --
---  Apparence des leaderboards physiques (Points, Kills, Rebirths, Streak, Dons).
+--  Réglages des leaderboards physiques (Points, Kills, Rebirths, Streak, Dons).
 --
---   Style = "modern"  → nouveau look (même style que les Paramètres et le CombatHUD :
---                       panneau sombre, police BuilderSans, boutons 3D) + onglets
---                       ALL / FRIENDS / FIND ME, ta ligne en bas, barre « next update ».
---   Style = "classic" → EXACTEMENT l'apparence d'avant (rien d'autre ne change).
+--   Style = "classic" → l'apparence d'AVANT (par défaut).
+--   Style = "modern"  → look Paramètres / CombatHUD (essai précédent), avec en plus
+--                       ta ligne et la barre « next update » en bas (YourRow / UpdateBar).
 --
---  Les options ci-dessous ne servent qu'en mode "modern".
+--   Tabs = true  → dans l'en-tête : ALL / FRIENDS à gauche, petite loupe 🔍 (FIND ME)
+--                  à droite. FRIENDS montre TOUS tes amis : ceux du top avec leur
+--                  place, les autres en dessous avec « -- ».
+--   Tabs = false → EXACTEMENT les boards d'avant, sans aucun bouton.
 --════════════════════════════════════════════════════════════════════════════
 return {
-	Style = "modern",      -- "modern" | "classic"
+	Style = "classic",     -- "classic" | "modern"
+	Tabs  = true,          -- ALL / FRIENDS / 🔍 FIND ME
 
-	Tabs      = true,      -- onglets ALL / FRIENDS + bouton FIND ME
-	YourRow   = true,      -- ta place (et ton score) toujours visible en bas du board
-	UpdateBar = true,      -- fine barre qui se remplit jusqu'à la prochaine mise à jour
+	-- seulement pour Style = "modern"
+	YourRow   = false,
+	UpdateBar = false,
 
 	-- 👥 la liste d'amis est lue UNE fois, puis gardée en mémoire ce temps-là (s)
 	FriendsCacheSeconds = 600,
@@ -9875,6 +10049,103 @@ print("✅ DailyRewards SERVEUR v4 chargé (7 jours, fixes #1-4 appliqués)")
 			<Item class="Script" referent="RBX13">
 				<Properties>
 					<bool name="Disabled">true</bool>
+					<string name="Name">FriendsBoard_Server</string>
+					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 👥 FriendsBoard_Server — Script dans ServerScriptService   (NOUVEAU)
+--
+--  Onglet FRIENDS des leaderboards : donne le score des amis qui ne sont PAS
+--  dans le top 100 (ils s'affichent avec « -- » à la place de leur rang).
+--
+--  Lecture seule, dans les MÊMES classements que les boards (OrderedDataStore,
+--  clé = UserId). Garde-fous :
+--   • 50 amis max par demande, 1 demande / 3 s par joueur ;
+--   • cache serveur de 5 min PARTAGÉ (les amis communs ne sont lus qu'une fois) ;
+--   • si le budget de lectures DataStore est bas, on s'arrête (le client affiche « -- »).
+--════════════════════════════════════════════════════════════════════════════
+local Players           = game:GetService("Players")
+local DataStoreService  = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local STORES = {   -- même nom que dans « Leaderboards unifed » et « new donation board server »
+	Points    = "GlobalLeaderboard_Points_v3",
+	Rebirths  = "GlobalLeaderboard_Rebirths_v1",
+	Streak    = "GlobalLeaderboard_Streak_v1",
+	Kills     = "GlobalLeaderboard_Kills_v1",
+	Donations = "TopDonatorsLeaderboard",
+}
+local MAX_IDS      = 50
+local CACHE_TTL    = 300
+local COOLDOWN     = 3
+local MIN_BUDGET   = 25   -- on laisse toujours ce nombre de lectures aux autres scripts
+
+local stores, cache = {}, {}
+for k, name in pairs(STORES) do
+	stores[k] = DataStoreService:GetOrderedDataStore(name)
+	cache[k] = {}
+end
+local lastCall = {}
+
+local remote = ReplicatedStorage:FindFirstChild("GetFriendsBoardValues")
+if not remote then
+	remote = Instance.new("RemoteFunction")
+	remote.Name = "GetFriendsBoardValues"
+	remote.Parent = ReplicatedStorage
+end
+
+local function budget()
+	local ok, b = pcall(function()
+		return DataStoreService:GetRequestBudgetForRequestType(Enum.DataStoreRequestType.GetAsync)
+	end)
+	return ok and b or 0
+end
+
+remote.OnServerInvoke = function(player, board, ids)
+	if type(board) ~= "string" or not stores[board] or type(ids) ~= "table" then return {} end
+	local now = os.clock()
+	if lastCall[player.UserId] and now - lastCall[player.UserId] < COOLDOWN then return { throttled = true } end
+	lastCall[player.UserId] = now
+
+	local out, need, seen = {}, {}, {}
+	for i = 1, math.min(#ids, MAX_IDS) do
+		local id = tonumber(ids[i])
+		if id and id > 0 and id == math.floor(id) and not seen[id] then
+			seen[id] = true
+			local c = cache[board][id]
+			if c and now - c.at < CACHE_TTL then out[tostring(id)] = c.v
+			else table.insert(need, id) end
+		end
+	end
+	local store = stores[board]
+	for _, id in ipairs(need) do
+		if budget() < MIN_BUDGET then break end
+		local ok, v = pcall(function() return store:GetAsync(tostring(id)) end)
+		if ok then
+			v = tonumber(v) or 0
+			cache[board][id] = { v = v, at = os.clock() }
+			out[tostring(id)] = v
+		end
+	end
+	return out
+end
+
+Players.PlayerRemoving:Connect(function(p) lastCall[p.UserId] = nil end)
+
+-- ménage du cache (les entrées expirées ne servent plus)
+task.spawn(function()
+	while true do
+		task.wait(600)
+		local now = os.clock()
+		for _, t in pairs(cache) do
+			for id, c in pairs(t) do if now - c.at > CACHE_TTL then t[id] = nil end end
+		end
+	end
+end)
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="Script" referent="RBX14">
+				<Properties>
+					<bool name="Disabled">true</bool>
 					<string name="Name">PLAYER UGC STATS</string>
 					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
 -- 📈 PLAYER UGC STATS — Script dans ServerScriptService   (NOUVEAU)
@@ -10432,7 +10703,7 @@ end)
 print("✅ PLAYER UGC STATS chargé" .. (READ_ONLY and " (🧪 Studio : lecture seule)" or ""))]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX14">
+			<Item class="Script" referent="RBX15">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">PopupControl_Server</string>
@@ -10641,7 +10912,7 @@ print("✅ PopupControl chargé")
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX15">
+			<Item class="Script" referent="RBX16">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">STATS</string>
@@ -11226,7 +11497,7 @@ print("✅ STATS v2 chargé (achats par provenance, popups, 1re UGC gratuite, in
 	.. (READ_ONLY and " — Studio : lecture seule" or ""))]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX16">
+			<Item class="Script" referent="RBX17">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">anti fly/tp server</string>
@@ -15138,7 +15409,7 @@ task.spawn(function()
 end)]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX17">
+			<Item class="Script" referent="RBX18">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">ask favorite game</string>
@@ -15317,7 +15588,7 @@ print("✅ Demande de favori v2 chargée")
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX18">
+			<Item class="Script" referent="RBX19">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">checkpoints system</string>
@@ -16445,7 +16716,7 @@ end)
 print("✅ Système Checkpoint chargé - VERSION DÉFINITIVE + NOTIFICATIONS SKIP")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX19">
+			<Item class="Script" referent="RBX20">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">datastore alr ask favorite game</string>
@@ -16524,7 +16795,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX20">
+			<Item class="Script" referent="RBX21">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">leave popup</string>
@@ -16704,7 +16975,7 @@ end)
 print("✅ Système Popup de départ chargé")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX21">
+			<Item class="Script" referent="RBX22">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">new donation board server</string>
@@ -17686,7 +17957,7 @@ end
 print("✅ TopDonators Server v3 chargé — UI/ProcessReceipt inchangés")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX22">
+			<Item class="Script" referent="RBX23">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">notif chat </string>
@@ -18047,7 +18318,7 @@ end
 print("✅ CHAT NOTIF SERVER chargé (purchases + gifts points + gifts objets + UGC + donations)")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX23">
+			<Item class="Script" referent="RBX24">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">server referal friend invite</string>
@@ -18662,7 +18933,7 @@ print("   _G.SetReferralCap(n)")
 print("   _G.SetReferralMinAccountAge(n)")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX24">
+			<Item class="Script" referent="RBX25">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">time</string>
@@ -26127,15 +26398,15 @@ print("✅ SYSTÈME DE PARAMÈTRES JOUEUR CHARGÉ (persistés dans PlayerData_v1
 				</Properties>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX25">
+		<Item class="Folder" referent="RBX26">
 			<Properties>
 				<string name="Name">ServerStorage</string>
 			</Properties>
-			<Item class="Folder" referent="RBX26">
+			<Item class="Folder" referent="RBX27">
 				<Properties>
 					<string name="Name">AdminClientScripts.</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX27">
+				<Item class="LocalScript" referent="RBX28">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Admin client</string>
@@ -27193,45 +27464,172 @@ local ACTIONS = {
 
 local openAction  -- forward decl
 
+-- 🗂️ ACCUEIL RÉORGANISÉ EN ONGLETS — AUCUN bouton retiré, AUCUNE fonction changée.
+--    Chaque bouton existant est simplement rangé dans un onglet. L'onglet « 📋 Tout »
+--    montre l'ancienne grille complète. Une section ajoutée plus tard (id inconnu ici)
+--    apparaît dans « 🧩 Autres » : rien ne peut disparaître de l'accueil.
+--    (état rangé dans `economy` : ce fichier est à la limite des 200 variables)
+economy.HOME_TABS = {
+	{ id = "players", label = "👥 Joueurs",
+		ids = { "ban", "unban", "kick", "freeze", "teleport", "bring", "reset", "spectate", "fly",
+			"givetool", "tpcheckpoint", "profile", "bans", "vip" } },
+	{ id = "ugc", label = "🎽 UGC & boutique",
+		ids = { "ugclog", "ugcescrow", "saleslock", "giftlog", "giftkill" } },
+	{ id = "security", label = "🛡️ Sécurité",
+		ids = { "acboards", "ugcban", "acmodes" } },
+	{ id = "game", label = "🎉 Jeu & events",
+		ids = { "eventinfo", "adminabuse", "popups", "leaderboards", "feedback" } },
+	{ id = "numbers", label = "📊 Chiffres",
+		ids = { "engage", "revenue", "ugcstats" } },
+}
+economy.homeTab = economy.homeTab or "players"
+economy.homeSearch = economy.homeSearch or ""
+
 local function screenHome()
 	currentScreen = "home"
 	local body = buildScreen("⚡ ADMIN PANEL", false, C.TURQUOISE)
-	-- On remplace le UIListLayout par une grille
 	local list = body:FindFirstChildOfClass("UIListLayout")
-	if list then list:Destroy() end
-	local grid = Instance.new("UIGridLayout")
+	if list then list.Padding = UDim.new(0, IS_MOBILE and 6 or 8) end
+
+	-- quel onglet pour chaque bouton existant
+	local tabOf, known = {}, {}
+	for _, t in ipairs(economy.HOME_TABS) do
+		for _, id in ipairs(t.ids) do tabOf[id] = t.id ; known[id] = true end
+	end
+	local tabs = table.clone(economy.HOME_TABS)
+	local hasOther = false
+	for _, a in ipairs(ACTIONS) do if not known[a.id] then hasOther = true break end end
+	if hasOther then table.insert(tabs, { id = "other", label = "🧩 Autres" }) end
+	table.insert(tabs, { id = "all", label = "📋 Tout" })
+	local validTab = false
+	for _, t in ipairs(tabs) do if t.id == economy.homeTab then validTab = true end end
+	if not validTab then economy.homeTab = tabs[1].id end
+
+	-- 🔎 recherche (cherche dans TOUS les onglets)
+	local search = Instance.new("TextBox")
+	search.Size = UDim2.new(1, 0, 0, IS_MOBILE and 30 or 36)
+	search.BackgroundColor3 = C.BG_DARK
+	search.BorderSizePixel = 0
+	search.Font = FONT
+	search.PlaceholderText = "🔎 Chercher une section…"
+	search.PlaceholderColor3 = C.TEXT_DIM
+	search.Text = economy.homeSearch
+	search.TextColor3 = C.TEXT_WHITE
+	search.TextSize = IS_MOBILE and 12 or 15
+	search.TextXAlignment = Enum.TextXAlignment.Left
+	search.ClearTextOnFocus = false
+	search.LayoutOrder = 1
+	search.ZIndex = 11
+	search.Parent = body
+	corner(search, 9) ; stroke(search, C.BORDER_SUBTLE, 1)
+	local sp = Instance.new("UIPadding") ; sp.PaddingLeft = UDim.new(0, 10) ; sp.Parent = search
+
+	-- onglets (passent à la ligne si besoin)
+	local tabRow = Instance.new("Frame")
+	tabRow.Size = UDim2.new(1, 0, 0, 0)
+	tabRow.AutomaticSize = Enum.AutomaticSize.Y
+	tabRow.BackgroundTransparency = 1
+	tabRow.LayoutOrder = 2
+	tabRow.ZIndex = 11
+	tabRow.Parent = body
+	local tl = Instance.new("UIGridLayout")
 	local pw = panelSize().X.Offset
+	local perRow = IS_MOBILE and 3 or 4
+	local tgap = IS_MOBILE and 4 or 6
+	tl.CellSize = UDim2.new(0, math.floor((pw - PAD * 2 - tgap * (perRow - 1)) / perRow) - 1, 0, IS_MOBILE and 26 or 32)
+	tl.CellPadding = UDim2.new(0, tgap, 0, tgap)
+	tl.SortOrder = Enum.SortOrder.LayoutOrder
+	tl.Parent = tabRow
+
+	-- grille des boutons (exactement les mêmes boutons qu'avant)
+	local gridF = Instance.new("Frame")
+	gridF.Size = UDim2.new(1, 0, 0, 0)
+	gridF.AutomaticSize = Enum.AutomaticSize.Y
+	gridF.BackgroundTransparency = 1
+	gridF.LayoutOrder = 3
+	gridF.ZIndex = 11
+	gridF.Parent = body
+	local grid = Instance.new("UIGridLayout")
 	local gap = IS_MOBILE and 6 or 10
 	local cellW = IS_MOBILE and math.floor((pw - PAD * 2 - gap) / 2) or 208
 	grid.CellSize = UDim2.new(0, cellW, 0, IS_MOBILE and 48 or 60)
-	grid.CellPadding = UDim2.new(0, IS_MOBILE and 6 or 10, 0, IS_MOBILE and 6 or 10)
+	grid.CellPadding = UDim2.new(0, gap, 0, gap)
 	grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
-	grid.Parent = body
+	grid.Parent = gridF
 
-	for i, a in ipairs(ACTIONS) do
-		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(0, cellW, 0, IS_MOBILE and 48 or 60)
-		btn.BackgroundColor3 = C.BG_DARK
-		btn.AutoButtonColor = false
-		btn.BorderSizePixel = 0
-		btn.Text = a.name
-		btn.Font = FONT
-		btn.TextColor3 = C.TEXT_WHITE
-		btn.TextSize = IS_MOBILE and 13 or 16
-		btn.LayoutOrder = i
-		btn.ZIndex = 11
-		btn.Parent = body
-		corner(btn, 10)
-		local st = stroke(btn, a.color, 2)
-		btn.MouseEnter:Connect(function()
-			TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = a.color }):Play()
-		end)
-		btn.MouseLeave:Connect(function()
-			TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = C.BG_DARK }):Play()
-		end)
-		btn.MouseButton1Click:Connect(function() openAction(a) end)
+	local tabButtons = {}
+	local function render()
+		for _, c in ipairs(gridF:GetChildren()) do if c:IsA("GuiButton") then c:Destroy() end end
+		local q = string.lower(economy.homeSearch or "")
+		for id, b in pairs(tabButtons) do
+			local on = (q == "") and (economy.homeTab == id)
+			b.BackgroundColor3 = on and C.TURQUOISE or C.BG_DARK
+			b.TextColor3 = on and Color3.new(0, 0, 0) or C.TEXT_WHITE
+		end
+		for i, a in ipairs(ACTIONS) do
+			local show
+			if q ~= "" then
+				show = string.find(string.lower(a.name), q, 1, true) ~= nil
+			elseif economy.homeTab == "all" then
+				show = true
+			elseif economy.homeTab == "other" then
+				show = not known[a.id]
+			else
+				show = tabOf[a.id] == economy.homeTab
+			end
+			if show then
+				local btn = Instance.new("TextButton")
+				btn.Size = UDim2.new(0, cellW, 0, IS_MOBILE and 48 or 60)
+				btn.BackgroundColor3 = C.BG_DARK
+				btn.AutoButtonColor = false
+				btn.BorderSizePixel = 0
+				btn.Text = a.name
+				btn.Font = FONT
+				btn.TextColor3 = C.TEXT_WHITE
+				btn.TextSize = IS_MOBILE and 13 or 16
+				btn.LayoutOrder = i
+				btn.ZIndex = 11
+				btn.Parent = gridF
+				corner(btn, 10)
+				stroke(btn, a.color, 2)
+				btn.MouseEnter:Connect(function()
+					TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = a.color }):Play()
+				end)
+				btn.MouseLeave:Connect(function()
+					TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = C.BG_DARK }):Play()
+				end)
+				btn.MouseButton1Click:Connect(function() openAction(a) end)
+			end
+		end
 	end
+	for k, t in ipairs(tabs) do
+		local b = Instance.new("TextButton")
+		b.BackgroundColor3 = C.BG_DARK
+		b.AutoButtonColor = true
+		b.BorderSizePixel = 0
+		b.Text = t.label
+		b.Font = FONT
+		b.TextSize = IS_MOBILE and 11 or 13
+		b.TextColor3 = C.TEXT_WHITE
+		b.TextTruncate = Enum.TextTruncate.AtEnd
+		b.LayoutOrder = k
+		b.ZIndex = 12
+		b.Parent = tabRow
+		corner(b, 8) ; stroke(b, C.BORDER_SUBTLE, 1)
+		tabButtons[t.id] = b
+		b.MouseButton1Click:Connect(function()
+			economy.homeTab = t.id
+			economy.homeSearch = ""
+			search.Text = ""
+			render()
+		end)
+	end
+	search:GetPropertyChangedSignal("Text"):Connect(function()
+		economy.homeSearch = search.Text:gsub("^%s+", ""):gsub("%s+$", "")
+		render()
+	end)
+	render()
 end
 
 goHome = function()
@@ -29240,7 +29638,7 @@ local function screenManage(info, backFn)
 	local av = makeAvatar(hc, info.userId, avSize, C.PURPLE)
 	av.AnchorPoint = Vector2.new(0, 0.5); av.Position = UDim2.new(0, 10, 0.5, 0)
 	local ix = 10 + avSize + 12
-	label(hc, { text = esc(info.displayName or info.username) .. ptsSuffixLive(info.userId), richText = true, size = UDim2.new(1, -ix - 12, 0, IS_MOBILE and 20 or 26), position = UDim2.new(0, ix, 0, IS_MOBILE and 10 or 16), xAlign = Enum.TextXAlignment.Left, color = C.TEXT_WHITE, textSize = IS_MOBILE and 15 or 19, truncate = true, zIndex = 13 })
+	local nameL = label(hc, { text = esc(info.displayName or info.username) .. ptsSuffixLive(info.userId), richText = true, size = UDim2.new(1, -ix - 12, 0, IS_MOBILE and 20 or 26), position = UDim2.new(0, ix, 0, IS_MOBILE and 10 or 16), xAlign = Enum.TextXAlignment.Left, color = C.TEXT_WHITE, textSize = IS_MOBILE and 15 or 19, truncate = true, zIndex = 13 })
 	do
 		local atL = label(hc, { text = "@" .. info.username .. economy.lastSeenSuffix(info.userId), size = UDim2.new(1, -ix - 12, 0, 14), position = UDim2.new(0, ix, 0, IS_MOBILE and 32 or 42), xAlign = Enum.TextXAlignment.Left, color = C.TEXT_GREY, textSize = IS_MOBILE and 10 or 13, truncate = true, zIndex = 13 })
 		-- 🕒 dernière connexion : lue si on ne l'a pas encore
@@ -29253,39 +29651,46 @@ local function screenManage(info, backFn)
 	end
 
 	-- 🏅 STATUT : 🛡️ ADMIN · 👑 VIP · ⚡ x2 / x5 / x10 PERM (achetés OU offerts, calculés par le serveur)
+	--    Petites pastilles en HAUT À DROITE de la carte : la carte garde EXACTEMENT sa taille
+	--    (rien d'autre ne bouge sur l'écran), seul le nom se raccourcit pour leur laisser la place.
 	--    En ligne ici : attribut ProfileBadges. Sinon : GetPublicProfile (cache 60 s côté serveur).
 	do
-		local baseH = IS_MOBILE and 84 or 104
-		local row
+		local row = Instance.new("Frame")
+		row.Name = "StatusBadges"
+		row.BackgroundTransparency = 1
+		row.AnchorPoint = Vector2.new(1, 0)
+		row.Position = UDim2.new(1, -8, 0, IS_MOBILE and 6 or 8)
+		row.Size = UDim2.new(0, 0, 0, IS_MOBILE and 14 or 17)
+		row.AutomaticSize = Enum.AutomaticSize.X
+		row.ZIndex = 14
+		row.Parent = hc
+		local ll = Instance.new("UIListLayout")
+		ll.FillDirection = Enum.FillDirection.Horizontal
+		ll.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		ll.SortOrder = Enum.SortOrder.LayoutOrder
+		ll.Padding = UDim.new(0, 4)
+		ll.Parent = row
+		-- le nom laisse la place aux pastilles (même ligne, à gauche)
+		local function fitName()
+			if nameL.Parent then
+				nameL.Size = UDim2.new(1, -ix - 16 - row.AbsoluteSize.X, 0, IS_MOBILE and 20 or 26)
+			end
+		end
+		row:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitName)
 		local function pill(text, col, order)
 			if not hc.Parent then return end
-			if not row then
-				row = Instance.new("Frame")
-				row.Name = "StatusBadges"
-				row.BackgroundTransparency = 1
-				row.Size = UDim2.new(1, -ix - 12, 0, IS_MOBILE and 16 or 18)
-				row.Position = UDim2.new(0, ix, 0, baseH - 4)
-				row.ZIndex = 13
-				local ll = Instance.new("UIListLayout")
-				ll.FillDirection = Enum.FillDirection.Horizontal
-				ll.SortOrder = Enum.SortOrder.LayoutOrder
-				ll.Padding = UDim.new(0, 6)
-				ll.Parent = row
-				row.Parent = hc
-				hc.Size = UDim2.new(1, 0, 0, baseH + (IS_MOBILE and 18 or 22))
-			end
 			local t = Instance.new("TextLabel")
 			t.AutomaticSize = Enum.AutomaticSize.X
 			t.Size = UDim2.new(0, 0, 1, 0)
 			t.BackgroundColor3 = col
 			t.BorderSizePixel = 0
-			t.Text = "  " .. text .. "  "
+			t.Text = " " .. text .. " "
 			t.Font = Enum.Font.GothamBold
-			t.TextSize = IS_MOBILE and 10 or 12
+			t.TextSize = IS_MOBILE and 9 or 11
 			t.TextColor3 = Color3.new(1, 1, 1)
 			t.LayoutOrder = order
-			t.ZIndex = 14
-			corner(t, 6)
+			t.ZIndex = 15
+			corner(t, 5)
 			t.Parent = row
 		end
 		local uid = tonumber(info.userId) or 0
@@ -29294,10 +29699,10 @@ local function screenManage(info, backFn)
 		if isAdm then pill("🛡️ ADMIN", Color3.fromRGB(200, 55, 60), 1) end
 		local function show(vip, b2, b5, b10)
 			if vip then pill("👑 VIP", Color3.fromRGB(190, 140, 20), 2) end
-			if b2 then pill("⚡ x2 PERM", Color3.fromRGB(40, 140, 90), 3) end
-			if b5 then pill("⚡ x5 PERM", Color3.fromRGB(40, 110, 200), 4) end
-			if b10 then pill("⚡ x10 PERM", Color3.fromRGB(130, 60, 210), 5) end
-			if not (isAdm or vip or b2 or b5 or b10) then pill("Aucun VIP / boost perm", Color3.fromRGB(70, 74, 90), 9) end
+			if b2 then pill("⚡x2", Color3.fromRGB(40, 140, 90), 3) end
+			if b5 then pill("⚡x5", Color3.fromRGB(40, 110, 200), 4) end
+			if b10 then pill("⚡x10", Color3.fromRGB(130, 60, 210), 5) end
+			if not (isAdm or vip or b2 or b5 or b10) then pill("Aucun VIP / boost", Color3.fromRGB(70, 74, 90), 9) end
 		end
 		local online = Players:GetPlayerByUserId(uid)
 		local attr = online and online:GetAttribute("ProfileBadges")
@@ -51997,19 +52402,19 @@ print("✅ ADMIN PANEL CLIENT chargé (Mobile: " .. tostring(IS_MOBILE) .. ")")]
 				</Item>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX28">
+		<Item class="Folder" referent="RBX29">
 			<Properties>
 				<string name="Name">StarterGui</string>
 			</Properties>
-			<Item class="Folder" referent="RBX29">
+			<Item class="Folder" referent="RBX30">
 				<Properties>
 					<string name="Name">ShiftLockButton</string>
 				</Properties>
-				<Item class="Folder" referent="RBX30">
+				<Item class="Folder" referent="RBX31">
 					<Properties>
 						<string name="Name">ImageButton</string>
 					</Properties>
-					<Item class="LocalScript" referent="RBX31">
+					<Item class="LocalScript" referent="RBX32">
 						<Properties>
 							<bool name="Disabled">true</bool>
 							<string name="Name">ShiftGUI</string>
@@ -52150,15 +52555,15 @@ setImage(false)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX32">
+			<Item class="Folder" referent="RBX33">
 				<Properties>
 					<string name="Name">UGCshop</string>
 				</Properties>
-				<Item class="Folder" referent="RBX33">
+				<Item class="Folder" referent="RBX34">
 					<Properties>
 						<string name="Name">ShopFrame</string>
 					</Properties>
-					<Item class="LocalScript" referent="RBX34">
+					<Item class="LocalScript" referent="RBX35">
 						<Properties>
 							<bool name="Disabled">true</bool>
 							<string name="Name"> UGC SHOP GENERATOR</string>
@@ -54214,25 +54619,31 @@ task.spawn(function()
 end)
 
 --════════════════════════════════════════════════════════════
--- 🔎 BOUTON FILTER + PANNEAU DE FILTRE / TRI   (NOUVEAU)
---   En haut à droite de la grille, à droite de « NEW FREE UGC Weekly! ».
---   Panneau : cases à cocher (filtres) + un seul choix de tri, puis
---   APPLY / CANCEL / RESET. Les filtres actifs s'affichent en pastilles
---   au-dessus de la grille (✕ pour en retirer un, RESET ALL pour tout effacer).
---   Disponibilité, NEW, prix, stock : immédiat. « Owned » et « Type » sont lus
---   une seule fois sur Roblox (pas de serveur du jeu, pas de DataStore).
+-- 🔎 BOUTON FILTER + PANNEAU DE FILTRE / TRI   (NOUVEAU, v2 simplifiée)
+--   • Bouton à droite de « NEW FREE UGC Weekly! », son bord droit est ALIGNÉ sur
+--     le bord droit de la carte la plus à droite (recalculé si l'écran change).
+--   • Style des Paramètres : boutons 3D (face en dégradé + socle), FredokaOne,
+--     taille de texte normale (pas de texte géant).
+--   • Panneau court : SHOW (6 choix) · TYPE (seulement si ton shop en a plusieurs)
+--     · SORT (5 choix), puis CANCEL / RESET / APPLY.
+--   • Filtres actifs : pastilles au-dessus de la grille (X = en retirer un,
+--     RESET ALL = tout effacer). Tout est en anglais, comme le reste du shop.
+--   Aucun appel au serveur du jeu, aucun DataStore.
 --════════════════════════════════════════════════════════════
 do
-	local CYAN   = Color3.fromRGB(89, 224, 255)
-	local DARK   = Color3.fromRGB(12, 16, 30)
-	local DARK2  = Color3.fromRGB(26, 32, 52)
-	local WHITE  = Color3.new(1, 1, 1)
+	local WHITE = Color3.new(1, 1, 1)
+	local DARK  = Color3.fromRGB(14, 16, 22)
+	local SUB   = Color3.fromRGB(165, 175, 192)
+	local CYAN  = Color3.fromRGB(89, 224, 255)
 	local YELLOW = Color3.fromRGB(255, 214, 92)
-	local GREEN  = Color3.fromRGB(46, 200, 90)
-	local RED    = Color3.fromRGB(235, 70, 70)
-	local GREY   = Color3.fromRGB(70, 76, 96)
-	local Z      = 40
-	local SYM    = Enum.Font.SourceSansBold   -- FredokaOne n'a pas ▼ ✓ (comme pour le ♥)
+	local COL = {   -- dessus, dessous, socle (même recette que les boutons des Paramètres)
+		green = { Color3.fromRGB(40, 185, 80),  Color3.fromRGB(12, 115, 42), Color3.fromRGB(8, 65, 25) },
+		red   = { Color3.fromRGB(245, 70, 65),  Color3.fromRGB(180, 25, 35), Color3.fromRGB(105, 12, 22) },
+		blue  = { Color3.fromRGB(55, 145, 240), Color3.fromRGB(20, 85, 180), Color3.fromRGB(12, 48, 110) },
+		grey  = { Color3.fromRGB(88, 94, 112),  Color3.fromRGB(50, 54, 68),  Color3.fromRGB(28, 30, 40) },
+	}
+	local Z = 40
+	local SYM = Enum.Font.SourceSansBold   -- FredokaOne n'a pas ▼ (comme pour le ♥)
 
 	local function mk(class, props, parent)
 		local o = Instance.new(class)
@@ -54241,8 +54652,30 @@ do
 		o.Parent = parent
 		return o
 	end
-	local function round(o, r) mk("UICorner", { CornerRadius = r or UDim.new(0, 10) }, o) end
-	local function outline(o, c, t) mk("UIStroke", { Color = c, Thickness = t or 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o) end
+	local function round(o, r) mk("UICorner", { CornerRadius = UDim.new(0, r or 10) }, o) end
+
+	-- Bouton 3D des Paramètres : socle fixe + face en dégradé qui s'enfonce
+	local function button3D(parent, text, col, size, textSize, props)
+		local depth = 3
+		local slot = mk("Frame", { Size = size, BackgroundTransparency = 1 }, parent)
+		for k, v in pairs(props or {}) do slot[k] = v end
+		local edge = mk("Frame", { Size = UDim2.new(1, 0, 1, -depth), Position = UDim2.fromOffset(0, depth),
+			BackgroundColor3 = col[3], BorderSizePixel = 0 }, slot)
+		round(edge, 8)
+		local btn = mk("TextButton", { Size = UDim2.new(1, 0, 1, -depth), BackgroundColor3 = WHITE,
+			BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = Z + 1 }, slot)
+		round(btn, 8)
+		local grad = mk("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
+		local lbl = mk("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = text,
+			Font = Enum.Font.FredokaOne, TextSize = textSize, TextColor3 = WHITE, ZIndex = Z + 2 }, btn)
+		local function press(down) btn.Position = UDim2.fromOffset(0, down and depth or 0) end
+		btn.MouseButton1Down:Connect(function() press(true) end)
+		btn.MouseButton1Up:Connect(function() press(false) end)
+		btn.MouseLeave:Connect(function() press(false) end)
+		btn.Activated:Connect(function() task.delay(0.08, function() press(false) end) end)
+		local function recolor(c) grad.Color = ColorSequence.new(c[1], c[2]) ; edge.BackgroundColor3 = c[3] end
+		return btn, lbl, slot, recolor
+	end
 
 	-- 👒 types d'accessoire Roblox → nom affiché
 	local TYPE_NAME = {
@@ -54253,18 +54686,20 @@ do
 		[70] = "Shoes", [71] = "Shoes", [76] = "Face", [77] = "Face",
 	}
 	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
+	local SHOW = { { "avail", "Available" }, { "sold", "Sold out" }, { "low", "Low stock" },
+		{ "new", "New" }, { "owned", "Owned" }, { "notOwned", "Not owned" } }
+	local SHOW_LABEL = {}
+	for _, x in ipairs(SHOW) do SHOW_LABEL[x[1]] = x[2] end
 	local SORTS = {
-		{ id = "default",    label = "Shop order",            chip = nil },
-		{ id = "price_desc", label = "Price: high to low",    chip = "Price: high-low" },
-		{ id = "price_asc",  label = "Price: low to high",    chip = "Price: low-high" },
-		{ id = "stock_desc", label = "Total stock: most first",  chip = "Stock: most-least" },
-		{ id = "stock_asc",  label = "Total stock: least first", chip = "Stock: least-most" },
+		{ id = "default",    label = "Default" },
+		{ id = "price_desc", label = "Price: High" },
+		{ id = "price_asc",  label = "Price: Low" },
+		{ id = "stock_desc", label = "Stock: Most" },
+		{ id = "stock_asc",  label = "Stock: Least" },
 	}
-	local FLAG_LABEL = { avail = "Available", sold = "Sold out", low = "Low stock",
-		owned = "Owned", notOwned = "Not owned", new = "NEW only" }
 
 	-- lectures Roblox (une seule fois, 4 à la fois max)
-	local typesState, ownedState = "idle", "idle"   -- idle · loading · done
+	local typesState, ownedState = "idle", "idle"
 	local onTypesLoaded
 	local function runPool(items, fn, done)
 		local idx, left, finished = 0, #items, false
@@ -54309,66 +54744,77 @@ do
 		end)
 	end
 
+	-- échelle commune (même idée que le panneau des Paramètres) : tout est dessiné
+	-- pour une fenêtre de 620 px de haut, puis mis à l'échelle de l'écran
+	local function uiScaleValue()
+		return math.clamp(ShopFrame.AbsoluteSize.Y / 620, 0.55, 1.25)
+	end
+
 	-- ── bouton FILTER ───────────────────────────────────────
-	local btn = mk("TextButton", { Name = "FilterButton", AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(0.576, 0, 0.014, 0), Size = UDim2.new(0.135, 0, 0.062, 0),
-		BackgroundColor3 = DARK, BackgroundTransparency = 0.1, Text = "", AutoButtonColor = true }, ShopFrame)
-	round(btn)
-	local btnStroke = mk("UIStroke", { Color = CYAN, Thickness = 2.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, btn)
-	local btnLbl = mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(0.74, 0, 0.78, 0),
-		Position = UDim2.new(0.05, 0, 0.11, 0), Font = Enum.Font.FredokaOne, Text = "FILTER",
-		TextColor3 = WHITE, TextScaled = true, ZIndex = Z + 1 }, btn)
-	local btnArrow = mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(0.2, 0, 0.7, 0),
-		Position = UDim2.new(0.77, 0, 0.15, 0), Font = SYM, Text = "▼", TextColor3 = CYAN,
-		TextScaled = true, ZIndex = Z + 1 }, btn)
+	local BTN_W, BTN_H = 112, 34
+	local fbtn, flbl, fslot, frecolor = button3D(ShopFrame, "FILTER", COL.blue, UDim2.fromOffset(BTN_W, BTN_H), 17,
+		{ Name = "FilterButton", AnchorPoint = Vector2.new(1, 0.5) })
+	local fScale = mk("UIScale", {}, fslot)
+	flbl.Size = UDim2.new(1, -22, 1, 0)
+	flbl.Position = UDim2.fromOffset(6, 0)
+	local farrow = mk("TextLabel", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(14, 14), Font = SYM, Text = "▼",
+		TextSize = 14, TextColor3 = WHITE, ZIndex = Z + 2 }, fbtn)
 
 	-- ── pastilles des filtres actifs (au-dessus de la grille) ───
 	local sfPos, sfSize = ScrollingFrame.Position, ScrollingFrame.Size
-	local CHIP_H = 0.055
+	local CHIP_H = 0.052
 	local chipsBar = mk("ScrollingFrame", { Name = "ActiveFilters", BackgroundTransparency = 1,
 		Position = sfPos, Size = UDim2.new(sfSize.X.Scale, sfSize.X.Offset, CHIP_H, 0),
 		ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, BorderSizePixel = 0,
 		AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new(), Visible = false }, ShopFrame)
 	mk("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center }, chipsBar)
+	mk("UIPadding", { PaddingLeft = UDim.new(0, 4) }, chipsBar)
 
-	-- ── message « aucun résultat » (dans la grille) ─────────
-	-- (posé sur la fenêtre, par-dessus la grille : dans une ScrollingFrame, les tailles en %
-	--  suivent le contenu, et une grille vide aurait rendu le message invisible)
+	-- ── message « aucun résultat » (posé sur la fenêtre, par-dessus la grille) ──
 	local empty = mk("Frame", { Name = "NoFilterResult", BackgroundTransparency = 1,
 		Size = UDim2.new(sfSize.X.Scale, sfSize.X.Offset, 0.3, 0),
 		Position = UDim2.new(sfPos.X.Scale, sfPos.X.Offset, sfPos.Y.Scale + 0.2, 0), Visible = false }, ShopFrame)
-	mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(0.9, 0, 0.3, 0), Position = UDim2.new(0.05, 0, 0, 0),
-		Font = Enum.Font.FredokaOne, Text = "No UGC match your filters", TextColor3 = WHITE, TextScaled = true }, empty)
-	local emptyReset = mk("TextButton", { Size = UDim2.new(0.4, 0, 0.22, 0), Position = UDim2.new(0.3, 0, 0.4, 0),
-		BackgroundColor3 = RED, Font = Enum.Font.FredokaOne, Text = "RESET FILTERS", TextColor3 = WHITE,
-		TextScaled = true }, empty)
-	round(emptyReset) ; outline(emptyReset, WHITE, 1.5)
+	local emptyTxt = mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30),
+		Font = Enum.Font.FredokaOne, Text = "No UGC match your filters", TextColor3 = WHITE, TextSize = 22 }, empty)
+	local emptyBtn = button3D(empty, "RESET FILTERS", COL.red, UDim2.fromOffset(170, 38), 17,
+		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 40) })
+	local emptyScale = mk("UIScale", {}, empty)
 
 	-- ── panneau ─────────────────────────────────────────────
-	local panel = mk("Frame", { Name = "FilterPanel", AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(0.576, 0, 0.088, 0), Size = UDim2.new(0.34, 0, 0.86, 0),
-		BackgroundColor3 = DARK, BackgroundTransparency = 0.03, Visible = false, Active = true }, ShopFrame)
-	round(panel, UDim.new(0, 14)) ; outline(panel, CYAN, 2.5)
-	local list = mk("ScrollingFrame", { BackgroundTransparency = 1, BorderSizePixel = 0,
-		Position = UDim2.new(0.05, 0, 0.03, 0), Size = UDim2.new(0.92, 0, 0.78, 0),
-		AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollBarThickness = 4,
-		ScrollBarImageColor3 = CYAN }, panel)
-	mk("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, list)
-	local bar = mk("Frame", { BackgroundTransparency = 1, Position = UDim2.new(0.04, 0, 0.84, 0),
-		Size = UDim2.new(0.92, 0, 0.12, 0) }, panel)
-	local function barButton(text, col, x)
-		local b = mk("TextButton", { Size = UDim2.new(0.31, 0, 1, 0), Position = UDim2.new(x, 0, 0, 0),
-			BackgroundColor3 = col, Font = Enum.Font.FredokaOne, Text = text, TextColor3 = WHITE,
-			TextScaled = true, AutoButtonColor = true }, bar)
-		round(b) ; outline(b, WHITE, 1.2)
-		mk("UIPadding", { PaddingTop = UDim.new(0.18, 0), PaddingBottom = UDim.new(0.18, 0) }, b)
-		return b
-	end
-	local applyB  = barButton("APPLY", GREEN, 0)
-	local cancelB = barButton("CANCEL", GREY, 0.345)
-	local resetB  = barButton("RESET", RED, 0.69)
+	local PW = 300
+	local panel = mk("Frame", { Name = "FilterPanel", AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(PW, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = DARK, BackgroundTransparency = 0.08,
+		Visible = false, Active = true }, ShopFrame)
+	round(panel, 12)
+	mk("UIStroke", { Color = CYAN, Thickness = 2, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel)
+	local pScale = mk("UIScale", {}, panel)
+	mk("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 12),
+		PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, panel)
+	mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, panel)
 
+	-- ── placement : bord droit = bord droit de la carte la plus à droite ──
+	local function place()
+		local sc = uiScaleValue()
+		fScale.Scale, pScale.Scale, emptyScale.Scale = sc, sc, sc
+		local shopAbs = ShopFrame.AbsolutePosition
+		local w = ScrollingFrame.AbsoluteWindowSize.X
+		if w <= 1 or ShopFrame.AbsoluteSize.X <= 1 then return end
+		local right = ScrollingFrame.AbsolutePosition.X - shopAbs.X + w * (1 - GAP_SCALE)
+		-- centré verticalement sur la ligne de « NEW FREE UGC Weekly! »
+		local restocked = ShopFrame:FindFirstChild("restocked")
+		local cy = restocked and (restocked.AbsolutePosition.Y - shopAbs.Y + restocked.AbsoluteSize.Y / 2)
+			or (ShopFrame.AbsoluteSize.Y * 0.045)
+		fslot.Position = UDim2.fromOffset(right, cy)
+		panel.Position = UDim2.fromOffset(right, cy + (BTN_H / 2 + 6) * sc)
+	end
+	for _, sig in ipairs({ ShopFrame:GetPropertyChangedSignal("AbsoluteSize"), ShopFrame:GetPropertyChangedSignal("AbsolutePosition"),
+		ScrollingFrame:GetPropertyChangedSignal("AbsoluteWindowSize") }) do
+		sig:Connect(place)
+	end
+
+	-- ── contenu du panneau ──────────────────────────────────
 	local draft
 	local function copyState()
 		local t = {}
@@ -54376,79 +54822,81 @@ do
 		t.types = table.clone(SF.f.types)
 		return { f = t, sort = SF.sort }
 	end
-
-	-- ── contenu du panneau (refait à chaque ouverture : tailles adaptées à l'écran) ──
 	local order = 0
-	local rowH = 24
 	local function nextO() order += 1 return order end
-	local function header(text)
-		mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, math.floor(rowH * 0.85)),
-			Font = Enum.Font.FredokaOne, Text = text, TextColor3 = CYAN, TextXAlignment = Enum.TextXAlignment.Left,
-			TextSize = math.floor(rowH * 0.62), LayoutOrder = nextO() }, list)
+	local function title(text)
+		mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.FredokaOne,
+			Text = text, TextColor3 = SUB, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left,
+			LayoutOrder = nextO() }, panel)
 	end
-	local function optionRow(text, isOn, radio, onClick)
-		local row = mk("TextButton", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, rowH),
-			Text = "", AutoButtonColor = false, LayoutOrder = nextO() }, list)
-		local s = math.floor(rowH * 0.72)
-		local box = mk("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 2, 0.5, 0),
-			Size = UDim2.new(0, s, 0, s), BackgroundColor3 = isOn and CYAN or DARK2 }, row)
-		round(box, radio and UDim.new(1, 0) or UDim.new(0, 5)) ; outline(box, CYAN, 1.5)
-		if isOn then
-			mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = SYM,
-				Text = radio and "●" or "✓", TextColor3 = DARK, TextScaled = true, ZIndex = Z + 1 }, box)
+	-- une grille de petits boutons 3D : bleu = choisi, gris = pas choisi
+	local function pillGrid(items, isOn, onClick)
+		local g = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextO() }, panel)
+		mk("UIGridLayout", { CellSize = UDim2.new(1 / 3, -6, 0, 32), CellPadding = UDim2.fromOffset(8, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder }, g)
+		for k, it in ipairs(items) do
+			local b = button3D(g, it.label, isOn(it.id) and COL.blue or COL.grey, UDim2.fromOffset(0, 32), 14,
+				{ LayoutOrder = k })
+			b.MouseButton1Click:Connect(function() onClick(it.id) end)
 		end
-		mk("TextLabel", { BackgroundTransparency = 1, Position = UDim2.new(0, s + 10, 0, 0),
-			Size = UDim2.new(1, -(s + 12), 1, 0), Font = Enum.Font.FredokaOne, Text = text,
-			TextColor3 = isOn and WHITE or Color3.fromRGB(205, 215, 235), TextXAlignment = Enum.TextXAlignment.Left,
-			TextSize = math.floor(rowH * 0.58), TextTruncate = Enum.TextTruncate.AtEnd }, row)
-		row.MouseButton1Click:Connect(onClick)
 	end
+	local P = {}   -- actions du panneau (remplies plus bas : close / commit / resetAll)
 	local fill
 	fill = function()
-		for _, c in ipairs(list:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
+		for _, c in ipairs(panel:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
 		order = 0
-		rowH = math.clamp(math.floor(panel.AbsoluteSize.Y * 0.072), 18, 34)
 		local f = draft.f
-		local function flag(key)
-			optionRow(FLAG_LABEL[key], f[key] == true, false, function() f[key] = not f[key] ; fill() end)
-		end
-		header("AVAILABILITY")
-		flag("avail") ; flag("sold") ; flag("low")
-		header("OWNERSHIP")
-		flag("owned") ; flag("notOwned")
-		header("TYPE")
-		if typesState ~= "done" then
-			mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, rowH), Font = Enum.Font.FredokaOne,
-				Text = "Loading types…", TextColor3 = Color3.fromRGB(150, 160, 185), TextXAlignment = Enum.TextXAlignment.Left,
-				TextSize = math.floor(rowH * 0.55), LayoutOrder = nextO() }, list)
-		else
-			local present = {}
+		-- en-tête : FILTERS + X (comme le X des Paramètres)
+		local head = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = nextO() }, panel)
+		mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, -40, 1, 0), Font = Enum.Font.FredokaOne,
+			Text = "FILTERS", TextColor3 = WHITE, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left }, head)
+		local x = button3D(head, "X", COL.red, UDim2.fromOffset(32, 32), 17,
+			{ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0) })
+		x.MouseButton1Click:Connect(function() P.close() end)
+
+		title("SHOW")
+		local showItems = {}
+		for _, s2 in ipairs(SHOW) do table.insert(showItems, { id = s2[1], label = s2[2] }) end
+		pillGrid(showItems, function(id) return f[id] == true end, function(id) f[id] = not f[id] ; fill() end)
+
+		-- TYPE : seulement si le shop contient au moins 2 types différents
+		if typesState == "done" then
+			local present, list = {}, {}
 			for _, ugc in ipairs(UGC_CONFIG.Items) do present[SF.typeOf[ugc.AssetId] or "Other"] = true end
-			for _, t in ipairs(TYPE_ORDER) do
-				if present[t] then
-					optionRow(t, f.types[t] == true, false, function()
-						f.types[t] = (not f.types[t]) or nil ; fill()
-					end)
-				end
+			for _, t in ipairs(TYPE_ORDER) do if present[t] then table.insert(list, { id = t, label = t }) end end
+			if #list >= 2 then
+				title("TYPE")
+				pillGrid(list, function(id) return f.types[id] == true end,
+					function(id) f.types[id] = (not f.types[id]) or nil ; fill() end)
 			end
 		end
-		header("OTHER")
-		flag("new")
-		header("SORT BY")
-		for _, so in ipairs(SORTS) do
-			optionRow(so.label, draft.sort == so.id, true, function() draft.sort = so.id ; fill() end)
-		end
-	end
-	onTypesLoaded = function() if panel.Visible and draft then fill() end end
 
-	-- ── affichage de l'état actif (bouton + pastilles + grille décalée) ──
+		title("SORT BY")
+		pillGrid(SORTS, function(id) return draft.sort == id end, function(id) draft.sort = id ; fill() end)
+
+		-- CANCEL · RESET · APPLY
+		local bar = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 40), LayoutOrder = nextO() }, panel)
+		local cancelB = button3D(bar, "CANCEL", COL.grey, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(0, 0, 0, 0) })
+		local resetB  = button3D(bar, "RESET", COL.red, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(1 / 3, 3, 0, 0) })
+		local applyB  = button3D(bar, "APPLY", COL.green, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(2 / 3, 6, 0, 0) })
+		cancelB.MouseButton1Click:Connect(function() P.close() end)
+		resetB.MouseButton1Click:Connect(function() P.close() ; P.resetAll() end)
+		applyB.MouseButton1Click:Connect(function()
+			SF.f, SF.sort = draft.f, draft.sort
+			P.close()
+			P.commit()
+		end)
+	end
+
+	-- ── état actif visible : bouton + pastilles + grille décalée ──
 	local renderChips
 	local function paintButton()
 		local n = SF.count()
-		btnLbl.Text = n > 0 and ("FILTER (" .. n .. ")") or "FILTER"
-		btnStroke.Color = n > 0 and YELLOW or CYAN
-		btnArrow.TextColor3 = n > 0 and YELLOW or CYAN
-		btnArrow.Text = panel.Visible and "▲" or "▼"
+		flbl.Text = n > 0 and ("FILTER (" .. n .. ")") or "FILTER"
+		-- filtres actifs : le bouton passe en JAUNE (on voit tout de suite qu'un filtre est actif)
+		frecolor(n > 0 and { YELLOW, Color3.fromRGB(205, 150, 30), Color3.fromRGB(120, 85, 10) } or COL.blue)
+		farrow.Text = panel.Visible and "▲" or "▼"
 	end
 	local function commit()
 		paintButton()
@@ -54461,51 +54909,51 @@ do
 		SF.sort = "default"
 		commit()
 	end
-	local function chip(text, col, onX, orderN)
-		local c = mk("TextButton", { AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 0.82, 0),
-			BackgroundColor3 = col, Text = "", AutoButtonColor = true, LayoutOrder = orderN }, chipsBar)
-		round(c, UDim.new(1, 0)) ; outline(c, WHITE, 1)
+	local function chip(text, colr, onClick, orderN)
+		local h = chipsBar.AbsoluteSize.Y > 4 and chipsBar.AbsoluteSize.Y or 24
+		local c = mk("TextButton", { AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 0, math.floor(h * 0.84)),
+			BackgroundColor3 = colr, Text = "", AutoButtonColor = true, LayoutOrder = orderN }, chipsBar)
+		round(c, 999)
 		mk("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, c)
-		local l = mk("TextLabel", { BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.X,
-			Size = UDim2.new(0, 0, 1, 0), Font = Enum.Font.FredokaOne, Text = text .. (onX and "   X" or ""),
-			TextColor3 = WHITE, TextSize = 14 }, c)
-		local h = chipsBar.AbsoluteSize.Y
-		if h > 4 then l.TextSize = math.clamp(math.floor(h * 0.5), 9, 18) end
-		c.MouseButton1Click:Connect(onX or function() end)
+		mk("TextLabel", { BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 1, 0),
+			Font = Enum.Font.FredokaOne, Text = text, TextColor3 = WHITE,
+			TextSize = math.clamp(math.floor(h * 0.5), 10, 16) }, c)
+		c.MouseButton1Click:Connect(onClick)
 	end
 	renderChips = function()
 		for _, c in ipairs(chipsBar:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
 		local on = SF.count() > 0
 		chipsBar.Visible = on
-		-- la grille descend pour laisser la place aux pastilles (sa largeur ne change pas)
 		ScrollingFrame.Position = on and UDim2.new(sfPos.X.Scale, sfPos.X.Offset, sfPos.Y.Scale + CHIP_H + 0.006, sfPos.Y.Offset) or sfPos
 		ScrollingFrame.Size = on and UDim2.new(sfSize.X.Scale, sfSize.X.Offset, sfSize.Y.Scale - CHIP_H - 0.006, sfSize.Y.Offset) or sfSize
 		if not on then return end
 		local n = 0
 		local function nx() n += 1 return n end
-		chip("RESET ALL", RED, resetAll, nx())
-		for _, key in ipairs({ "avail", "sold", "low", "owned", "notOwned", "new" }) do
-			if SF.f[key] then chip(FLAG_LABEL[key], DARK2, function() SF.f[key] = false ; commit() end, nx()) end
+		chip("RESET ALL", COL.red[2], resetAll, nx())
+		for _, x in ipairs(SHOW) do
+			local key = x[1]
+			if SF.f[key] then chip(x[2] .. "  X", COL.grey[2], function() SF.f[key] = false ; commit() end, nx()) end
 		end
 		for _, t in ipairs(TYPE_ORDER) do
-			if SF.f.types[t] then chip(t, DARK2, function() SF.f.types[t] = nil ; commit() end, nx()) end
+			if SF.f.types[t] then chip(t .. "  X", COL.grey[2], function() SF.f.types[t] = nil ; commit() end, nx()) end
 		end
 		for _, so in ipairs(SORTS) do
-			if so.chip and SF.sort == so.id then chip(so.chip, Color3.fromRGB(40, 70, 130), function() SF.sort = "default" ; commit() end, nx()) end
+			if so.id ~= "default" and SF.sort == so.id then
+				chip(so.label .. "  X", COL.blue[2], function() SF.sort = "default" ; commit() end, nx())
+			end
 		end
 	end
 	SF.onRender = function(shown)
 		empty.Visible = shown == 0 and SF.count() > 0
-		if (SF.f.owned or SF.f.notOwned) and ownedState ~= "done" then
-			empty.Visible = false   -- vérification « Owned » en cours : pas de faux « aucun résultat »
-		end
+			and not ((SF.f.owned or SF.f.notOwned) and ownedState ~= "done")   -- pas de faux « aucun résultat »
 	end
 
 	local function openPanel()
 		draft = copyState()
-		panel.Visible = true
 		loadTypes()
+		place()
 		fill()
+		panel.Visible = true
 		paintButton()
 	end
 	local function closePanel()
@@ -54513,20 +54961,16 @@ do
 		draft = nil
 		paintButton()
 	end
-	btn.MouseButton1Click:Connect(function()
+	P.close, P.commit, P.resetAll = closePanel, commit, resetAll
+
+	fbtn.MouseButton1Click:Connect(function()
 		if panel.Visible then closePanel() else openPanel() end
 	end)
-	applyB.MouseButton1Click:Connect(function()
-		if draft then SF.f, SF.sort = draft.f, draft.sort end
-		closePanel()
-		commit()
-	end)
-	cancelB.MouseButton1Click:Connect(closePanel)
-	resetB.MouseButton1Click:Connect(function() closePanel() ; resetAll() end)
-	emptyReset.MouseButton1Click:Connect(resetAll)
+	emptyBtn.MouseButton1Click:Connect(resetAll)
 	ShopFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-		if not ShopFrame.Visible and panel.Visible then closePanel() end
+		if ShopFrame.Visible then task.defer(place) elseif panel.Visible then closePanel() end
 	end)
+	task.defer(place)
 	paintButton()
 end
 ]]></ProtectedString>
@@ -54534,11 +54978,11 @@ end
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX35">
+			<Item class="Folder" referent="RBX36">
 				<Properties>
 					<string name="Name">VIP offer</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX36">
+				<Item class="LocalScript" referent="RBX37">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">make pop th add</string>
@@ -54664,15 +55108,15 @@ hideFrame()]]></ProtectedString>
 				</Item>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX37">
+		<Item class="Folder" referent="RBX38">
 			<Properties>
 				<string name="Name">StarterPlayer</string>
 			</Properties>
-			<Item class="Folder" referent="RBX38">
+			<Item class="Folder" referent="RBX39">
 				<Properties>
 					<string name="Name">StarterCharacterScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX39">
+				<Item class="LocalScript" referent="RBX40">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ask favorite game</string>
@@ -54743,11 +55187,236 @@ waitForDeath()]]></ProtectedString>
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX40">
+			<Item class="Folder" referent="RBX41">
 				<Properties>
 					<string name="Name">StarterPlayerScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX41">
+				<Item class="LocalScript" referent="RBX42">
+					<Properties>
+						<bool name="Disabled">true</bool>
+						<string name="Name"> ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD</string>
+						<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+--
+--   🌈  ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD
+--   📍  StarterPlayer ▸ StarterPlayerScripts ▸ LocalScript
+--
+--   ┌──────────────────────────────────────────────────────────────────────┐
+--   │  POURQUOI UN SCRIPT À PART PLUTÔT QU'UNE MODIFICATION DE            │
+--   │  HeadBillboardsClient ?                                              │
+--   │                                                                      │
+--   │  Parce que ce fichier-là marche, qu'il est gros, et qu'il gère déjà  │
+--   │  un cycle de vie délicat (le serveur DÉTRUIT et recrée TempsGui à    │
+--   │  chaque respawn). Y greffer une deuxième logique, c'est risquer de   │
+--   │  casser un effet qui fonctionne pour en ajouter un temporaire.       │
+--   │                                                                      │
+--   │  Ce script-ci se pose à côté, écoute UNE seule chose — l'attribut    │
+--   │  AAEventBoost posé par le serveur d'événement — et se retire tout    │
+--   │  seul. Si tu supprimes ce fichier, tout le reste continue comme      │
+--   │  avant, à l'octet près.                                              │
+--   └──────────────────────────────────────────────────────────────────────┘
+--
+--   L'effet : un dégradé multicolore qui GLISSE sur le texte du boost, pour
+--   que le joueur voie d'un coup d'œil que son multiplicateur est dopé par
+--   l'admin — et pas seulement plus grand.
+--
+--   ⚠️ Une instance ne peut porter qu'UN SEUL UIGradient. Le label de boost
+--      en a peut-être déjà un (style VIP). On ne le remplace donc PAS : on
+--      pose un TextLabel JUMEAU par-dessus, transparent, qui affiche le même
+--      texte et porte notre dégradé. Sur un TextLabel, un UIGradient ne
+--      colore que les GLYPHES — pas de rectangle, pas de débordement.
+--
+--════════════════════════════════════════════════════════════════════════════
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService        = game:GetService("RunService")
+
+local LAYER_NAME = "AABoostRainbow"
+local SPEED      = 1.45      -- tours par seconde du dégradé
+local ATTR       = "AAEventBoost"
+
+-- 🆕 Arc-en-ciel aussi pour TOUT boost de points temporaire (pas seulement l'Admin Abuse) :
+--    boosts achetés, gagnés à la roue, offerts… → attribut TempBoostMult posé par le
+--    serveur « boost temporaire » (répliqué à tout le monde, impossible à fausser côté client).
+--    false = comportement d'avant (Admin Abuse seulement).
+local ANY_TEMP_BOOST = true
+local TEMP_ATTR      = "TempBoostMult"
+
+--  Palette : celle du Config si présent, sinon une copie de secours. Ce
+--  script doit pouvoir vivre même si le module n'est pas encore répliqué.
+local RAINBOW
+do
+	local kp, src = {}, nil
+	local mod = ReplicatedStorage:FindFirstChild("AdminAbuse_Config")
+	if mod then
+		local ok, res = pcall(require, mod)
+		if ok and type(res) == "table" and type(res.RAINBOW) == "table" then
+			src = res.RAINBOW
+		end
+	end
+	src = src or {
+		{ 0.00, 255,  80,  80 }, { 0.17, 255, 190,  60 }, { 0.34, 250, 255,  90 },
+		{ 0.50,  90, 255, 140 }, { 0.67,  90, 200, 255 }, { 0.84, 180, 130, 255 },
+		{ 1.00, 255,  80,  80 },
+	}
+	for _, p in ipairs(src) do
+		kp[#kp + 1] = ColorSequenceKeypoint.new(p[1], Color3.fromRGB(p[2], p[3], p[4]))
+	end
+	RAINBOW = ColorSequence.new(kp)
+end
+
+--══════════════════════════════════════════════════════════════════════════════
+-- 🎞️ UNE SEULE BOUCLE POUR TOUS LES DÉGRADÉS
+--══════════════════════════════════════════════════════════════════════════════
+local live = {}   -- [UIGradient] = true
+
+RunService.RenderStepped:Connect(function()
+	local off = Vector2.new((os.clock() * SPEED) % 2 - 1, 0)
+	for g in pairs(live) do
+		if g:IsDescendantOf(game) then
+			g.Offset = off
+		else
+			live[g] = nil
+		end
+	end
+end)
+
+--══════════════════════════════════════════════════════════════════════════════
+-- 🔎 TROUVER LE LABEL DE BOOST
+--    Chemin exact posé par ton script serveur de billboards :
+--        Head ▸ TempsGui ▸ Frame ▸ BoostLabel
+--══════════════════════════════════════════════════════════════════════════════
+local function boostLabel(character)
+	if not character then return nil end
+	local head = character:FindFirstChild("Head")
+	if not head then return nil end
+	local gui = head:FindFirstChild("TempsGui")
+	if not gui then return nil end
+	local frame = gui:FindFirstChild("Frame")
+	if not frame then return nil end
+	local lbl = frame:FindFirstChild("BoostLabel")
+	if lbl and lbl:IsA("TextLabel") then return lbl end
+	return nil
+end
+
+local function removeLayer(lbl)
+	if not lbl then return end
+	local old = lbl:FindFirstChild(LAYER_NAME)
+	while old do
+		old:Destroy()
+		old = lbl:FindFirstChild(LAYER_NAME)
+	end
+end
+
+--  Les quatre garanties « le reflet ne déborde pas des lettres », reprises
+--  telles quelles de ton HeadBillboardsClient :
+--    1. BackgroundTransparency = 1 → aucune surface derrière le texte.
+--    2. TextStrokeTransparency = 1 et aucun UIStroke → le dégradé ne bave
+--       pas sur le contour, qui est plus large que le glyphe.
+--    3. Font / TextScaled / TextSize / alignements recopiés → superposition
+--       au pixel près, pas de texte fantôme dédoublé.
+--    4. Un seul calque possible : on détruit l'ancien avant d'en poser un.
+local function addLayer(lbl)
+	if not lbl then return end
+	if lbl:FindFirstChild(LAYER_NAME) then return end
+	removeLayer(lbl)
+
+	local twin = Instance.new("TextLabel")
+	twin.Name                   = LAYER_NAME
+	twin.BackgroundTransparency = 1
+	twin.Size                   = UDim2.fromScale(1, 1)
+	twin.Position               = UDim2.fromScale(0, 0)
+	twin.Font                   = lbl.Font
+	twin.TextScaled             = lbl.TextScaled
+	if not lbl.TextScaled then twin.TextSize = lbl.TextSize end
+	twin.TextXAlignment         = lbl.TextXAlignment
+	twin.TextYAlignment         = lbl.TextYAlignment
+	twin.TextColor3             = Color3.fromRGB(255, 255, 255)
+	twin.TextStrokeTransparency = 1
+	twin.TextTransparency       = 0
+	twin.Text                   = lbl.Text
+	twin.ZIndex                 = lbl.ZIndex + 2
+	twin.Parent                 = lbl
+
+	--  Le montant du boost change côté serveur : on recopie à chaque fois.
+	local conn = lbl:GetPropertyChangedSignal("Text"):Connect(function()
+		if twin.Parent then twin.Text = lbl.Text else return end
+	end)
+	twin.Destroying:Connect(function()
+		if conn then conn:Disconnect() end
+	end)
+
+	local g = Instance.new("UIGradient")
+	g.Color  = RAINBOW
+	g.Parent = twin
+	live[g]  = true
+end
+
+--══════════════════════════════════════════════════════════════════════════════
+-- 👤 SUIVI D'UN JOUEUR
+--    L'attribut AAEventBoost est posé par le SERVEUR sur l'objet Player : il
+--    est donc répliqué à tout le monde, et tous les joueurs voient le boost
+--    de celui qui l'a. Le client ne peut pas se le donner : un attribut posé
+--    côté client ne part jamais vers le serveur ni vers les autres.
+--══════════════════════════════════════════════════════════════════════════════
+local function refresh(plr)
+	local ch = plr.Character
+	if not ch then return end
+	local lbl = boostLabel(ch)
+	if not lbl then return end
+	local b = tonumber(plr:GetAttribute(ATTR)) or 0
+	local t = ANY_TEMP_BOOST and (tonumber(plr:GetAttribute(TEMP_ATTR)) or 0) or 0
+	if b > 0 or t > 0 then addLayer(lbl) else removeLayer(lbl) end
+end
+
+local function watchCharacter(plr, ch)
+	if not ch then return end
+	task.spawn(function()
+		local head = ch:FindFirstChild("Head") or ch:WaitForChild("Head", 15)
+		if not head then return end
+
+		--  Ton script serveur DÉTRUIT puis recrée TempsGui (respawn, changement
+		--  de style…). On ne devine pas : on écoute l'arrivée du nouveau.
+		head.ChildAdded:Connect(function(child)
+			if child.Name ~= "TempsGui" then return end
+			task.delay(0.25, function()
+				if plr.Character == ch then refresh(plr) end
+			end)
+		end)
+
+		--  Première pose : on laisse au serveur le temps de construire.
+		for _ = 1, 20 do
+			if plr.Character ~= ch then return end
+			if boostLabel(ch) then refresh(plr) return end
+			task.wait(0.5)
+		end
+	end)
+end
+
+local function watch(plr)
+	plr:GetAttributeChangedSignal(ATTR):Connect(function()
+		pcall(refresh, plr)
+	end)
+	if ANY_TEMP_BOOST then
+		plr:GetAttributeChangedSignal(TEMP_ATTR):Connect(function()
+			pcall(refresh, plr)
+		end)
+	end
+	plr.CharacterAdded:Connect(function(ch)
+		watchCharacter(plr, ch)
+	end)
+	if plr.Character then watchCharacter(plr, plr.Character) end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+	pcall(watch, p)
+end
+Players.PlayerAdded:Connect(function(p)
+	pcall(watch, p)
+end)]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="LocalScript" referent="RBX43">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ArenaViewKeeper</string>
@@ -54762,8 +55431,11 @@ waitForDeath()]]></ProtectedString>
 --       bloquée au centre, perso tourné vers la caméra (même distance / décalage) ;
 --     • mode 1re PERSONNE         → reste en 1re personne.
 --   🆕 Touche B (manette : croix ←) : change la vue MÊME SANS ARME, et le petit panneau
---      des contrôles (B = Views, H = Hide Controls) reste affiché au même endroit
---      que celui des armes.
+--      des contrôles reste affiché au même endroit que celui des armes :
+--      Shift = Sprint · C = Slide · B = Views · H = Hide Controls.
+--      (Sprint et Slide marchent déjà sans arme en main tant qu'une arme est dans le
+--       sac à dos — c'est le cas en arène.)
+--      « Hide Controls » est retenu partout : avec n'importe quelle arme et sans arme.
 --   Quand tu ressors une arme, elle reprend la caméra exactement là où tu regardais.
 --   Hors de l'arène : rien ne change.
 --
@@ -54798,6 +55470,8 @@ pcall(function()
 	if cs and cs.Gamepad and cs.Gamepad.ToggleView then PAD_TOGGLE = cs.Gamepad.ToggleView end
 end)
 
+local showPanel     -- déclarée ici, définie plus bas (step() s'en sert)
+local paintControls -- idem (buildPanel s'en sert)
 local BIND = "ArenaViewKeeper"
 local bound = false
 local active = nil   -- nil | "lock" | "first"
@@ -54901,7 +55575,8 @@ end
 --════════════════════════════════════════════════════════════
 -- ⌨️ PANNEAU DES CONTRÔLES SANS ARME (même look et même place que celui des armes)
 --════════════════════════════════════════════════════════════
-local panel, rows, controlsHidden = nil, {}, false
+local panel, rows = nil, {}
+local function controlsHidden() return player:GetAttribute("ControlsHidden") == true end
 local function buildPanel()
 	if panel or IS_TOUCH or not SHOW_CONTROLS then return end
 	local pg = player:FindFirstChild("PlayerGui")
@@ -54917,7 +55592,10 @@ local function buildPanel()
 	anchor.Size = UDim2.new(0, 200, 0, 50)
 	anchor.Position = UDim2.new(1, -265, 1, -60)
 	anchor.Parent = gui
-	local keys = { { key = "B", action = "Views" }, { key = "H", action = "Hide Controls" } }
+	local keys = {
+		{ key = "Shift", action = "Sprint" }, { key = "C", action = "Slide" },
+		{ key = "B", action = "Views" }, { key = "H", action = "Hide Controls" },
+	}
 	local chip, rowH = 22, 26
 	local list = Instance.new("Frame")
 	list.Name = "KeyInstructions"
@@ -54933,14 +55611,15 @@ local function buildPanel()
 		row.Size = UDim2.new(1, 0, 0, chip)
 		row.Position = UDim2.new(0, 0, 0, (i - 1) * rowH)
 		row.Parent = list
+		local cw = (#k.key > 1) and (chip + (#k.key - 1) * 9) or chip   -- « Shift » plus large (comme les armes)
 		local group = Instance.new("Frame")
 		group.BackgroundTransparency = 1
-		group.Size = UDim2.new(0, chip + 6 + 80, 1, 0)
+		group.Size = UDim2.new(0, cw + 6 + 80, 1, 0)
 		group.AnchorPoint = Vector2.new(0.5, 0.5)
 		group.Position = UDim2.new(0.5, 0, 0.5, 0)
 		group.Parent = row
 		local box = Instance.new("Frame")
-		box.Size = UDim2.new(0, chip, 0, chip)
+		box.Size = UDim2.new(0, cw, 0, chip)
 		box.AnchorPoint = Vector2.new(0, 0.5)
 		box.Position = UDim2.new(0, 0, 0.5, 0)
 		box.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -54961,7 +55640,7 @@ local function buildPanel()
 		local desc = Instance.new("TextLabel")
 		desc.Name = "Desc"
 		desc.Size = UDim2.new(0, 80, 1, 0)
-		desc.Position = UDim2.new(0, chip + 6, 0, 0)
+		desc.Position = UDim2.new(0, cw + 6, 0, 0)
 		desc.BackgroundTransparency = 1
 		desc.Text = k.action
 		desc.TextColor3 = Color3.fromRGB(220, 220, 220)
@@ -54973,15 +55652,20 @@ local function buildPanel()
 		rows[k.key] = { row = row, desc = desc }
 	end
 	panel = gui
+	paintControls()
 end
 
-local function paintControls()
+paintControls = function()
 	if not panel then return end
-	rows.B.row.Visible = not controlsHidden
-	rows.H.desc.Text = controlsHidden and "Reveal Controls" or "Hide Controls"
+	local hidden = controlsHidden()
+	for key, r in pairs(rows) do
+		if key ~= "H" then r.row.Visible = not hidden end
+	end
+	rows.H.desc.Text = hidden and "Reveal Controls" or "Hide Controls"
 end
+player:GetAttributeChangedSignal("ControlsHidden"):Connect(function() paintControls() end)
 
-local function showPanel(on)
+showPanel = function(on)
 	if on then buildPanel() end
 	if panel and panel.Enabled ~= on then panel.Enabled = on end
 end
@@ -54997,8 +55681,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if (input.KeyCode == Enum.KeyCode.B and not IS_TOUCH) or input.KeyCode == PAD_TOGGLE then
 		Shared.ToggleMode()   -- même fonction que les armes (le choix est aussi sauvegardé)
 	elseif input.KeyCode == Enum.KeyCode.H and not IS_TOUCH then
-		controlsHidden = not controlsHidden
-		paintControls()
+		player:SetAttribute("ControlsHidden", not controlsHidden())   -- même état que les armes
 	end
 end)
 
@@ -55029,7 +55712,7 @@ refresh()
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX42">
+				<Item class="LocalScript" referent="RBX44">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">EngageTrack</string>
@@ -55123,7 +55806,7 @@ playerGui.ChildAdded:Connect(function(g)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX43">
+				<Item class="LocalScript" referent="RBX45">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre achat speedcoil</string>
@@ -55148,7 +55831,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX44">
+				<Item class="LocalScript" referent="RBX46">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre dachat fusion coil</string>
@@ -55174,7 +55857,7 @@ end)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX45">
+				<Item class="LocalScript" referent="RBX47">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">achat x2coin</string>
@@ -55192,7 +55875,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX46">
+				<Item class="LocalScript" referent="RBX48">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">fenetre dachat gravity coil</string>
@@ -55217,7 +55900,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX47">
+				<Item class="LocalScript" referent="RBX49">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">offers on screen</string>
@@ -56171,7 +56854,7 @@ end
 print("✅ OffersDisplay + Referral chargé —", #OFFERS, "offre(s)")]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX48">
+				<Item class="LocalScript" referent="RBX50">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">rebirth offer notify event</string>
@@ -56405,7 +57088,7 @@ end)
 log("Actif pour " .. player.Name)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX49">
+				<Item class="LocalScript" referent="RBX51">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">script proposer achat skip obby</string>

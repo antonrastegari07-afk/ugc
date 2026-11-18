@@ -9,8 +9,11 @@
 --       bloquée au centre, perso tourné vers la caméra (même distance / décalage) ;
 --     • mode 1re PERSONNE         → reste en 1re personne.
 --   🆕 Touche B (manette : croix ←) : change la vue MÊME SANS ARME, et le petit panneau
---      des contrôles (B = Views, H = Hide Controls) reste affiché au même endroit
---      que celui des armes.
+--      des contrôles reste affiché au même endroit que celui des armes :
+--      Shift = Sprint · C = Slide · B = Views · H = Hide Controls.
+--      (Sprint et Slide marchent déjà sans arme en main tant qu'une arme est dans le
+--       sac à dos — c'est le cas en arène.)
+--      « Hide Controls » est retenu partout : avec n'importe quelle arme et sans arme.
 --   Quand tu ressors une arme, elle reprend la caméra exactement là où tu regardais.
 --   Hors de l'arène : rien ne change.
 --
@@ -45,6 +48,8 @@ pcall(function()
 	if cs and cs.Gamepad and cs.Gamepad.ToggleView then PAD_TOGGLE = cs.Gamepad.ToggleView end
 end)
 
+local showPanel     -- déclarée ici, définie plus bas (step() s'en sert)
+local paintControls -- idem (buildPanel s'en sert)
 local BIND = "ArenaViewKeeper"
 local bound = false
 local active = nil   -- nil | "lock" | "first"
@@ -148,7 +153,8 @@ end
 --════════════════════════════════════════════════════════════
 -- ⌨️ PANNEAU DES CONTRÔLES SANS ARME (même look et même place que celui des armes)
 --════════════════════════════════════════════════════════════
-local panel, rows, controlsHidden = nil, {}, false
+local panel, rows = nil, {}
+local function controlsHidden() return player:GetAttribute("ControlsHidden") == true end
 local function buildPanel()
 	if panel or IS_TOUCH or not SHOW_CONTROLS then return end
 	local pg = player:FindFirstChild("PlayerGui")
@@ -164,7 +170,10 @@ local function buildPanel()
 	anchor.Size = UDim2.new(0, 200, 0, 50)
 	anchor.Position = UDim2.new(1, -265, 1, -60)
 	anchor.Parent = gui
-	local keys = { { key = "B", action = "Views" }, { key = "H", action = "Hide Controls" } }
+	local keys = {
+		{ key = "Shift", action = "Sprint" }, { key = "C", action = "Slide" },
+		{ key = "B", action = "Views" }, { key = "H", action = "Hide Controls" },
+	}
 	local chip, rowH = 22, 26
 	local list = Instance.new("Frame")
 	list.Name = "KeyInstructions"
@@ -180,14 +189,15 @@ local function buildPanel()
 		row.Size = UDim2.new(1, 0, 0, chip)
 		row.Position = UDim2.new(0, 0, 0, (i - 1) * rowH)
 		row.Parent = list
+		local cw = (#k.key > 1) and (chip + (#k.key - 1) * 9) or chip   -- « Shift » plus large (comme les armes)
 		local group = Instance.new("Frame")
 		group.BackgroundTransparency = 1
-		group.Size = UDim2.new(0, chip + 6 + 80, 1, 0)
+		group.Size = UDim2.new(0, cw + 6 + 80, 1, 0)
 		group.AnchorPoint = Vector2.new(0.5, 0.5)
 		group.Position = UDim2.new(0.5, 0, 0.5, 0)
 		group.Parent = row
 		local box = Instance.new("Frame")
-		box.Size = UDim2.new(0, chip, 0, chip)
+		box.Size = UDim2.new(0, cw, 0, chip)
 		box.AnchorPoint = Vector2.new(0, 0.5)
 		box.Position = UDim2.new(0, 0, 0.5, 0)
 		box.BackgroundColor3 = Color3.new(0, 0, 0)
@@ -208,7 +218,7 @@ local function buildPanel()
 		local desc = Instance.new("TextLabel")
 		desc.Name = "Desc"
 		desc.Size = UDim2.new(0, 80, 1, 0)
-		desc.Position = UDim2.new(0, chip + 6, 0, 0)
+		desc.Position = UDim2.new(0, cw + 6, 0, 0)
 		desc.BackgroundTransparency = 1
 		desc.Text = k.action
 		desc.TextColor3 = Color3.fromRGB(220, 220, 220)
@@ -220,15 +230,20 @@ local function buildPanel()
 		rows[k.key] = { row = row, desc = desc }
 	end
 	panel = gui
+	paintControls()
 end
 
-local function paintControls()
+paintControls = function()
 	if not panel then return end
-	rows.B.row.Visible = not controlsHidden
-	rows.H.desc.Text = controlsHidden and "Reveal Controls" or "Hide Controls"
+	local hidden = controlsHidden()
+	for key, r in pairs(rows) do
+		if key ~= "H" then r.row.Visible = not hidden end
+	end
+	rows.H.desc.Text = hidden and "Reveal Controls" or "Hide Controls"
 end
+player:GetAttributeChangedSignal("ControlsHidden"):Connect(function() paintControls() end)
 
-local function showPanel(on)
+showPanel = function(on)
 	if on then buildPanel() end
 	if panel and panel.Enabled ~= on then panel.Enabled = on end
 end
@@ -244,8 +259,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	if (input.KeyCode == Enum.KeyCode.B and not IS_TOUCH) or input.KeyCode == PAD_TOGGLE then
 		Shared.ToggleMode()   -- même fonction que les armes (le choix est aussi sauvegardé)
 	elseif input.KeyCode == Enum.KeyCode.H and not IS_TOUCH then
-		controlsHidden = not controlsHidden
-		paintControls()
+		player:SetAttribute("ControlsHidden", not controlsHidden())   -- même état que les armes
 	end
 end)
 

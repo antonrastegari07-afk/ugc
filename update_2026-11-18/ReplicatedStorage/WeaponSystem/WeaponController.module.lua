@@ -1371,6 +1371,11 @@ function WeaponController.Setup(tool, userConfig)
 	-- 🆕 Touche H : cache / réaffiche les lignes de contrôles. La ligne "H" reste
 	-- TOUJOURS visible ; son texte bascule "Cacher" ↔ "Afficher".
 	ToggleControls = function()
+		if MyPlayer then
+			MyPlayer:SetAttribute("ControlsHidden", not (MyPlayer:GetAttribute("ControlsHidden") == true))
+			Extra.applyControlsHidden()
+			return
+		end
 		ControlsHidden = not ControlsHidden
 		local hud = WeaponGui and WeaponGui:FindFirstChild("AmmoHud"); if not hud then return end
 		local list = hud:FindFirstChild("KeyInstructions"); if not list then return end
@@ -2255,6 +2260,25 @@ function WeaponController.Setup(tool, userConfig)
 		idleRoot = CFrame.new(),
 		cocked = false,         -- l'arme a déjà été armée cette vie
 	}
+	-- 🆕 l'état « contrôles cachés » est PARTAGÉ (attribut local du joueur) : il reste
+	--    le même d'une arme à l'autre et sans arme (ArenaViewKeeper lit le même attribut).
+	--    (dans Extra : Setup est à la limite des 200 variables locales ; défini ICI,
+	--     juste après la création de la table Extra)
+	Extra.applyControlsHidden = function()
+		ControlsHidden = MyPlayer ~= nil and MyPlayer:GetAttribute("ControlsHidden") == true
+		local hud = WeaponGui and WeaponGui:FindFirstChild("AmmoHud"); if not hud then return end
+		local list = hud:FindFirstChild("KeyInstructions"); if not list then return end
+		for _, row in ipairs(list:GetChildren()) do
+			if row:IsA("Frame") then
+				if row.Name == "Row_H" then
+					local desc = row:FindFirstChild("Desc", true)
+					if desc then desc.Text = ControlsHidden and "Reveal Controls" or "Hide Controls" end
+				else
+					row.Visible = not ControlsHidden
+				end
+			end
+		end
+	end
 	-- L'intention (bouton maintenu) survit au reload ; la visée effective non.
 	Extra.aimInput = { mouse = false, key = false, mobile = false, pad = false }   -- [Combat C3] pad = manette
 	Extra.aimLead = function(duration)
@@ -6188,6 +6212,7 @@ function WeaponController.Setup(tool, userConfig)
 			table.insert(keys, {key="B",action="Views"})
 			table.insert(keys, {key="H",action="Hide Controls"})   -- 🆕 toujours en bas
 			styleAmmoHud(keys)
+			Extra.applyControlsHidden()   -- 🆕 garde l'état « cachés » choisi avant (autre arme / sans arme)
 			UpdateAmmo(AmmoInClip)
 		end
 		local recoilAnim = tool:FindFirstChild("Recoil")

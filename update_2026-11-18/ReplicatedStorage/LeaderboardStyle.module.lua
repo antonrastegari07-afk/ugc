@@ -1,21 +1,24 @@
 --════════════════════════════════════════════════════════════════════════════
 -- 🏆 LeaderboardStyle — ModuleScript dans ReplicatedStorage   (NOUVEAU)
 --
---  Apparence des leaderboards physiques (Points, Kills, Rebirths, Streak, Dons).
+--  Réglages des leaderboards physiques (Points, Kills, Rebirths, Streak, Dons).
 --
---   Style = "modern"  → nouveau look (même style que les Paramètres et le CombatHUD :
---                       panneau sombre, police BuilderSans, boutons 3D) + onglets
---                       ALL / FRIENDS / FIND ME, ta ligne en bas, barre « next update ».
---   Style = "classic" → EXACTEMENT l'apparence d'avant (rien d'autre ne change).
+--   Style = "classic" → l'apparence d'AVANT (par défaut).
+--   Style = "modern"  → look Paramètres / CombatHUD (essai précédent), avec en plus
+--                       ta ligne et la barre « next update » en bas (YourRow / UpdateBar).
 --
---  Les options ci-dessous ne servent qu'en mode "modern".
+--   Tabs = true  → dans l'en-tête : ALL / FRIENDS à gauche, petite loupe 🔍 (FIND ME)
+--                  à droite. FRIENDS montre TOUS tes amis : ceux du top avec leur
+--                  place, les autres en dessous avec « -- ».
+--   Tabs = false → EXACTEMENT les boards d'avant, sans aucun bouton.
 --════════════════════════════════════════════════════════════════════════════
 return {
-	Style = "modern",      -- "modern" | "classic"
+	Style = "classic",     -- "classic" | "modern"
+	Tabs  = true,          -- ALL / FRIENDS / 🔍 FIND ME
 
-	Tabs      = true,      -- onglets ALL / FRIENDS + bouton FIND ME
-	YourRow   = true,      -- ta place (et ton score) toujours visible en bas du board
-	UpdateBar = true,      -- fine barre qui se remplit jusqu'à la prochaine mise à jour
+	-- seulement pour Style = "modern"
+	YourRow   = false,
+	UpdateBar = false,
 
 	-- 👥 la liste d'amis est lue UNE fois, puis gardée en mémoire ce temps-là (s)
 	FriendsCacheSeconds = 600,

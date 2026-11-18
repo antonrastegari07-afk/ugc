@@ -1052,45 +1052,172 @@ local ACTIONS = {
 
 local openAction  -- forward decl
 
+-- 🗂️ ACCUEIL RÉORGANISÉ EN ONGLETS — AUCUN bouton retiré, AUCUNE fonction changée.
+--    Chaque bouton existant est simplement rangé dans un onglet. L'onglet « 📋 Tout »
+--    montre l'ancienne grille complète. Une section ajoutée plus tard (id inconnu ici)
+--    apparaît dans « 🧩 Autres » : rien ne peut disparaître de l'accueil.
+--    (état rangé dans `economy` : ce fichier est à la limite des 200 variables)
+economy.HOME_TABS = {
+	{ id = "players", label = "👥 Joueurs",
+		ids = { "ban", "unban", "kick", "freeze", "teleport", "bring", "reset", "spectate", "fly",
+			"givetool", "tpcheckpoint", "profile", "bans", "vip" } },
+	{ id = "ugc", label = "🎽 UGC & boutique",
+		ids = { "ugclog", "ugcescrow", "saleslock", "giftlog", "giftkill" } },
+	{ id = "security", label = "🛡️ Sécurité",
+		ids = { "acboards", "ugcban", "acmodes" } },
+	{ id = "game", label = "🎉 Jeu & events",
+		ids = { "eventinfo", "adminabuse", "popups", "leaderboards", "feedback" } },
+	{ id = "numbers", label = "📊 Chiffres",
+		ids = { "engage", "revenue", "ugcstats" } },
+}
+economy.homeTab = economy.homeTab or "players"
+economy.homeSearch = economy.homeSearch or ""
+
 local function screenHome()
 	currentScreen = "home"
 	local body = buildScreen("⚡ ADMIN PANEL", false, C.TURQUOISE)
-	-- On remplace le UIListLayout par une grille
 	local list = body:FindFirstChildOfClass("UIListLayout")
-	if list then list:Destroy() end
-	local grid = Instance.new("UIGridLayout")
+	if list then list.Padding = UDim.new(0, IS_MOBILE and 6 or 8) end
+
+	-- quel onglet pour chaque bouton existant
+	local tabOf, known = {}, {}
+	for _, t in ipairs(economy.HOME_TABS) do
+		for _, id in ipairs(t.ids) do tabOf[id] = t.id ; known[id] = true end
+	end
+	local tabs = table.clone(economy.HOME_TABS)
+	local hasOther = false
+	for _, a in ipairs(ACTIONS) do if not known[a.id] then hasOther = true break end end
+	if hasOther then table.insert(tabs, { id = "other", label = "🧩 Autres" }) end
+	table.insert(tabs, { id = "all", label = "📋 Tout" })
+	local validTab = false
+	for _, t in ipairs(tabs) do if t.id == economy.homeTab then validTab = true end end
+	if not validTab then economy.homeTab = tabs[1].id end
+
+	-- 🔎 recherche (cherche dans TOUS les onglets)
+	local search = Instance.new("TextBox")
+	search.Size = UDim2.new(1, 0, 0, IS_MOBILE and 30 or 36)
+	search.BackgroundColor3 = C.BG_DARK
+	search.BorderSizePixel = 0
+	search.Font = FONT
+	search.PlaceholderText = "🔎 Chercher une section…"
+	search.PlaceholderColor3 = C.TEXT_DIM
+	search.Text = economy.homeSearch
+	search.TextColor3 = C.TEXT_WHITE
+	search.TextSize = IS_MOBILE and 12 or 15
+	search.TextXAlignment = Enum.TextXAlignment.Left
+	search.ClearTextOnFocus = false
+	search.LayoutOrder = 1
+	search.ZIndex = 11
+	search.Parent = body
+	corner(search, 9) ; stroke(search, C.BORDER_SUBTLE, 1)
+	local sp = Instance.new("UIPadding") ; sp.PaddingLeft = UDim.new(0, 10) ; sp.Parent = search
+
+	-- onglets (passent à la ligne si besoin)
+	local tabRow = Instance.new("Frame")
+	tabRow.Size = UDim2.new(1, 0, 0, 0)
+	tabRow.AutomaticSize = Enum.AutomaticSize.Y
+	tabRow.BackgroundTransparency = 1
+	tabRow.LayoutOrder = 2
+	tabRow.ZIndex = 11
+	tabRow.Parent = body
+	local tl = Instance.new("UIGridLayout")
 	local pw = panelSize().X.Offset
+	local perRow = IS_MOBILE and 3 or 4
+	local tgap = IS_MOBILE and 4 or 6
+	tl.CellSize = UDim2.new(0, math.floor((pw - PAD * 2 - tgap * (perRow - 1)) / perRow) - 1, 0, IS_MOBILE and 26 or 32)
+	tl.CellPadding = UDim2.new(0, tgap, 0, tgap)
+	tl.SortOrder = Enum.SortOrder.LayoutOrder
+	tl.Parent = tabRow
+
+	-- grille des boutons (exactement les mêmes boutons qu'avant)
+	local gridF = Instance.new("Frame")
+	gridF.Size = UDim2.new(1, 0, 0, 0)
+	gridF.AutomaticSize = Enum.AutomaticSize.Y
+	gridF.BackgroundTransparency = 1
+	gridF.LayoutOrder = 3
+	gridF.ZIndex = 11
+	gridF.Parent = body
+	local grid = Instance.new("UIGridLayout")
 	local gap = IS_MOBILE and 6 or 10
 	local cellW = IS_MOBILE and math.floor((pw - PAD * 2 - gap) / 2) or 208
 	grid.CellSize = UDim2.new(0, cellW, 0, IS_MOBILE and 48 or 60)
-	grid.CellPadding = UDim2.new(0, IS_MOBILE and 6 or 10, 0, IS_MOBILE and 6 or 10)
+	grid.CellPadding = UDim2.new(0, gap, 0, gap)
 	grid.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	grid.SortOrder = Enum.SortOrder.LayoutOrder
-	grid.Parent = body
+	grid.Parent = gridF
 
-	for i, a in ipairs(ACTIONS) do
-		local btn = Instance.new("TextButton")
-		btn.Size = UDim2.new(0, cellW, 0, IS_MOBILE and 48 or 60)
-		btn.BackgroundColor3 = C.BG_DARK
-		btn.AutoButtonColor = false
-		btn.BorderSizePixel = 0
-		btn.Text = a.name
-		btn.Font = FONT
-		btn.TextColor3 = C.TEXT_WHITE
-		btn.TextSize = IS_MOBILE and 13 or 16
-		btn.LayoutOrder = i
-		btn.ZIndex = 11
-		btn.Parent = body
-		corner(btn, 10)
-		local st = stroke(btn, a.color, 2)
-		btn.MouseEnter:Connect(function()
-			TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = a.color }):Play()
-		end)
-		btn.MouseLeave:Connect(function()
-			TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = C.BG_DARK }):Play()
-		end)
-		btn.MouseButton1Click:Connect(function() openAction(a) end)
+	local tabButtons = {}
+	local function render()
+		for _, c in ipairs(gridF:GetChildren()) do if c:IsA("GuiButton") then c:Destroy() end end
+		local q = string.lower(economy.homeSearch or "")
+		for id, b in pairs(tabButtons) do
+			local on = (q == "") and (economy.homeTab == id)
+			b.BackgroundColor3 = on and C.TURQUOISE or C.BG_DARK
+			b.TextColor3 = on and Color3.new(0, 0, 0) or C.TEXT_WHITE
+		end
+		for i, a in ipairs(ACTIONS) do
+			local show
+			if q ~= "" then
+				show = string.find(string.lower(a.name), q, 1, true) ~= nil
+			elseif economy.homeTab == "all" then
+				show = true
+			elseif economy.homeTab == "other" then
+				show = not known[a.id]
+			else
+				show = tabOf[a.id] == economy.homeTab
+			end
+			if show then
+				local btn = Instance.new("TextButton")
+				btn.Size = UDim2.new(0, cellW, 0, IS_MOBILE and 48 or 60)
+				btn.BackgroundColor3 = C.BG_DARK
+				btn.AutoButtonColor = false
+				btn.BorderSizePixel = 0
+				btn.Text = a.name
+				btn.Font = FONT
+				btn.TextColor3 = C.TEXT_WHITE
+				btn.TextSize = IS_MOBILE and 13 or 16
+				btn.LayoutOrder = i
+				btn.ZIndex = 11
+				btn.Parent = gridF
+				corner(btn, 10)
+				stroke(btn, a.color, 2)
+				btn.MouseEnter:Connect(function()
+					TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = a.color }):Play()
+				end)
+				btn.MouseLeave:Connect(function()
+					TweenService:Create(btn, TweenInfo.new(0.13), { BackgroundColor3 = C.BG_DARK }):Play()
+				end)
+				btn.MouseButton1Click:Connect(function() openAction(a) end)
+			end
+		end
 	end
+	for k, t in ipairs(tabs) do
+		local b = Instance.new("TextButton")
+		b.BackgroundColor3 = C.BG_DARK
+		b.AutoButtonColor = true
+		b.BorderSizePixel = 0
+		b.Text = t.label
+		b.Font = FONT
+		b.TextSize = IS_MOBILE and 11 or 13
+		b.TextColor3 = C.TEXT_WHITE
+		b.TextTruncate = Enum.TextTruncate.AtEnd
+		b.LayoutOrder = k
+		b.ZIndex = 12
+		b.Parent = tabRow
+		corner(b, 8) ; stroke(b, C.BORDER_SUBTLE, 1)
+		tabButtons[t.id] = b
+		b.MouseButton1Click:Connect(function()
+			economy.homeTab = t.id
+			economy.homeSearch = ""
+			search.Text = ""
+			render()
+		end)
+	end
+	search:GetPropertyChangedSignal("Text"):Connect(function()
+		economy.homeSearch = search.Text:gsub("^%s+", ""):gsub("%s+$", "")
+		render()
+	end)
+	render()
 end
 
 goHome = function()
@@ -3099,7 +3226,7 @@ local function screenManage(info, backFn)
 	local av = makeAvatar(hc, info.userId, avSize, C.PURPLE)
 	av.AnchorPoint = Vector2.new(0, 0.5); av.Position = UDim2.new(0, 10, 0.5, 0)
 	local ix = 10 + avSize + 12
-	label(hc, { text = esc(info.displayName or info.username) .. ptsSuffixLive(info.userId), richText = true, size = UDim2.new(1, -ix - 12, 0, IS_MOBILE and 20 or 26), position = UDim2.new(0, ix, 0, IS_MOBILE and 10 or 16), xAlign = Enum.TextXAlignment.Left, color = C.TEXT_WHITE, textSize = IS_MOBILE and 15 or 19, truncate = true, zIndex = 13 })
+	local nameL = label(hc, { text = esc(info.displayName or info.username) .. ptsSuffixLive(info.userId), richText = true, size = UDim2.new(1, -ix - 12, 0, IS_MOBILE and 20 or 26), position = UDim2.new(0, ix, 0, IS_MOBILE and 10 or 16), xAlign = Enum.TextXAlignment.Left, color = C.TEXT_WHITE, textSize = IS_MOBILE and 15 or 19, truncate = true, zIndex = 13 })
 	do
 		local atL = label(hc, { text = "@" .. info.username .. economy.lastSeenSuffix(info.userId), size = UDim2.new(1, -ix - 12, 0, 14), position = UDim2.new(0, ix, 0, IS_MOBILE and 32 or 42), xAlign = Enum.TextXAlignment.Left, color = C.TEXT_GREY, textSize = IS_MOBILE and 10 or 13, truncate = true, zIndex = 13 })
 		-- 🕒 dernière connexion : lue si on ne l'a pas encore
@@ -3112,39 +3239,46 @@ local function screenManage(info, backFn)
 	end
 
 	-- 🏅 STATUT : 🛡️ ADMIN · 👑 VIP · ⚡ x2 / x5 / x10 PERM (achetés OU offerts, calculés par le serveur)
+	--    Petites pastilles en HAUT À DROITE de la carte : la carte garde EXACTEMENT sa taille
+	--    (rien d'autre ne bouge sur l'écran), seul le nom se raccourcit pour leur laisser la place.
 	--    En ligne ici : attribut ProfileBadges. Sinon : GetPublicProfile (cache 60 s côté serveur).
 	do
-		local baseH = IS_MOBILE and 84 or 104
-		local row
+		local row = Instance.new("Frame")
+		row.Name = "StatusBadges"
+		row.BackgroundTransparency = 1
+		row.AnchorPoint = Vector2.new(1, 0)
+		row.Position = UDim2.new(1, -8, 0, IS_MOBILE and 6 or 8)
+		row.Size = UDim2.new(0, 0, 0, IS_MOBILE and 14 or 17)
+		row.AutomaticSize = Enum.AutomaticSize.X
+		row.ZIndex = 14
+		row.Parent = hc
+		local ll = Instance.new("UIListLayout")
+		ll.FillDirection = Enum.FillDirection.Horizontal
+		ll.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		ll.SortOrder = Enum.SortOrder.LayoutOrder
+		ll.Padding = UDim.new(0, 4)
+		ll.Parent = row
+		-- le nom laisse la place aux pastilles (même ligne, à gauche)
+		local function fitName()
+			if nameL.Parent then
+				nameL.Size = UDim2.new(1, -ix - 16 - row.AbsoluteSize.X, 0, IS_MOBILE and 20 or 26)
+			end
+		end
+		row:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitName)
 		local function pill(text, col, order)
 			if not hc.Parent then return end
-			if not row then
-				row = Instance.new("Frame")
-				row.Name = "StatusBadges"
-				row.BackgroundTransparency = 1
-				row.Size = UDim2.new(1, -ix - 12, 0, IS_MOBILE and 16 or 18)
-				row.Position = UDim2.new(0, ix, 0, baseH - 4)
-				row.ZIndex = 13
-				local ll = Instance.new("UIListLayout")
-				ll.FillDirection = Enum.FillDirection.Horizontal
-				ll.SortOrder = Enum.SortOrder.LayoutOrder
-				ll.Padding = UDim.new(0, 6)
-				ll.Parent = row
-				row.Parent = hc
-				hc.Size = UDim2.new(1, 0, 0, baseH + (IS_MOBILE and 18 or 22))
-			end
 			local t = Instance.new("TextLabel")
 			t.AutomaticSize = Enum.AutomaticSize.X
 			t.Size = UDim2.new(0, 0, 1, 0)
 			t.BackgroundColor3 = col
 			t.BorderSizePixel = 0
-			t.Text = "  " .. text .. "  "
+			t.Text = " " .. text .. " "
 			t.Font = Enum.Font.GothamBold
-			t.TextSize = IS_MOBILE and 10 or 12
+			t.TextSize = IS_MOBILE and 9 or 11
 			t.TextColor3 = Color3.new(1, 1, 1)
 			t.LayoutOrder = order
-			t.ZIndex = 14
-			corner(t, 6)
+			t.ZIndex = 15
+			corner(t, 5)
 			t.Parent = row
 		end
 		local uid = tonumber(info.userId) or 0
@@ -3153,10 +3287,10 @@ local function screenManage(info, backFn)
 		if isAdm then pill("🛡️ ADMIN", Color3.fromRGB(200, 55, 60), 1) end
 		local function show(vip, b2, b5, b10)
 			if vip then pill("👑 VIP", Color3.fromRGB(190, 140, 20), 2) end
-			if b2 then pill("⚡ x2 PERM", Color3.fromRGB(40, 140, 90), 3) end
-			if b5 then pill("⚡ x5 PERM", Color3.fromRGB(40, 110, 200), 4) end
-			if b10 then pill("⚡ x10 PERM", Color3.fromRGB(130, 60, 210), 5) end
-			if not (isAdm or vip or b2 or b5 or b10) then pill("Aucun VIP / boost perm", Color3.fromRGB(70, 74, 90), 9) end
+			if b2 then pill("⚡x2", Color3.fromRGB(40, 140, 90), 3) end
+			if b5 then pill("⚡x5", Color3.fromRGB(40, 110, 200), 4) end
+			if b10 then pill("⚡x10", Color3.fromRGB(130, 60, 210), 5) end
+			if not (isAdm or vip or b2 or b5 or b10) then pill("Aucun VIP / boost", Color3.fromRGB(70, 74, 90), 9) end
 		end
 		local online = Players:GetPlayerByUserId(uid)
 		local attr = online and online:GetAttribute("ProfileBadges")

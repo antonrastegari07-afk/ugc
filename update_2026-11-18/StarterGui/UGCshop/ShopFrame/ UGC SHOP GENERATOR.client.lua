@@ -2050,25 +2050,31 @@ task.spawn(function()
 end)
 
 --════════════════════════════════════════════════════════════
--- 🔎 BOUTON FILTER + PANNEAU DE FILTRE / TRI   (NOUVEAU)
---   En haut à droite de la grille, à droite de « NEW FREE UGC Weekly! ».
---   Panneau : cases à cocher (filtres) + un seul choix de tri, puis
---   APPLY / CANCEL / RESET. Les filtres actifs s'affichent en pastilles
---   au-dessus de la grille (✕ pour en retirer un, RESET ALL pour tout effacer).
---   Disponibilité, NEW, prix, stock : immédiat. « Owned » et « Type » sont lus
---   une seule fois sur Roblox (pas de serveur du jeu, pas de DataStore).
+-- 🔎 BOUTON FILTER + PANNEAU DE FILTRE / TRI   (NOUVEAU, v2 simplifiée)
+--   • Bouton à droite de « NEW FREE UGC Weekly! », son bord droit est ALIGNÉ sur
+--     le bord droit de la carte la plus à droite (recalculé si l'écran change).
+--   • Style des Paramètres : boutons 3D (face en dégradé + socle), FredokaOne,
+--     taille de texte normale (pas de texte géant).
+--   • Panneau court : SHOW (6 choix) · TYPE (seulement si ton shop en a plusieurs)
+--     · SORT (5 choix), puis CANCEL / RESET / APPLY.
+--   • Filtres actifs : pastilles au-dessus de la grille (X = en retirer un,
+--     RESET ALL = tout effacer). Tout est en anglais, comme le reste du shop.
+--   Aucun appel au serveur du jeu, aucun DataStore.
 --════════════════════════════════════════════════════════════
 do
-	local CYAN   = Color3.fromRGB(89, 224, 255)
-	local DARK   = Color3.fromRGB(12, 16, 30)
-	local DARK2  = Color3.fromRGB(26, 32, 52)
-	local WHITE  = Color3.new(1, 1, 1)
+	local WHITE = Color3.new(1, 1, 1)
+	local DARK  = Color3.fromRGB(14, 16, 22)
+	local SUB   = Color3.fromRGB(165, 175, 192)
+	local CYAN  = Color3.fromRGB(89, 224, 255)
 	local YELLOW = Color3.fromRGB(255, 214, 92)
-	local GREEN  = Color3.fromRGB(46, 200, 90)
-	local RED    = Color3.fromRGB(235, 70, 70)
-	local GREY   = Color3.fromRGB(70, 76, 96)
-	local Z      = 40
-	local SYM    = Enum.Font.SourceSansBold   -- FredokaOne n'a pas ▼ ✓ (comme pour le ♥)
+	local COL = {   -- dessus, dessous, socle (même recette que les boutons des Paramètres)
+		green = { Color3.fromRGB(40, 185, 80),  Color3.fromRGB(12, 115, 42), Color3.fromRGB(8, 65, 25) },
+		red   = { Color3.fromRGB(245, 70, 65),  Color3.fromRGB(180, 25, 35), Color3.fromRGB(105, 12, 22) },
+		blue  = { Color3.fromRGB(55, 145, 240), Color3.fromRGB(20, 85, 180), Color3.fromRGB(12, 48, 110) },
+		grey  = { Color3.fromRGB(88, 94, 112),  Color3.fromRGB(50, 54, 68),  Color3.fromRGB(28, 30, 40) },
+	}
+	local Z = 40
+	local SYM = Enum.Font.SourceSansBold   -- FredokaOne n'a pas ▼ (comme pour le ♥)
 
 	local function mk(class, props, parent)
 		local o = Instance.new(class)
@@ -2077,8 +2083,30 @@ do
 		o.Parent = parent
 		return o
 	end
-	local function round(o, r) mk("UICorner", { CornerRadius = r or UDim.new(0, 10) }, o) end
-	local function outline(o, c, t) mk("UIStroke", { Color = c, Thickness = t or 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o) end
+	local function round(o, r) mk("UICorner", { CornerRadius = UDim.new(0, r or 10) }, o) end
+
+	-- Bouton 3D des Paramètres : socle fixe + face en dégradé qui s'enfonce
+	local function button3D(parent, text, col, size, textSize, props)
+		local depth = 3
+		local slot = mk("Frame", { Size = size, BackgroundTransparency = 1 }, parent)
+		for k, v in pairs(props or {}) do slot[k] = v end
+		local edge = mk("Frame", { Size = UDim2.new(1, 0, 1, -depth), Position = UDim2.fromOffset(0, depth),
+			BackgroundColor3 = col[3], BorderSizePixel = 0 }, slot)
+		round(edge, 8)
+		local btn = mk("TextButton", { Size = UDim2.new(1, 0, 1, -depth), BackgroundColor3 = WHITE,
+			BorderSizePixel = 0, AutoButtonColor = false, Text = "", ZIndex = Z + 1 }, slot)
+		round(btn, 8)
+		local grad = mk("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
+		local lbl = mk("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = text,
+			Font = Enum.Font.FredokaOne, TextSize = textSize, TextColor3 = WHITE, ZIndex = Z + 2 }, btn)
+		local function press(down) btn.Position = UDim2.fromOffset(0, down and depth or 0) end
+		btn.MouseButton1Down:Connect(function() press(true) end)
+		btn.MouseButton1Up:Connect(function() press(false) end)
+		btn.MouseLeave:Connect(function() press(false) end)
+		btn.Activated:Connect(function() task.delay(0.08, function() press(false) end) end)
+		local function recolor(c) grad.Color = ColorSequence.new(c[1], c[2]) ; edge.BackgroundColor3 = c[3] end
+		return btn, lbl, slot, recolor
+	end
 
 	-- 👒 types d'accessoire Roblox → nom affiché
 	local TYPE_NAME = {
@@ -2089,18 +2117,20 @@ do
 		[70] = "Shoes", [71] = "Shoes", [76] = "Face", [77] = "Face",
 	}
 	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
+	local SHOW = { { "avail", "Available" }, { "sold", "Sold out" }, { "low", "Low stock" },
+		{ "new", "New" }, { "owned", "Owned" }, { "notOwned", "Not owned" } }
+	local SHOW_LABEL = {}
+	for _, x in ipairs(SHOW) do SHOW_LABEL[x[1]] = x[2] end
 	local SORTS = {
-		{ id = "default",    label = "Shop order",            chip = nil },
-		{ id = "price_desc", label = "Price: high to low",    chip = "Price: high-low" },
-		{ id = "price_asc",  label = "Price: low to high",    chip = "Price: low-high" },
-		{ id = "stock_desc", label = "Total stock: most first",  chip = "Stock: most-least" },
-		{ id = "stock_asc",  label = "Total stock: least first", chip = "Stock: least-most" },
+		{ id = "default",    label = "Default" },
+		{ id = "price_desc", label = "Price: High" },
+		{ id = "price_asc",  label = "Price: Low" },
+		{ id = "stock_desc", label = "Stock: Most" },
+		{ id = "stock_asc",  label = "Stock: Least" },
 	}
-	local FLAG_LABEL = { avail = "Available", sold = "Sold out", low = "Low stock",
-		owned = "Owned", notOwned = "Not owned", new = "NEW only" }
 
 	-- lectures Roblox (une seule fois, 4 à la fois max)
-	local typesState, ownedState = "idle", "idle"   -- idle · loading · done
+	local typesState, ownedState = "idle", "idle"
 	local onTypesLoaded
 	local function runPool(items, fn, done)
 		local idx, left, finished = 0, #items, false
@@ -2145,66 +2175,77 @@ do
 		end)
 	end
 
+	-- échelle commune (même idée que le panneau des Paramètres) : tout est dessiné
+	-- pour une fenêtre de 620 px de haut, puis mis à l'échelle de l'écran
+	local function uiScaleValue()
+		return math.clamp(ShopFrame.AbsoluteSize.Y / 620, 0.55, 1.25)
+	end
+
 	-- ── bouton FILTER ───────────────────────────────────────
-	local btn = mk("TextButton", { Name = "FilterButton", AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(0.576, 0, 0.014, 0), Size = UDim2.new(0.135, 0, 0.062, 0),
-		BackgroundColor3 = DARK, BackgroundTransparency = 0.1, Text = "", AutoButtonColor = true }, ShopFrame)
-	round(btn)
-	local btnStroke = mk("UIStroke", { Color = CYAN, Thickness = 2.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, btn)
-	local btnLbl = mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(0.74, 0, 0.78, 0),
-		Position = UDim2.new(0.05, 0, 0.11, 0), Font = Enum.Font.FredokaOne, Text = "FILTER",
-		TextColor3 = WHITE, TextScaled = true, ZIndex = Z + 1 }, btn)
-	local btnArrow = mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(0.2, 0, 0.7, 0),
-		Position = UDim2.new(0.77, 0, 0.15, 0), Font = SYM, Text = "▼", TextColor3 = CYAN,
-		TextScaled = true, ZIndex = Z + 1 }, btn)
+	local BTN_W, BTN_H = 112, 34
+	local fbtn, flbl, fslot, frecolor = button3D(ShopFrame, "FILTER", COL.blue, UDim2.fromOffset(BTN_W, BTN_H), 17,
+		{ Name = "FilterButton", AnchorPoint = Vector2.new(1, 0.5) })
+	local fScale = mk("UIScale", {}, fslot)
+	flbl.Size = UDim2.new(1, -22, 1, 0)
+	flbl.Position = UDim2.fromOffset(6, 0)
+	local farrow = mk("TextLabel", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(14, 14), Font = SYM, Text = "▼",
+		TextSize = 14, TextColor3 = WHITE, ZIndex = Z + 2 }, fbtn)
 
 	-- ── pastilles des filtres actifs (au-dessus de la grille) ───
 	local sfPos, sfSize = ScrollingFrame.Position, ScrollingFrame.Size
-	local CHIP_H = 0.055
+	local CHIP_H = 0.052
 	local chipsBar = mk("ScrollingFrame", { Name = "ActiveFilters", BackgroundTransparency = 1,
 		Position = sfPos, Size = UDim2.new(sfSize.X.Scale, sfSize.X.Offset, CHIP_H, 0),
 		ScrollingDirection = Enum.ScrollingDirection.X, ScrollBarThickness = 0, BorderSizePixel = 0,
 		AutomaticCanvasSize = Enum.AutomaticSize.X, CanvasSize = UDim2.new(), Visible = false }, ShopFrame)
 	mk("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center }, chipsBar)
+	mk("UIPadding", { PaddingLeft = UDim.new(0, 4) }, chipsBar)
 
-	-- ── message « aucun résultat » (dans la grille) ─────────
-	-- (posé sur la fenêtre, par-dessus la grille : dans une ScrollingFrame, les tailles en %
-	--  suivent le contenu, et une grille vide aurait rendu le message invisible)
+	-- ── message « aucun résultat » (posé sur la fenêtre, par-dessus la grille) ──
 	local empty = mk("Frame", { Name = "NoFilterResult", BackgroundTransparency = 1,
 		Size = UDim2.new(sfSize.X.Scale, sfSize.X.Offset, 0.3, 0),
 		Position = UDim2.new(sfPos.X.Scale, sfPos.X.Offset, sfPos.Y.Scale + 0.2, 0), Visible = false }, ShopFrame)
-	mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(0.9, 0, 0.3, 0), Position = UDim2.new(0.05, 0, 0, 0),
-		Font = Enum.Font.FredokaOne, Text = "No UGC match your filters", TextColor3 = WHITE, TextScaled = true }, empty)
-	local emptyReset = mk("TextButton", { Size = UDim2.new(0.4, 0, 0.22, 0), Position = UDim2.new(0.3, 0, 0.4, 0),
-		BackgroundColor3 = RED, Font = Enum.Font.FredokaOne, Text = "RESET FILTERS", TextColor3 = WHITE,
-		TextScaled = true }, empty)
-	round(emptyReset) ; outline(emptyReset, WHITE, 1.5)
+	local emptyTxt = mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30),
+		Font = Enum.Font.FredokaOne, Text = "No UGC match your filters", TextColor3 = WHITE, TextSize = 22 }, empty)
+	local emptyBtn = button3D(empty, "RESET FILTERS", COL.red, UDim2.fromOffset(170, 38), 17,
+		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 40) })
+	local emptyScale = mk("UIScale", {}, empty)
 
 	-- ── panneau ─────────────────────────────────────────────
-	local panel = mk("Frame", { Name = "FilterPanel", AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(0.576, 0, 0.088, 0), Size = UDim2.new(0.34, 0, 0.86, 0),
-		BackgroundColor3 = DARK, BackgroundTransparency = 0.03, Visible = false, Active = true }, ShopFrame)
-	round(panel, UDim.new(0, 14)) ; outline(panel, CYAN, 2.5)
-	local list = mk("ScrollingFrame", { BackgroundTransparency = 1, BorderSizePixel = 0,
-		Position = UDim2.new(0.05, 0, 0.03, 0), Size = UDim2.new(0.92, 0, 0.78, 0),
-		AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), ScrollBarThickness = 4,
-		ScrollBarImageColor3 = CYAN }, panel)
-	mk("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, list)
-	local bar = mk("Frame", { BackgroundTransparency = 1, Position = UDim2.new(0.04, 0, 0.84, 0),
-		Size = UDim2.new(0.92, 0, 0.12, 0) }, panel)
-	local function barButton(text, col, x)
-		local b = mk("TextButton", { Size = UDim2.new(0.31, 0, 1, 0), Position = UDim2.new(x, 0, 0, 0),
-			BackgroundColor3 = col, Font = Enum.Font.FredokaOne, Text = text, TextColor3 = WHITE,
-			TextScaled = true, AutoButtonColor = true }, bar)
-		round(b) ; outline(b, WHITE, 1.2)
-		mk("UIPadding", { PaddingTop = UDim.new(0.18, 0), PaddingBottom = UDim.new(0.18, 0) }, b)
-		return b
-	end
-	local applyB  = barButton("APPLY", GREEN, 0)
-	local cancelB = barButton("CANCEL", GREY, 0.345)
-	local resetB  = barButton("RESET", RED, 0.69)
+	local PW = 300
+	local panel = mk("Frame", { Name = "FilterPanel", AnchorPoint = Vector2.new(1, 0), Size = UDim2.fromOffset(PW, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = DARK, BackgroundTransparency = 0.08,
+		Visible = false, Active = true }, ShopFrame)
+	round(panel, 12)
+	mk("UIStroke", { Color = CYAN, Thickness = 2, Transparency = 0.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, panel)
+	local pScale = mk("UIScale", {}, panel)
+	mk("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 12),
+		PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, panel)
+	mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, panel)
 
+	-- ── placement : bord droit = bord droit de la carte la plus à droite ──
+	local function place()
+		local sc = uiScaleValue()
+		fScale.Scale, pScale.Scale, emptyScale.Scale = sc, sc, sc
+		local shopAbs = ShopFrame.AbsolutePosition
+		local w = ScrollingFrame.AbsoluteWindowSize.X
+		if w <= 1 or ShopFrame.AbsoluteSize.X <= 1 then return end
+		local right = ScrollingFrame.AbsolutePosition.X - shopAbs.X + w * (1 - GAP_SCALE)
+		-- centré verticalement sur la ligne de « NEW FREE UGC Weekly! »
+		local restocked = ShopFrame:FindFirstChild("restocked")
+		local cy = restocked and (restocked.AbsolutePosition.Y - shopAbs.Y + restocked.AbsoluteSize.Y / 2)
+			or (ShopFrame.AbsoluteSize.Y * 0.045)
+		fslot.Position = UDim2.fromOffset(right, cy)
+		panel.Position = UDim2.fromOffset(right, cy + (BTN_H / 2 + 6) * sc)
+	end
+	for _, sig in ipairs({ ShopFrame:GetPropertyChangedSignal("AbsoluteSize"), ShopFrame:GetPropertyChangedSignal("AbsolutePosition"),
+		ScrollingFrame:GetPropertyChangedSignal("AbsoluteWindowSize") }) do
+		sig:Connect(place)
+	end
+
+	-- ── contenu du panneau ──────────────────────────────────
 	local draft
 	local function copyState()
 		local t = {}
@@ -2212,79 +2253,81 @@ do
 		t.types = table.clone(SF.f.types)
 		return { f = t, sort = SF.sort }
 	end
-
-	-- ── contenu du panneau (refait à chaque ouverture : tailles adaptées à l'écran) ──
 	local order = 0
-	local rowH = 24
 	local function nextO() order += 1 return order end
-	local function header(text)
-		mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, math.floor(rowH * 0.85)),
-			Font = Enum.Font.FredokaOne, Text = text, TextColor3 = CYAN, TextXAlignment = Enum.TextXAlignment.Left,
-			TextSize = math.floor(rowH * 0.62), LayoutOrder = nextO() }, list)
+	local function title(text)
+		mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.FredokaOne,
+			Text = text, TextColor3 = SUB, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left,
+			LayoutOrder = nextO() }, panel)
 	end
-	local function optionRow(text, isOn, radio, onClick)
-		local row = mk("TextButton", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, rowH),
-			Text = "", AutoButtonColor = false, LayoutOrder = nextO() }, list)
-		local s = math.floor(rowH * 0.72)
-		local box = mk("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 2, 0.5, 0),
-			Size = UDim2.new(0, s, 0, s), BackgroundColor3 = isOn and CYAN or DARK2 }, row)
-		round(box, radio and UDim.new(1, 0) or UDim.new(0, 5)) ; outline(box, CYAN, 1.5)
-		if isOn then
-			mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = SYM,
-				Text = radio and "●" or "✓", TextColor3 = DARK, TextScaled = true, ZIndex = Z + 1 }, box)
+	-- une grille de petits boutons 3D : bleu = choisi, gris = pas choisi
+	local function pillGrid(items, isOn, onClick)
+		local g = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextO() }, panel)
+		mk("UIGridLayout", { CellSize = UDim2.new(1 / 3, -6, 0, 32), CellPadding = UDim2.fromOffset(8, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder }, g)
+		for k, it in ipairs(items) do
+			local b = button3D(g, it.label, isOn(it.id) and COL.blue or COL.grey, UDim2.fromOffset(0, 32), 14,
+				{ LayoutOrder = k })
+			b.MouseButton1Click:Connect(function() onClick(it.id) end)
 		end
-		mk("TextLabel", { BackgroundTransparency = 1, Position = UDim2.new(0, s + 10, 0, 0),
-			Size = UDim2.new(1, -(s + 12), 1, 0), Font = Enum.Font.FredokaOne, Text = text,
-			TextColor3 = isOn and WHITE or Color3.fromRGB(205, 215, 235), TextXAlignment = Enum.TextXAlignment.Left,
-			TextSize = math.floor(rowH * 0.58), TextTruncate = Enum.TextTruncate.AtEnd }, row)
-		row.MouseButton1Click:Connect(onClick)
 	end
+	local P = {}   -- actions du panneau (remplies plus bas : close / commit / resetAll)
 	local fill
 	fill = function()
-		for _, c in ipairs(list:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
+		for _, c in ipairs(panel:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
 		order = 0
-		rowH = math.clamp(math.floor(panel.AbsoluteSize.Y * 0.072), 18, 34)
 		local f = draft.f
-		local function flag(key)
-			optionRow(FLAG_LABEL[key], f[key] == true, false, function() f[key] = not f[key] ; fill() end)
-		end
-		header("AVAILABILITY")
-		flag("avail") ; flag("sold") ; flag("low")
-		header("OWNERSHIP")
-		flag("owned") ; flag("notOwned")
-		header("TYPE")
-		if typesState ~= "done" then
-			mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, rowH), Font = Enum.Font.FredokaOne,
-				Text = "Loading types…", TextColor3 = Color3.fromRGB(150, 160, 185), TextXAlignment = Enum.TextXAlignment.Left,
-				TextSize = math.floor(rowH * 0.55), LayoutOrder = nextO() }, list)
-		else
-			local present = {}
+		-- en-tête : FILTERS + X (comme le X des Paramètres)
+		local head = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = nextO() }, panel)
+		mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, -40, 1, 0), Font = Enum.Font.FredokaOne,
+			Text = "FILTERS", TextColor3 = WHITE, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Left }, head)
+		local x = button3D(head, "X", COL.red, UDim2.fromOffset(32, 32), 17,
+			{ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0) })
+		x.MouseButton1Click:Connect(function() P.close() end)
+
+		title("SHOW")
+		local showItems = {}
+		for _, s2 in ipairs(SHOW) do table.insert(showItems, { id = s2[1], label = s2[2] }) end
+		pillGrid(showItems, function(id) return f[id] == true end, function(id) f[id] = not f[id] ; fill() end)
+
+		-- TYPE : seulement si le shop contient au moins 2 types différents
+		if typesState == "done" then
+			local present, list = {}, {}
 			for _, ugc in ipairs(UGC_CONFIG.Items) do present[SF.typeOf[ugc.AssetId] or "Other"] = true end
-			for _, t in ipairs(TYPE_ORDER) do
-				if present[t] then
-					optionRow(t, f.types[t] == true, false, function()
-						f.types[t] = (not f.types[t]) or nil ; fill()
-					end)
-				end
+			for _, t in ipairs(TYPE_ORDER) do if present[t] then table.insert(list, { id = t, label = t }) end end
+			if #list >= 2 then
+				title("TYPE")
+				pillGrid(list, function(id) return f.types[id] == true end,
+					function(id) f.types[id] = (not f.types[id]) or nil ; fill() end)
 			end
 		end
-		header("OTHER")
-		flag("new")
-		header("SORT BY")
-		for _, so in ipairs(SORTS) do
-			optionRow(so.label, draft.sort == so.id, true, function() draft.sort = so.id ; fill() end)
-		end
-	end
-	onTypesLoaded = function() if panel.Visible and draft then fill() end end
 
-	-- ── affichage de l'état actif (bouton + pastilles + grille décalée) ──
+		title("SORT BY")
+		pillGrid(SORTS, function(id) return draft.sort == id end, function(id) draft.sort = id ; fill() end)
+
+		-- CANCEL · RESET · APPLY
+		local bar = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 40), LayoutOrder = nextO() }, panel)
+		local cancelB = button3D(bar, "CANCEL", COL.grey, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(0, 0, 0, 0) })
+		local resetB  = button3D(bar, "RESET", COL.red, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(1 / 3, 3, 0, 0) })
+		local applyB  = button3D(bar, "APPLY", COL.green, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(2 / 3, 6, 0, 0) })
+		cancelB.MouseButton1Click:Connect(function() P.close() end)
+		resetB.MouseButton1Click:Connect(function() P.close() ; P.resetAll() end)
+		applyB.MouseButton1Click:Connect(function()
+			SF.f, SF.sort = draft.f, draft.sort
+			P.close()
+			P.commit()
+		end)
+	end
+
+	-- ── état actif visible : bouton + pastilles + grille décalée ──
 	local renderChips
 	local function paintButton()
 		local n = SF.count()
-		btnLbl.Text = n > 0 and ("FILTER (" .. n .. ")") or "FILTER"
-		btnStroke.Color = n > 0 and YELLOW or CYAN
-		btnArrow.TextColor3 = n > 0 and YELLOW or CYAN
-		btnArrow.Text = panel.Visible and "▲" or "▼"
+		flbl.Text = n > 0 and ("FILTER (" .. n .. ")") or "FILTER"
+		-- filtres actifs : le bouton passe en JAUNE (on voit tout de suite qu'un filtre est actif)
+		frecolor(n > 0 and { YELLOW, Color3.fromRGB(205, 150, 30), Color3.fromRGB(120, 85, 10) } or COL.blue)
+		farrow.Text = panel.Visible and "▲" or "▼"
 	end
 	local function commit()
 		paintButton()
@@ -2297,51 +2340,51 @@ do
 		SF.sort = "default"
 		commit()
 	end
-	local function chip(text, col, onX, orderN)
-		local c = mk("TextButton", { AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 0.82, 0),
-			BackgroundColor3 = col, Text = "", AutoButtonColor = true, LayoutOrder = orderN }, chipsBar)
-		round(c, UDim.new(1, 0)) ; outline(c, WHITE, 1)
+	local function chip(text, colr, onClick, orderN)
+		local h = chipsBar.AbsoluteSize.Y > 4 and chipsBar.AbsoluteSize.Y or 24
+		local c = mk("TextButton", { AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 0, math.floor(h * 0.84)),
+			BackgroundColor3 = colr, Text = "", AutoButtonColor = true, LayoutOrder = orderN }, chipsBar)
+		round(c, 999)
 		mk("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, c)
-		local l = mk("TextLabel", { BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.X,
-			Size = UDim2.new(0, 0, 1, 0), Font = Enum.Font.FredokaOne, Text = text .. (onX and "   X" or ""),
-			TextColor3 = WHITE, TextSize = 14 }, c)
-		local h = chipsBar.AbsoluteSize.Y
-		if h > 4 then l.TextSize = math.clamp(math.floor(h * 0.5), 9, 18) end
-		c.MouseButton1Click:Connect(onX or function() end)
+		mk("TextLabel", { BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 1, 0),
+			Font = Enum.Font.FredokaOne, Text = text, TextColor3 = WHITE,
+			TextSize = math.clamp(math.floor(h * 0.5), 10, 16) }, c)
+		c.MouseButton1Click:Connect(onClick)
 	end
 	renderChips = function()
 		for _, c in ipairs(chipsBar:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
 		local on = SF.count() > 0
 		chipsBar.Visible = on
-		-- la grille descend pour laisser la place aux pastilles (sa largeur ne change pas)
 		ScrollingFrame.Position = on and UDim2.new(sfPos.X.Scale, sfPos.X.Offset, sfPos.Y.Scale + CHIP_H + 0.006, sfPos.Y.Offset) or sfPos
 		ScrollingFrame.Size = on and UDim2.new(sfSize.X.Scale, sfSize.X.Offset, sfSize.Y.Scale - CHIP_H - 0.006, sfSize.Y.Offset) or sfSize
 		if not on then return end
 		local n = 0
 		local function nx() n += 1 return n end
-		chip("RESET ALL", RED, resetAll, nx())
-		for _, key in ipairs({ "avail", "sold", "low", "owned", "notOwned", "new" }) do
-			if SF.f[key] then chip(FLAG_LABEL[key], DARK2, function() SF.f[key] = false ; commit() end, nx()) end
+		chip("RESET ALL", COL.red[2], resetAll, nx())
+		for _, x in ipairs(SHOW) do
+			local key = x[1]
+			if SF.f[key] then chip(x[2] .. "  X", COL.grey[2], function() SF.f[key] = false ; commit() end, nx()) end
 		end
 		for _, t in ipairs(TYPE_ORDER) do
-			if SF.f.types[t] then chip(t, DARK2, function() SF.f.types[t] = nil ; commit() end, nx()) end
+			if SF.f.types[t] then chip(t .. "  X", COL.grey[2], function() SF.f.types[t] = nil ; commit() end, nx()) end
 		end
 		for _, so in ipairs(SORTS) do
-			if so.chip and SF.sort == so.id then chip(so.chip, Color3.fromRGB(40, 70, 130), function() SF.sort = "default" ; commit() end, nx()) end
+			if so.id ~= "default" and SF.sort == so.id then
+				chip(so.label .. "  X", COL.blue[2], function() SF.sort = "default" ; commit() end, nx())
+			end
 		end
 	end
 	SF.onRender = function(shown)
 		empty.Visible = shown == 0 and SF.count() > 0
-		if (SF.f.owned or SF.f.notOwned) and ownedState ~= "done" then
-			empty.Visible = false   -- vérification « Owned » en cours : pas de faux « aucun résultat »
-		end
+			and not ((SF.f.owned or SF.f.notOwned) and ownedState ~= "done")   -- pas de faux « aucun résultat »
 	end
 
 	local function openPanel()
 		draft = copyState()
-		panel.Visible = true
 		loadTypes()
+		place()
 		fill()
+		panel.Visible = true
 		paintButton()
 	end
 	local function closePanel()
@@ -2349,19 +2392,15 @@ do
 		draft = nil
 		paintButton()
 	end
-	btn.MouseButton1Click:Connect(function()
+	P.close, P.commit, P.resetAll = closePanel, commit, resetAll
+
+	fbtn.MouseButton1Click:Connect(function()
 		if panel.Visible then closePanel() else openPanel() end
 	end)
-	applyB.MouseButton1Click:Connect(function()
-		if draft then SF.f, SF.sort = draft.f, draft.sort end
-		closePanel()
-		commit()
-	end)
-	cancelB.MouseButton1Click:Connect(closePanel)
-	resetB.MouseButton1Click:Connect(function() closePanel() ; resetAll() end)
-	emptyReset.MouseButton1Click:Connect(resetAll)
+	emptyBtn.MouseButton1Click:Connect(resetAll)
 	ShopFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-		if not ShopFrame.Visible and panel.Visible then closePanel() end
+		if ShopFrame.Visible then task.defer(place) elseif panel.Visible then closePanel() end
 	end)
+	task.defer(place)
 	paintButton()
 end

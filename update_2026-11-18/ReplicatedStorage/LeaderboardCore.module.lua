@@ -43,7 +43,7 @@ local Core = {}
 --   "modern"  : look Paramètres / CombatHUD + ALL / FRIENDS / FIND ME + ta ligne
 --   "classic" : EXACTEMENT l'apparence d'avant (le code d'origine est inchangé)
 --==============================================================================
-local STYLE = { Style = "modern", Tabs = true, YourRow = true, UpdateBar = true, FriendsCacheSeconds = 600 }
+local STYLE = { Style = "classic", Tabs = true, YourRow = false, UpdateBar = false, FriendsCacheSeconds = 600 }
 do
 	local m = ReplicatedStorage:FindFirstChild("LeaderboardStyle")
 	if m and m:IsA("ModuleScript") then
@@ -53,7 +53,8 @@ do
 		end
 	end
 end
-local MODERN = STYLE.Style ~= "classic"
+local MODERN = STYLE.Style == "modern"
+local TABS = STYLE.Tabs ~= false   -- ALL / FRIENDS / FIND ME (marche avec les deux looks)
 Core.Style = STYLE
 
 -- même famille de police que les Paramètres et le CombatHUD
@@ -961,6 +962,12 @@ local function applyEntry(E, rank, data)
 
 	local raw = data[cfg.valueKey] or 0
 	E.valLbl.Text = (cfg.formatValue or fmtDefault)(raw)
+	-- 👥 ami HORS du top (onglet FRIENDS) : « -- » à la place du rang, rangé après le top
+	if data.noRank then
+		E.rankLbl.Text = "--"
+		E.holder.LayoutOrder = 100000 + (tonumber(data._ord) or 0)
+		if data.pending then E.valLbl.Text = "…" end
+	end
 
 	-- contour du body : doré pour les VIP, neutre pour tout le monde d'autre
 	if isVip then
@@ -1223,6 +1230,76 @@ local function buildBoardUI(cfg, sg)
 	local tc = Instance.new("UITextSizeConstraint", title)
 	tc.MaxTextSize = 46; tc.MinTextSize = 20
 
+	-- 👥 ALL / FRIENDS (à gauche) + 🔍 FIND ME discret (à droite), dans l'en-tête d'avant.
+	--    Le titre reste centré : on lui laisse juste la place du milieu.
+	local tabs = nil
+	if TABS then
+		title.AnchorPoint = Vector2.new(0.5, 0)
+		title.Position    = UDim2.new(0.5, 0, 0, 0)
+		title.Size        = UDim2.new(0.52, 0, 1, 0)
+		local accent = p.accent1 or Color3.new(1, 1, 1)
+		local dark   = p.panel or Color3.fromRGB(20, 20, 26)
+
+		local seg = Instance.new("Frame")
+		seg.Name = "Tabs"
+		seg.AnchorPoint = Vector2.new(0, 0.5)
+		seg.Position = UDim2.new(0.012, 0, 0.5, 0)
+		seg.Size = UDim2.new(0.21, 0, 0.6, 0)
+		seg.BackgroundColor3 = dark
+		seg.BorderSizePixel = 0
+		seg.Parent = header
+		Instance.new("UICorner", seg).CornerRadius = UDim.new(1, 0)
+		local ss = Instance.new("UIStroke") ; ss.Color = accent ; ss.Thickness = 2 ; ss.Transparency = 0.35 ; ss.Parent = seg
+		local function half(text, x)
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(0.5, -4, 1, -8)
+			b.Position = UDim2.new(x, x == 0 and 4 or 0, 0, 4)
+			b.BackgroundColor3 = accent
+			b.BackgroundTransparency = 1
+			b.AutoButtonColor = false
+			b.Text = text
+			b.Font = Enum.Font.FredokaOne
+			b.TextScaled = true
+			b.TextColor3 = p.muted or Color3.fromRGB(170, 170, 180)
+			b.Parent = seg
+			Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+			local c = Instance.new("UITextSizeConstraint", b) ; c.MaxTextSize = 24 ; c.MinTextSize = 8
+			local pd = Instance.new("UIPadding", b) ; pd.PaddingTop = UDim.new(0.14, 0) ; pd.PaddingBottom = UDim.new(0.14, 0)
+			return b
+		end
+		local allB = half("ALL", 0)
+		local frB  = half("FRIENDS", 0.5)
+
+		local find = Instance.new("TextButton")
+		find.Name = "FindMe"
+		find.AnchorPoint = Vector2.new(1, 0.5)
+		find.Position = UDim2.new(0.988, 0, 0.5, 0)
+		find.Size = UDim2.new(0, 0, 0.6, 0)
+		find.BackgroundColor3 = dark
+		find.BackgroundTransparency = 0.2
+		find.AutoButtonColor = true
+		find.Text = "🔍"
+		find.TextScaled = true
+		find.TextColor3 = Color3.new(1, 1, 1)
+		find.Parent = header
+		Instance.new("UIAspectRatioConstraint", find).AspectRatio = 1
+		Instance.new("UICorner", find).CornerRadius = UDim.new(1, 0)
+		local fs = Instance.new("UIStroke") ; fs.Color = accent ; fs.Thickness = 1.5 ; fs.Transparency = 0.5 ; fs.Parent = find
+		local fp = Instance.new("UIPadding", find) ; fp.PaddingTop = UDim.new(0.2, 0) ; fp.PaddingBottom = UDim.new(0.2, 0)
+
+		tabs = {
+			all = allB, friends = frB, findMe = find, frL = frB, friendsText = "FRIENDS",
+			setSelected = function(which)
+				for _, pair in ipairs({ { allB, "all" }, { frB, "friends" } }) do
+					local on = pair[2] == which
+					pair[1].BackgroundTransparency = on and 0 or 1
+					pair[1].TextColor3 = on and Color3.fromRGB(20, 16, 8) or (p.muted or Color3.fromRGB(170, 170, 180))
+				end
+			end,
+		}
+		tabs.setSelected("all")
+	end
+
 	local divider = Instance.new("Frame")
 	divider.Size             = UDim2.new(0.95, 0, 0, 2)
 	divider.Position         = UDim2.new(0.025, 0, 0.09, 1)
@@ -1314,6 +1391,7 @@ local function buildBoardUI(cfg, sg)
 		scroll     = scroll,
 		footer     = footer,
 		refreshLbl = refreshLbl,
+		tabs       = tabs,
 	}
 end
 
@@ -1572,6 +1650,7 @@ end
 -- 👥 AMIS (lus une fois, gardés en mémoire) — pour l'onglet FRIENDS
 --==============================================================================
 local friendSet, friendsAt, friendsLoading = nil, -1e9, false
+local friendNames = {}   -- [userId] = nom affiché (pour les amis hors du top)
 local friendWaiters = {}
 local function withFriends(cb)
 	if friendSet and os.clock() - friendsAt < (STYLE.FriendsCacheSeconds or 600) then cb() return end
@@ -1583,7 +1662,10 @@ local function withFriends(cb)
 		local ok = pcall(function()
 			local pages = Players:GetFriendsAsync(LocalPlayer.UserId)
 			for _ = 1, 8 do   -- 8 pages max (≈ 400 amis) : largement assez
-				for _, f in ipairs(pages:GetCurrentPage()) do set[f.Id] = true end
+				for _, f in ipairs(pages:GetCurrentPage()) do
+					set[f.Id] = true
+					friendNames[f.Id] = f.DisplayName or f.Username
+				end
 				if pages.IsFinished then break end
 				pages:AdvanceToNextPageAsync()
 			end
@@ -1672,14 +1754,73 @@ function Core.mount(cfg)
 			MODERN_PALETTE.muted:ToHex(), math.min(#ctx.data, cfg.topSize))
 	end
 
-	-- 🏆 liste montrée par un board : tout le monde, ou toi + tes amis (rang réel gardé)
-	local function renderBoard(b)
+	-- 👥 score des amis HORS du top (FriendsBoard_Server), gardé 5 min
+	local BOARD_KEY = ({ GetPointsLeaderboard = "Points", GetRebirthLeaderboard = "Rebirths",
+		GetStreakLeaderboard = "Streak", GetKillLeaderboard = "Kills", GetLeaderboardData = "Donations" })[cfg.getFunctionName or ""]
+	local friendVals, friendValsAt, friendValsBusy = {}, -1e9, false
+	local renderBoard
+	local function fetchFriendValues(ids)
+		if not BOARD_KEY or friendValsBusy or #ids == 0 then return end
+		if os.clock() - friendValsAt < 300 then return end
+		local fn = ReplicatedStorage:FindFirstChild("GetFriendsBoardValues")
+		if not fn then return end
+		friendValsBusy = true
+		task.spawn(function()
+			local res
+			for _ = 1, 3 do
+				local ok, r = pcall(function() return fn:InvokeServer(BOARD_KEY, ids) end)
+				if ok and type(r) == "table" and not r.throttled then res = r break end
+				task.wait(3.2)
+			end
+			friendValsBusy = false
+			friendValsAt = os.clock()
+			if type(res) == "table" then
+				for k, v in pairs(res) do
+					local id = tonumber(k)
+					if id and type(v) == "number" then friendVals[id] = v end
+				end
+			end
+			for _, bb in ipairs(ctx.boards) do
+				if bb.filter == "friends" and bb.scroll and bb.scroll.Parent then renderBoard(bb) end
+			end
+		end)
+	end
+
+	-- 🏆 liste montrée par un board : tout le monde, ou toi + TOUS tes amis
+	--    (ceux du top avec leur vraie place, les autres avec « -- » en dessous)
+	renderBoard = function(b)
 		if not ctx.data then return end
 		if b.filter == "friends" then
 			local me = LocalPlayer and LocalPlayer.UserId
-			local out = {}
+			local out, inTop = {}, {}
 			for _, e in ipairs(ctx.data) do
-				if e.userId == me or (friendSet and friendSet[e.userId]) then table.insert(out, e) end
+				if e.userId == me or (friendSet and friendSet[e.userId]) then
+					table.insert(out, e)
+					inTop[e.userId] = true
+				end
+			end
+			-- amis (et toi) hors du top : affichés quand même, rang « -- »
+			local others, missing = {}, {}
+			local function addOther(id, name)
+				if inTop[id] then return end
+				local v = friendVals[id]
+				if v == nil then table.insert(missing, id) end
+				table.insert(others, { userId = id, name = name, [cfg.valueKey] = v or 0,
+					noRank = true, pending = (v == nil) and BOARD_KEY ~= nil })
+			end
+			if me then addOther(me, LocalPlayer.DisplayName) end
+			for id in pairs(friendSet or {}) do addOther(id, friendNames[id] or ("User " .. id)) end
+			table.sort(others, function(a, c)
+				local va, vc = a[cfg.valueKey] or 0, c[cfg.valueKey] or 0
+				if va ~= vc then return va > vc end
+				return tostring(a.name) < tostring(c.name)
+			end)
+			for i, e in ipairs(others) do e._ord = i ; e.rank = 9999 ; table.insert(out, e) end
+			if #missing > 0 then
+				table.sort(missing)
+				local ids = {}
+				for i = 1, math.min(#missing, 50) do ids[i] = missing[i] end
+				fetchFriendValues(ids)
 			end
 			if #out == 0 then
 				b.view.lastList = nil   -- sinon un repaint VIP réafficherait la liste complète ici
@@ -1697,7 +1838,7 @@ function Core.mount(cfg)
 		for _, b in ipairs(ctx.boards) do
 			if b.scroll and b.scroll.Parent then
 				if b.loader then b.loader:Destroy(); b.loader = nil end
-				if MODERN then renderBoard(b) else b.view:render(ctx.data) end
+				if MODERN or TABS then renderBoard(b) else b.view:render(ctx.data) end
 			end
 		end
 	end
@@ -1913,12 +2054,13 @@ function Core.mount(cfg)
 			barFill    = ui.barFill,
 		}
 		b.view = Core.newListView(ui.scroll, cfg)
-		b.view.useDataRank = MODERN
+		b.view.useDataRank = MODERN or TABS
 		table.insert(ctx.boards, b)
 
 		if ui.tabs then
 			local t = ui.tabs
 			local function paint()
+				if t.setSelected then t.setSelected(b.filter) return end   -- look d'avant
 				t.allColor(b.filter == "all" and BTN.blue or BTN.grey)
 				t.friendsColor(b.filter == "friends" and BTN.blue or BTN.grey)
 			end
@@ -1934,7 +2076,7 @@ function Core.mount(cfg)
 				b.scroll.CanvasPosition = Vector2.zero
 				t.frL.Text = "…"
 				withFriends(function()
-					t.frL.Text = "FRIENDS"
+					t.frL.Text = t.friendsText or "FRIENDS"
 					if b.filter == "friends" and b.scroll.Parent then renderBoard(b) end
 				end)
 			end)
@@ -1946,7 +2088,7 @@ function Core.mount(cfg)
 		end
 
 		if ctx.data then
-			if MODERN then renderBoard(b) else b.view:render(ctx.data) end   -- board ajouté en cours de partie
+			if MODERN or TABS then renderBoard(b) else b.view:render(ctx.data) end   -- board ajouté en cours de partie
 		else
 			b.loader = createLoader(ui.content, cfg)
 			task.delay(cfg.firstLoadDelay, function()
