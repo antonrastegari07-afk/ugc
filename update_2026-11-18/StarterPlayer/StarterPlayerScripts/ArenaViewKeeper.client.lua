@@ -8,6 +8,9 @@
 --     • mode LOCK (3e personne)  → caméra verrouillée derrière l'épaule, souris
 --       bloquée au centre, perso tourné vers la caméra (même distance / décalage) ;
 --     • mode 1re PERSONNE         → reste en 1re personne.
+--   🆕 Touche B (manette : croix ←) : change la vue MÊME SANS ARME, et le petit panneau
+--      des contrôles (B = Views, H = Hide Controls) reste affiché au même endroit
+--      que celui des armes.
 --   Quand tu ressors une arme, elle reprend la caméra exactement là où tu regardais.
 --   Hors de l'arène : rien ne change.
 --
@@ -31,9 +34,16 @@ local UserInputService  = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local Shared = require(ReplicatedStorage:WaitForChild("WeaponSystem"):WaitForChild("WeaponSharedState"))
 local IS_TOUCH = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
--- mobile / console : l'arme force une vraie 1re personne → on la garde sans arme.
--- PC : en 1re personne l'arme laisse la caméra normale de Roblox → rien à garder.
-local FP_LOCKED = UserInputService.TouchEnabled or game:GetService("GuiService"):IsTenFootInterface()
+-- 1re personne sans arme : vraie 1re personne verrouillée (sinon B ne changerait rien sans arme)
+local FP_LOCKED = true
+local SHOW_CONTROLS = true   -- panneau B / H sans arme (PC). false = pas de panneau
+
+-- touche manette « changer de vue » (même réglage que les armes)
+local PAD_TOGGLE = Enum.KeyCode.DPadLeft
+pcall(function()
+	local cs = require(ReplicatedStorage.WeaponSystem:WaitForChild("CombatSettings", 10))
+	if cs and cs.Gamepad and cs.Gamepad.ToggleView then PAD_TOGGLE = cs.Gamepad.ToggleView end
+end)
 
 local BIND = "ArenaViewKeeper"
 local bound = false
@@ -85,6 +95,8 @@ local function step()
 		or camera.CameraType ~= Enum.CameraType.Custom
 		or camera:GetAttribute("KeepScriptable")
 		or workspace:GetAttribute("AnimEditorFreeze")
+	-- panneau B / H : seulement sans arme et vivant (une arme affiche le sien)
+	showPanel(hum ~= nil and hum.Health > 0 and not Shared.AnyEquipped())
 	if blocked then
 		-- arme reprise : elle gère la souris elle-même, on ne remet donc PAS la souris
 		restore(false)
@@ -133,6 +145,110 @@ local function step()
 	Shared.SetCamera(math.atan2(-lv.X, -lv.Z), math.asin(math.clamp(lv.Y, -1, 1)))
 end
 
+--════════════════════════════════════════════════════════════
+-- ⌨️ PANNEAU DES CONTRÔLES SANS ARME (même look et même place que celui des armes)
+--════════════════════════════════════════════════════════════
+local panel, rows, controlsHidden = nil, {}, false
+local function buildPanel()
+	if panel or IS_TOUCH or not SHOW_CONTROLS then return end
+	local pg = player:FindFirstChild("PlayerGui")
+	if not pg then return end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "UnarmedControlsGui"
+	gui.ResetOnSpawn = false
+	gui.Enabled = false
+	gui.Parent = pg
+	-- même emplacement que l'AmmoHud des armes (coin bas-droite)
+	local anchor = Instance.new("Frame")
+	anchor.BackgroundTransparency = 1
+	anchor.Size = UDim2.new(0, 200, 0, 50)
+	anchor.Position = UDim2.new(1, -265, 1, -60)
+	anchor.Parent = gui
+	local keys = { { key = "B", action = "Views" }, { key = "H", action = "Hide Controls" } }
+	local chip, rowH = 22, 26
+	local list = Instance.new("Frame")
+	list.Name = "KeyInstructions"
+	list.BackgroundTransparency = 1
+	list.AnchorPoint = Vector2.new(0, 1)
+	list.Size = UDim2.new(1, 0, 0, #keys * rowH)
+	list.Position = UDim2.new(0, 0, 1, 0)
+	list.Parent = anchor
+	for i, k in ipairs(keys) do
+		local row = Instance.new("Frame")
+		row.Name = "Row_" .. k.key
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.new(1, 0, 0, chip)
+		row.Position = UDim2.new(0, 0, 0, (i - 1) * rowH)
+		row.Parent = list
+		local group = Instance.new("Frame")
+		group.BackgroundTransparency = 1
+		group.Size = UDim2.new(0, chip + 6 + 80, 1, 0)
+		group.AnchorPoint = Vector2.new(0.5, 0.5)
+		group.Position = UDim2.new(0.5, 0, 0.5, 0)
+		group.Parent = row
+		local box = Instance.new("Frame")
+		box.Size = UDim2.new(0, chip, 0, chip)
+		box.AnchorPoint = Vector2.new(0, 0.5)
+		box.Position = UDim2.new(0, 0, 0.5, 0)
+		box.BackgroundColor3 = Color3.new(0, 0, 0)
+		box.BackgroundTransparency = 0.4
+		box.BorderSizePixel = 0
+		box.Parent = group
+		Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4)
+		local bs = Instance.new("UIStroke") ; bs.Color = Color3.new(0, 0, 0) ; bs.Thickness = 1 ; bs.Parent = box
+		local letter = Instance.new("TextLabel")
+		letter.Size = UDim2.fromScale(1, 1)
+		letter.BackgroundTransparency = 1
+		letter.Text = k.key
+		letter.TextColor3 = Color3.new(1, 1, 1)
+		letter.TextStrokeTransparency = 0.4
+		letter.Font = Enum.Font.GothamBold
+		letter.TextSize = 14
+		letter.Parent = box
+		local desc = Instance.new("TextLabel")
+		desc.Name = "Desc"
+		desc.Size = UDim2.new(0, 80, 1, 0)
+		desc.Position = UDim2.new(0, chip + 6, 0, 0)
+		desc.BackgroundTransparency = 1
+		desc.Text = k.action
+		desc.TextColor3 = Color3.fromRGB(220, 220, 220)
+		desc.TextStrokeTransparency = 0.3
+		desc.Font = Enum.Font.GothamBold
+		desc.TextSize = 13
+		desc.TextXAlignment = Enum.TextXAlignment.Left
+		desc.Parent = group
+		rows[k.key] = { row = row, desc = desc }
+	end
+	panel = gui
+end
+
+local function paintControls()
+	if not panel then return end
+	rows.B.row.Visible = not controlsHidden
+	rows.H.desc.Text = controlsHidden and "Reveal Controls" or "Hide Controls"
+end
+
+local function showPanel(on)
+	if on then buildPanel() end
+	if panel and panel.Enabled ~= on then panel.Enabled = on end
+end
+
+-- sans arme en arène : rien d'autre n'écoute B / H → c'est nous
+local function unarmedInArena()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	return inArena() and hum and hum.Health > 0 and not Shared.AnyEquipped()
+end
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp or not unarmedInArena() then return end
+	if (input.KeyCode == Enum.KeyCode.B and not IS_TOUCH) or input.KeyCode == PAD_TOGGLE then
+		Shared.ToggleMode()   -- même fonction que les armes (le choix est aussi sauvegardé)
+	elseif input.KeyCode == Enum.KeyCode.H and not IS_TOUCH then
+		controlsHidden = not controlsHidden
+		paintControls()
+	end
+end)
+
 local function refresh()
 	if inArena() then
 		if not bound then
@@ -143,6 +259,7 @@ local function refresh()
 		bound = false
 		RunService:UnbindFromRenderStep(BIND)
 		restore(true)
+		showPanel(false)
 		-- une arme rangée en sortant de l'arène peut remettre notre décalage un peu après
 		task.delay(0.5, clearOurOffset)
 		task.delay(1.5, clearOurOffset)

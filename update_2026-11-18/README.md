@@ -1,25 +1,37 @@
-# Mise à jour du 18/11/2026 — guide d'installation
+# Mise à jour du 18/11/2026 — installation + ce qui change
 
-Tous les scripts sont rangés **exactement comme dans Roblox Studio** (même dossier, même nom).
-L'extension indique le type d'objet :
+## ⚡ INSTALLATION RAPIDE (recommandée, environ 2 minutes)
 
-| Extension | Objet Studio |
-|---|---|
-| `.server.lua` | **Script** |
-| `.client.lua` | **LocalScript** |
-| `.module.lua` | **ModuleScript** |
+1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous* (sécurité en plus).
+2. Dans Studio, fais un clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18.rbxmx`.
+   Un dossier `UPDATE_2026_11_18` apparaît dans le Workspace. Les scripts dedans sont désactivés et ne font rien.
+3. Ouvre la barre de commande : *Affichage (View) ▸ Barre de commande (Command Bar)*. Colle cette ligne et appuie sur Entrée :
+   ```lua
+   require(workspace.UPDATE_2026_11_18.INSTALL)()
+   ```
+4. La fenêtre **Output** affiche le résultat : « ✅ INSTALLATION TERMINÉE : 28 scripts remplacés, 5 créés… ».
+   S'il y a une ligne « ⚠️ À VÉRIFIER », lis-la : ce script-là est à faire à la main (voir plus bas).
 
-« Remplacer » veut dire : ouvrir le script dans Studio, **tout sélectionner (Ctrl+A), supprimer, coller le contenu du fichier**.
-Ne change ni le nom ni l'emplacement du script.
-
-> ⚠️ Installe **tout** avant de publier. Plusieurs scripts dépendent des nouveaux modules
-> (`PopupControlConfig`, `PopupGate`, `LeaderboardStyle`) : s'ils manquent, ces scripts attendent indéfiniment.
+**Ce que fait l'installateur :**
+- Il range une **copie de chaque ancien script** dans `ServerStorage ▸ BACKUP_avant_maj_2026_11_18`. Pour revenir en arrière sur un script, tu recopies son code depuis là.
+- Il remplace le code des 28 scripts **sans changer leur nom, leur place, ni s'ils sont activés**.
+- Il crée les 5 nouveaux scripts.
+- Il retire le LocalScript `daily notification` en le déplaçant dans la copie de secours, sans le détruire.
+- Il supprime le dossier d'installation du Workspace.
+- **Ctrl+Z annule toute l'installation d'un coup.**
+- Il refuse de tourner une 2e fois, pour ne pas écraser la copie de secours.
+- Il ne publie rien : teste, puis publie toi-même.
 
 ---
 
-## Étape 1 — Créer les 5 nouveaux objets
+## 🖐️ INSTALLATION MANUELLE (si tu préfères, ou pour un script signalé ⚠️)
+« Remplacer » = ouvrir le script, **Ctrl+A**, supprimer, coller le contenu du fichier. Ne change ni le nom ni la place.
+Extension des fichiers : `.server.lua` = Script · `.client.lua` = LocalScript · `.module.lua` = ModuleScript.
 
-| Où dans Studio | Créer | Nom exact | Fichier |
+**A. Créer 5 objets**
+
+| Où | Type | Nom exact | Fichier |
 |---|---|---|---|
 | ReplicatedStorage | ModuleScript | `PopupControlConfig` | `ReplicatedStorage/PopupControlConfig.module.lua` |
 | ReplicatedStorage | ModuleScript | `PopupGate` | `ReplicatedStorage/PopupGate.module.lua` |
@@ -27,174 +39,134 @@ Ne change ni le nom ni l'emplacement du script.
 | ServerScriptService | Script | `PopupControl_Server` | `ServerScriptService/PopupControl_Server.server.lua` |
 | StarterPlayer ▸ StarterPlayerScripts | LocalScript | `ArenaViewKeeper` | `StarterPlayer/StarterPlayerScripts/ArenaViewKeeper.client.lua` |
 
-## Étape 2 — Remplacer le code de ces 27 scripts
+**B. Remplacer le code de 28 scripts** (le fichier a le même nom, dans le même dossier)
 
-### ServerScriptService (Scripts)
-| Script dans Studio | Fichier | Point |
-|---|---|---|
-| `checkpoints system` | `ServerScriptService/checkpoints system.server.lua` | 1 |
-| `anti fly/tp server` | `ServerScriptService/anti fly-tp server.server.lua` *(le « / » du nom Studio est remplacé par « - » dans le fichier)* | 1 |
-| `PLAYER UGC STATS` | `ServerScriptService/PLAYER UGC STATS.server.lua` | 2 |
-| `new donation board server` | `ServerScriptService/new donation board server.server.lua` | 3 |
-| `notif chat ` *(avec l'espace à la fin)* | `ServerScriptService/notif chat .server.lua` | 6 |
-| `DAILY TOOLs` | `ServerScriptService/DAILY TOOLs.server.lua` | 7 |
-| `10 died = offer 2500 points` | `ServerScriptService/10 died = offer 2500 points.server.lua` | 7 |
-| `time` | `ServerScriptService/time.server.lua` | 7 |
-| `STATS` | `ServerScriptService/STATS.server.lua` | 7 |
-| `ask favorite game` *(le Script)* | `ServerScriptService/ask favorite game.server.lua` | 7 |
-| `datastore alr ask favorite game` | `ServerScriptService/datastore alr ask favorite game.server.lua` | 7 |
-| `leave popup` *(le Script)* | `ServerScriptService/leave popup.server.lua` | 7 |
-| `server referal friend invite` | `ServerScriptService/server referal friend invite.server.lua` | 10 |
+| Dans Studio | Scripts |
+|---|---|
+| ServerScriptService | `checkpoints system` · `anti fly/tp server` (fichier : `anti fly-tp server`) · `PLAYER UGC STATS` · `new donation board server` · `notif chat ` (espace à la fin) · `DAILY TOOLs` · `10 died = offer 2500 points` · `time` · `STATS` · `ask favorite game` · `datastore alr ask favorite game` · `leave popup` · `server referal friend invite` |
+| ServerStorage ▸ `AdminClientScripts.` | `Admin client` |
+| ReplicatedStorage | `LeaderboardCore` · `WeaponSystem` ▸ `WeaponController` |
+| StarterGui | `ShiftLockButton` ▸ `ImageButton` ▸ `ShiftGUI` · `VIP offer` ▸ `make pop th add` · `UGCshop` ▸ `ShopFrame` ▸ ` UGC SHOP GENERATOR` (espace au début) |
+| StarterPlayer ▸ StarterPlayerScripts | `offers on screen` · `script proposer achat skip obby` · `EngageTrack` · `rebirth offer notify event` · `fenetre dachat gravity coil` · `Fenetre dachat fusion coil` · `Fenetre achat speedcoil` · `achat x2coin` |
+| StarterPlayer ▸ StarterCharacterScripts | `ask favorite game` |
 
-### ServerStorage
-| Script dans Studio | Fichier | Points |
-|---|---|---|
-| `AdminClientScripts` ▸ `Admin client` (LocalScript) | `ServerStorage/AdminClientScripts/Admin client.client.lua` | 2, 7 |
-
-### ReplicatedStorage (ModuleScripts)
-| Script dans Studio | Fichier | Point |
-|---|---|---|
-| `LeaderboardCore` | `ReplicatedStorage/LeaderboardCore.module.lua` | 8 |
-| `WeaponSystem` ▸ `WeaponController` | `ReplicatedStorage/WeaponSystem/WeaponController.module.lua` | 4 |
-
-### StarterGui (LocalScripts)
-| Script dans Studio | Fichier | Point |
-|---|---|---|
-| `ShiftLockButton` ▸ `ImageButton` ▸ `ShiftGUI` | `StarterGui/ShiftLockButton/ImageButton/ShiftGUI.client.lua` | 5, vue PvP |
-| `VIP offer` ▸ `make pop th add` | `StarterGui/VIP offer/make pop th add.client.lua` | 7 |
-
-### StarterPlayer ▸ StarterPlayerScripts (LocalScripts)
-| Script dans Studio | Fichier | Points |
-|---|---|---|
-| `offers on screen` | `StarterPlayer/StarterPlayerScripts/offers on screen.client.lua` | 7, 10 |
-| `script proposer achat skip obby` | `StarterPlayer/StarterPlayerScripts/script proposer achat skip obby.client.lua` | 7 |
-| `EngageTrack` | `StarterPlayer/StarterPlayerScripts/EngageTrack.client.lua` | 7 |
-| `rebirth offer notify event` | `StarterPlayer/StarterPlayerScripts/rebirth offer notify event.client.lua` | 7 |
-| `fenetre dachat gravity coil` | `StarterPlayer/StarterPlayerScripts/fenetre dachat gravity coil.client.lua` | 7 |
-| `Fenetre dachat fusion coil` | `StarterPlayer/StarterPlayerScripts/Fenetre dachat fusion coil.client.lua` | 7 |
-| `Fenetre achat speedcoil` | `StarterPlayer/StarterPlayerScripts/Fenetre achat speedcoil.client.lua` | 7 |
-| `achat x2coin` | `StarterPlayer/StarterPlayerScripts/achat x2coin.client.lua` | 7 |
-
-### StarterPlayer ▸ StarterCharacterScripts (LocalScript)
-| Script dans Studio | Fichier | Point |
-|---|---|---|
-| `ask favorite game` | `StarterPlayer/StarterCharacterScripts/ask favorite game.client.lua` | 7 |
-
-## Étape 3 — Supprimer 1 script
-
-| Où | Supprimer | Pourquoi |
-|---|---|---|
-| StarterPlayer ▸ StarterPlayerScripts | LocalScript `daily notification` | La notif de récompense quotidienne est retirée. Le serveur (`DAILY TOOLs`) ne l'envoie plus. |
-
-**Rien d'autre à changer dans Studio.** Pas de propriété à modifier : le bouton lock passe lui-même
-son ScreenGui en `ResetOnSpawn = false` au lancement.
+**C. Supprimer** : StarterPlayer ▸ StarterPlayerScripts ▸ `daily notification`.
 
 ---
 
-## Ce que fait chaque point
+## 📋 CE QUI CHANGE, CONCRÈTEMENT
 
-### 1. Reload AFK → warnings TP
-- Le retour d'AFK était déjà protégé contre les faux « TP ».
-- **Nouveau :** la position n'est sauvegardée que si le joueur est **posé sur un décor fixe**. Les autres cas sont refusés : en l'air, jetpack, tyrolienne, plateforme mobile, cachette secrète, ragdoll. Le joueur revient alors sur son checkpoint, comme avant.
-- **Corrigé :** un joueur **sans checkpoint sauvegardé** revenait au spawn au lieu de sa place.
-- **Vérification :** si l'anticheat détectait quoi que ce soit après un reload, la fiche admin affiche « 💤 Arrivé par reload AFK il y a X s ». Elle indique aussi la grâce « afk_reload » (8 s).
+### 1. Reload AFK
+- **Avant :**
+  - un joueur sans checkpoint sauvegardé revenait au **spawn** après le reload ;
+  - un joueur AFK en l'air, sur une plateforme mobile ou dans la cachette était replacé tel quel (dans le vide, etc.).
+- **Maintenant :**
+  - il revient **exactement à sa place**, checkpoint ou pas ;
+  - s'il n'était pas posé sur un décor fixe, il revient sur son checkpoint.
+- **Anticheat :** le reload était déjà protégé contre les faux « TP ». Si un signal arrivait quand même juste après, la fiche admin affiche « 💤 Arrivé par reload AFK il y a X s ».
 
-### 2. Profil admin
-- La fiche **MANAGE PLAYER** affiche des badges : 🛡️ ADMIN · 👑 VIP · ⚡ x2 / x5 / x10 PERM (achetés **ou** offerts), ou « Aucun VIP / boost perm ».
-- « En ligne il y a » : **« il y a 3 j 5 h »**, « il y a 4 h 12 min ». Plus jamais une date.
-- **Vraie cause corrigée :** les anciens joueurs ajoutés par le « rattrapage » gardaient pour toujours un drapeau qui forçait l'affichage d'une date, même après être revenus jouer.
-- Les heures de départ ne sont plus perdues quand un serveur ferme.
+### 2. Fiche joueur dans l'admin
+- **Badges :** 🛡️ ADMIN · 👑 VIP · ⚡ x2 / x5 / x10 PERM (acheté **ou** offert), ou « Aucun VIP / boost perm ».
+- **Dernière connexion :** « il y a 3 j 5 h », « il y a 4 h 12 min ». Plus jamais une date.
+- **Cause corrigée :** pour les anciens joueurs ajoutés par le rattrapage, un drapeau restait collé pour toujours et forçait l'affichage d'une date.
 
-### 3. Dons : effet + son sur tous les serveurs
-- Chaque don déclenche l'effet et le son du board sur **tous** les serveurs, et met leur classement à jour **tout de suite** (avant : toutes les 10 min).
-- Une rafale de dons ne relance pas l'effet plus d'une fois toutes les 3 s.
-- Coût : 1 message par don, aucune requête DataStore en plus.
+### 3. Dons
+- **Avant :** l'effet et le son du board ne jouaient que sur le serveur du don. Les autres boards se mettaient à jour toutes les 10 min.
+- **Maintenant :** effet + son sur **tous les serveurs**, et classement à jour **tout de suite** partout.
 
 ### 4. Curseur PvP mobile
-- Minimum **40 px** sur téléphone (avant : 26 px). Tablette, PC et console inchangés.
-- Réglable : `WeaponController` ▸ `Cursor.ImageMin`.
+- Minimum **40 px** sur téléphone (avant 26 px). Tablette, PC et console : pareil qu'avant.
 
 ### 5. Ton bouton lock (mobile)
-- L'état ON/OFF est **gardé après la mort** toute la session.
-- En arène PvP, il se met en pause (la caméra des armes gère tout) et revient tout seul à la sortie.
+- **Avant :** il se désactivait à chaque mort.
+- **Maintenant :** il **reste activé** toute la session. En arène, il laisse la place à la vue PvP (point 11) puis revient à la sortie.
 
-### 6. Achats de points
-- Le chat dit **« Pseudo bought 100,000 Points! »**, sans le prix en Robux.
+### 6. Chat des achats de points
+- « Pseudo bought 100,000 Points! », **sans** le prix en Robux.
 
 ### 7. Popups
-- **Notif de récompense quotidienne : retirée.** Bonus : 1 lecture DataStore de moins par joueur.
-- **Favori intelligent :**
-  - 1re demande quand le joueur **atteint** le checkpoint 4 (ou plus loin).
-  - S'il refuse : plus rien pendant la session. Redemandé dans une prochaine session, au moins 2 jours plus tard, puis 4 j, puis 8 j. Seulement après 10 min de jeu, juste après une progression, et jamais en arène. 4 fois maximum.
-  - S'il accepte : plus jamais.
-  - Tout est réglable dans l'admin.
-- **Admin ▸ 🔔 POPUPS (nouveau)** : chaque popup automatique s'active, se désactive et se règle (fréquence, délais, nombre de morts…). Les changements s'appliquent à tous les serveurs en quelques secondes.
-  - Popups concernés : VIP · Pass Skip Obby · carrousel d'offres · offre après des morts · points manquants pour une UGC · pads d'achat (coils, x2) · rappel d'event · favori.
-  - Mode **« seulement si le joueur est inactif depuis X min »** (5 min par défaut).
-  - **Pause minimum** entre deux popups.
-  - Bouton « Remettre les réglages d'origine ».
-  - Les réglages d'origine reproduisent **exactement** le comportement d'avant.
-- **Stats ▸ 💸 Achats & pubs ▸ 🔔 Popups refaites.** Pour chaque popup, en clair : affichages, joueurs, fenêtres d'achat, achats, % et Robux. Une phrase dit à quoi sert chaque popup. La pub et le popup de départ ont leurs propres mesures (pubs regardées, récompenses prises).
-- **Erreurs de stats corrigées :**
-  1. Seulement 3 popups étaient suivis sur 9.
-  2. Un clic dans le shop « volait » l'achat d'un popup automatique ouvert juste après. Maintenant, le plus récent des deux gagne.
-  3. Les packs de 1 000 / 2 500 points du **shop** étaient parfois comptés comme « Offre après des morts ».
-  4. Le popup VIP était compté deux fois.
-  5. « Joueurs / jour » était sous-estimé : les jours d'avant l'installation comptaient comme 0.
-  6. Les titres avec des fréquences écrites en dur (« toutes les 13 min ») sont renommés. L'historique déjà enregistré reste regroupé au bon endroit.
-- **Sécurité :**
-  - Le 2e script de favori (`datastore alr ask favorite game`) faisait une lecture DataStore par appel du client, sans limite : un tricheur pouvait vider le budget DataStore du serveur. Maintenant : 1 lecture max par session.
-  - La réponse au favori n'est acceptée que si on vient vraiment de poser la question.
+- **Notif de récompense quotidienne : retirée.**
+- **Demande de favori :**
+  - 1re fois quand le joueur atteint le checkpoint 4 (ou plus loin) ;
+  - s'il refuse, plus rien pendant sa session. Redemandée dans une prochaine session, 2 jours après au minimum, puis 4 j, puis 8 j ;
+  - seulement après 10 min de jeu, juste après une progression, jamais en arène, 4 fois maximum ;
+  - s'il accepte : plus jamais.
+- **Admin ▸ 🔔 POPUPS (nouvelle section)**, pour chaque popup automatique :
+  - popups concernés : VIP · Pass Skip Obby · carrousel d'offres · offre après des morts · points manquants pour une UGC · pads d'achat · rappel d'event · favori ;
+  - ON/OFF et fréquence ;
+  - mode « seulement si le joueur est inactif depuis X min » ;
+  - pause minimum entre deux popups ;
+  - bouton « Remettre les réglages d'origine ».
+  - Par défaut, tout marche **exactement comme avant**. Les changements s'appliquent à tous les serveurs en quelques secondes.
+- **Admin ▸ 📊 STATS ▸ Popups :** une fiche claire par popup (affichages, joueurs, fenêtres d'achat, achats, %, Robux), avec une phrase qui explique à quoi il sert.
+- **6 erreurs de stats corrigées :**
+  1. seulement 3 popups sur 9 étaient comptés ;
+  2. un clic dans le shop volait l'achat d'un popup automatique ;
+  3. les packs du shop étaient comptés comme « offre de morts » ;
+  4. le popup VIP était compté 2 fois ;
+  5. « joueurs / jour » était sous-estimé ;
+  6. les titres avec des fréquences écrites en dur ont été renommés, et l'historique reste regroupé.
+- **Sécurité :** un tricheur pouvait vider le budget DataStore du serveur avec le script de favori. C'est bloqué.
 - **Bug corrigé :** l'offre après des morts ne comptait jamais les morts de la toute première vie.
 
 ### 8. Leaderboards
-- Nouveau look, comme les Paramètres et le CombatHUD : panneau sombre, police BuilderSans, titre blanc, boutons 3D. La couleur de chaque board est gardée.
-- Fonctions reprises du jeu de boule :
-  - onglets **ALL / FRIENDS** (toi + tes amis, avec leur vraie place) ;
-  - **🔍 FIND ME** (défile jusqu'à toi et te fait clignoter) ;
-  - **ta ligne en bas** (« #12 YOU · 1.2M » ou « not in the top 100 yet ») ;
-  - barre **NEXT UPDATE**.
+- **Nouveau look** comme les Paramètres et le CombatHUD : panneau sombre, police BuilderSans, boutons 3D. La couleur de chaque board est gardée.
+- **Nouveaux boutons :**
+  - **ALL / FRIENDS** : toi et tes amis, avec leur vraie place ;
+  - **🔍 FIND ME** : défile jusqu'à toi et te fait clignoter.
+- **En bas du board :** ta ligne (« #12 YOU · 1.2M » ou « not in the top 100 yet ») et une barre **NEXT UPDATE**.
 - Le bouton DONATE du board de dons marche toujours.
-- **Revenir à l'apparence d'avant :** dans `ReplicatedStorage ▸ LeaderboardStyle`, mets `Style = "classic"`. C'est exactement l'ancien rendu.
+- **Revenir à l'ancien look :** dans `ReplicatedStorage ▸ LeaderboardStyle`, mets `Style = "classic"`.
 
-### Vue PvP gardée sans arme (nouveau script `ArenaViewKeeper`)
-- **Avant :** en arène, en vue « lock », ranger ton arme rendait la caméra libre de Roblox.
-- **Maintenant :** sans arme, la vue reste la même que celle des armes. En mode **lock**, la caméra reste derrière l'épaule, la souris reste bloquée au centre et le perso suit la caméra (même distance, même décalage).
-- **En 1re personne :** sur mobile et console, ça reste en 1re personne. Sur PC, l'arme utilise déjà la caméra normale de Roblox, donc rien ne change.
-- Quand tu ressors une arme, elle reprend la caméra **exactement là où tu regardais** : aucun saut.
-- **Hors arène :** rien ne change, et le script ne tourne même pas.
-- **Revenir à avant :** dans `ArenaViewKeeper`, mets `ENABLED = false` à la ligne 18, ou supprime le script.
-- Le bouton lock mobile ne s'ajoute pas par-dessus (pas de double décalage).
+### 9. Shop UGC : bouton FILTER (nouveau)
+- **Bouton FILTER ▼** en haut à droite de la grille, à droite de « NEW FREE UGC Weekly! », dans le style de la fenêtre (fond sombre, bord bleu clair).
+- **Le panneau qui s'ouvre**, avec des cases à cocher :
+  - **AVAILABILITY :** Available · Sold out · Low stock (30 % du stock ou moins) ;
+  - **OWNERSHIP :** Owned · Not owned (vérifié sur l'inventaire Roblox du joueur, une fois) ;
+  - **TYPE :** Hat · Hair · Face · Neck · Shoulder · Front · Back · Waist · Clothing · Shoes… (seulement les types présents dans ton shop) ;
+  - **OTHER :** NEW only.
+- **SORT BY (un seul choix) :** Shop order · Price high→low · Price low→high · Total stock most→least · Total stock least→most.
+- **Boutons :** **APPLY** applique · **CANCEL** ferme sans rien changer · **RESET** efface tout.
+- **Filtres actifs bien visibles :**
+  - le bouton devient **FILTER (3)** avec un bord jaune ;
+  - une rangée de pastilles apparaît au-dessus de la grille. Chaque **X** retire un filtre, **RESET ALL** efface tout.
+- Si rien ne correspond : « No UGC match your filters » + bouton **RESET FILTERS**.
+- Dans un même groupe, les cases s'additionnent (Hat **ou** Hair). Les groupes se combinent (Available **et** Hat).
+- **Performance :** tout se fait chez le joueur. Aucun appel au serveur du jeu, aucun DataStore.
 
 ### 10. Invitations d'amis
-- Le parrainage ne paie que si l'invité est un **vrai nouveau joueur** : moins de 10 min de jeu enregistrées avant cette session, et 1re arrivée il y a moins de 30 min. Sinon **personne** n'est payé.
-- Ça ferme les deux failles :
-  - deux amis qui s'invitent l'un l'autre à des jours différents ;
-  - inviter quelqu'un qui joue déjà.
-- Le parrain voit « Friend Already Played — invite rewards only count for friends who are NEW to the game ».
+- **Avant :**
+  - deux amis pouvaient s'inviter l'un l'autre à des jours différents (12 000 pts pour les mêmes amis) ;
+  - on pouvait « inviter » quelqu'un qui jouait déjà.
+- **Maintenant :** ça ne paie que si l'invité **découvre le jeu** (moins de 10 min de jeu, 1re arrivée il y a moins de 30 min). Sinon personne n'est payé, et le parrain voit « Friend Already Played ».
+
+### 11. Vue PvP sans arme (nouveau script `ArenaViewKeeper`)
+- **Avant :** en arène, en vue lock, ranger son arme rendait la caméra libre, et B ne faisait rien sans arme.
+- **Maintenant, sans arme en arène :**
+  - la vue reste **la même qu'avec une arme**. En lock : caméra derrière l'épaule, souris bloquée au centre, perso tourné vers la caméra. En 1re personne : reste en 1re personne ;
+  - **B** (manette : croix ←) **change la vue** ;
+  - le **panneau des contrôles** reste affiché au même endroit que celui des armes : **B Views** · **H Hide Controls**. H cache ou réaffiche les contrôles.
+- **En ressortant une arme :** elle reprend la caméra exactement où tu regardais, sans saut.
+- **Hors arène :** rien ne change.
+- **Revenir à avant :** dans `ArenaViewKeeper`, mets `ENABLED = false` (ligne 21), ou supprime le script.
 
 ---
 
-## Vérifications faites (et ce qui reste à tester dans Studio)
-Fait de mon côté, sur tous les fichiers livrés :
-- les 32 fichiers passent un analyseur de syntaxe Luau (le même analyseur valide les 669 scripts d'origine sans erreur) ;
-- aucune fonction ou variable de niveau principal n'a disparu par erreur (comparaison avec l'original). Ce contrôle a permis de trouver et corriger un bloc mal déplacé dans `new donation board server` ;
-- recherche de variables non déclarées ;
-- `time` reste à 199 variables locales de niveau principal (limite Luau : 200), aucune ajoutée ;
-- le panel admin n'a pas de nouvelle variable de niveau principal (nouvelle section dans un bloc isolé) ;
-- chaque valeur venant d'un client est vérifiée côté serveur (réglages popups : admins seulement, bornes min/max ; favori ; dons cross-server : messages serveur uniquement).
+## ✅ Vérifié de mon côté
+- Les 34 fichiers (33 scripts + l'installateur) passent un analyseur de syntaxe Luau. Ce même analyseur valide les 669 scripts d'origine sans erreur.
+- Aucune fonction ni variable de niveau principal n'a disparu par erreur (comparaison avec les originaux).
+- Recherche de variables non déclarées.
+- `time` reste à 199 variables locales de niveau principal (limite 200).
+- Le modèle `.rbxmx` contient exactement le même code que les fichiers (vérifié octet par octet).
+- Les 28 scripts à remplacer existent bien dans ton jeu, chacun sous un nom unique (vérifié sur ton fichier .rbxl).
 
-**Je n'ai pas pu lancer le jeu.** À tester dans Studio (*Play* ou *Team Test*) avant de publier :
-1. **Leaderboards :** regarde le rendu sur chaque board. Clique ALL / FRIENDS / FIND ME. Vérifie que le bouton DONATE est toujours visible.
-2. **Admin ▸ 🔔 POPUPS :** change un réglage, puis vérifie qu'il reste après avoir rouvert le panel.
-3. **Admin ▸ fiche d'un joueur :** badges + « il y a X j Y h ».
-4. **Arène PvP :** en vue lock, range ton arme. La vue doit rester verrouillée. Ressors-la : aucun saut de caméra. Sors de l'arène : la caméra redevient normale.
-5. **Mobile** (émulateur Studio) :
-   - active le lock, meurs : il doit rester ON ;
-   - entre en arène : le lock se met en pause ;
-   - curseur plus gros.
-6. **Obby :** meurs 10 fois → l'offre de points apparaît (si activée).
-7. **À vérifier sur un vrai serveur publié** (MessagingService et TeleportService ne marchent pas en Studio) :
+## 🧪 À tester dans Studio avant de publier (je ne peux pas lancer le jeu)
+1. **Leaderboards :** rendu, ALL / FRIENDS / FIND ME, bouton DONATE.
+2. **Shop UGC :** FILTER, cocher, APPLY, pastilles, X, RESET ALL, et « aucun résultat ». Teste aussi en émulation mobile.
+3. **Arène :** sans arme, B change la vue et le panneau B/H est visible. Ressors une arme : aucun saut. Sors de l'arène : caméra normale.
+4. **Admin :** section 🔔 POPUPS (change un réglage, rouvre le panel) et fiche joueur (badges, « il y a X j Y h »).
+5. **Mobile :** le lock reste activé après la mort, et le curseur PvP est plus gros.
+6. **Sur un vrai serveur publié** (impossible à tester en Studio) :
    - un don → effet sur un 2e serveur ;
    - un reload AFK → retour à la bonne place ;
    - un réglage popup → appliqué sur les autres serveurs.
