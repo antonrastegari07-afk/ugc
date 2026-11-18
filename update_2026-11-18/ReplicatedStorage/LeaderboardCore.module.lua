@@ -1274,7 +1274,7 @@ local function buildBoardUI(cfg, sg)
 		find.Name = "FindMe"
 		find.AnchorPoint = Vector2.new(1, 0.5)
 		find.Position = UDim2.new(0.988, 0, 0.5, 0)
-		find.Size = UDim2.new(0, 0, 0.6, 0)
+		find.Size = UDim2.new(0.06, 0, 0.6, 0)
 		find.BackgroundColor3 = dark
 		find.BackgroundTransparency = 0.2
 		find.AutoButtonColor = true
@@ -1282,7 +1282,10 @@ local function buildBoardUI(cfg, sg)
 		find.TextScaled = true
 		find.TextColor3 = Color3.new(1, 1, 1)
 		find.Parent = header
-		Instance.new("UIAspectRatioConstraint", find).AspectRatio = 1
+		-- 🩹 carré calé sur la HAUTEUR (avant : largeur 0 + contrainte sur la largeur = bouton invisible)
+		local far = Instance.new("UIAspectRatioConstraint", find)
+		far.AspectRatio = 1
+		far.DominantAxis = Enum.DominantAxis.Height
 		Instance.new("UICorner", find).CornerRadius = UDim.new(1, 0)
 		local fs = Instance.new("UIStroke") ; fs.Color = accent ; fs.Thickness = 1.5 ; fs.Transparency = 0.5 ; fs.Parent = find
 		local fp = Instance.new("UIPadding", find) ; fp.PaddingTop = UDim.new(0.2, 0) ; fp.PaddingBottom = UDim.new(0.2, 0)
