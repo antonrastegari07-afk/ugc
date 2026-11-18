@@ -3,6 +3,7 @@
 ## ⚡ INSTALLATION RAPIDE (recommandée, environ 2 minutes)
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous* (sécurité en plus).
+   Si un ancien dossier `UPDATE_2026_11_18` est déjà dans le Workspace (essai précédent), **supprime-le d'abord**.
 2. Dans Studio, fais un clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
    `INSTALLATION_RAPIDE/UPDATE_2026_11_18.rbxmx`.
    Un dossier `UPDATE_2026_11_18` apparaît dans le Workspace. Les scripts dedans sont désactivés et ne font rien.
@@ -15,7 +16,8 @@
 
 **Ce que fait l'installateur :**
 - Il range une **copie de chaque ancien script** dans `ServerStorage ▸ BACKUP_avant_maj_2026_11_18`. Pour revenir en arrière sur un script, tu recopies son code depuis là.
-- Il remplace le code des 28 scripts **sans changer leur nom, leur place, ni s'ils sont activés**.
+- Il **échange** les 28 scripts contre leur nouvelle version : même nom, même place, même état activé/désactivé, mêmes attributs, et leurs objets enfants suivent.
+  (Il ne copie pas le code : Studio refuse de copier plus de 200 000 caractères par script, et `WeaponController`, `time` et `Admin client` sont plus gros.)
 - Il crée les 5 nouveaux scripts.
 - Il retire le LocalScript `daily notification` en le déplaçant dans la copie de secours, sans le détruire.
 - Il supprime le dossier d'installation du Workspace.

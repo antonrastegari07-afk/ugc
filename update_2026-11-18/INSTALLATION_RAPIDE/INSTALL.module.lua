@@ -7,8 +7,11 @@
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
 --      ServerStorage ▸ BACKUP_avant_maj_2026_11_18 (pour revenir en arrière).
---   2. Le code des scripts existants est remplacé (même nom, même place,
---      même état activé/désactivé : rien d'autre ne bouge).
+--   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
+--      même place, même état activé/désactivé, mêmes attributs / tags, et ses
+--      objets enfants passent dans la nouvelle version. (On échange le script entier
+--      au lieu de copier le code : Studio refuse de copier plus de 200 000 caractères,
+--      et WeaponController, time et Admin client sont plus gros que ça.)
 --   3. Les 6 nouveaux scripts sont créés à leur place.
 --   4. Le LocalScript « daily notification » est déplacé dans la copie de secours
 --      (il n'est pas détruit).
@@ -22,8 +25,14 @@ return function()
 	local CHS = game:GetService("ChangeHistoryService")
 
 	-- l'install ne doit tourner qu'une fois (sinon la copie de secours contiendrait déjà les nouveaux scripts)
-	if ServerStorage:FindFirstChild("BACKUP_avant_maj_2026_11_18") then
-		warn("⚠️ Déjà installé (ServerStorage ▸ BACKUP_avant_maj_2026_11_18 existe). Rien n'a été fait.")
+	local old = ServerStorage:FindFirstChild("BACKUP_avant_maj_2026_11_18")
+	if old then
+		if old:GetAttribute("Complete") then
+			warn("⚠️ Déjà installé (ServerStorage ▸ BACKUP_avant_maj_2026_11_18 existe). Rien n'a été fait.")
+		else
+			warn("⚠️ Une installation précédente s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour du 18/11 » (ou supprime le dossier BACKUP s'il est vide), puis relance.")
+		end
 		return
 	end
 
@@ -31,6 +40,7 @@ return function()
 
 	local backup = Instance.new("Folder")
 	backup.Name = "BACKUP_avant_maj_2026_11_18"
+	backup.Parent = ServerStorage   -- tout de suite : un ancien script n'est jamais « perdu » en cours de route
 
 	local replaced, created, problems = {}, {}, {}
 
@@ -40,12 +50,32 @@ return function()
 		pcall(function() s.Disabled = not on end)
 	end
 
-	local function backupOf(target, path)
-		local b = target:Clone()
-		b.Name = path:gsub("/", " ▸ ")
-		for _, d in ipairs(b:GetDescendants()) do if d:IsA("Script") or d:IsA("LocalScript") then setEnabled(d, false) end end
-		setEnabled(b, false)   -- en ServerStorage rien ne tourne, mais on coupe quand même
-		b.Parent = backup
+	local CollectionService = game:GetService("CollectionService")
+	local function isEnabled(s)
+		local ok, v = pcall(function() return s.Enabled end)
+		if ok and type(v) == "boolean" then return v end
+		local ok2, d = pcall(function() return s.Disabled end)
+		if ok2 and type(d) == "boolean" then return not d end
+		return true
+	end
+
+	-- Échange : la nouvelle version prend la place exacte de l'ancienne,
+	-- l'ancienne part (désactivée) dans la copie de secours.
+	local function swap(old, newModel, path)
+		local n = newModel:Clone()
+		n.Name = old.Name
+		if not old:IsA("ModuleScript") then
+			setEnabled(n, isEnabled(old))
+			pcall(function() n.RunContext = old.RunContext end)
+		end
+		for k, v in pairs(old:GetAttributes()) do n:SetAttribute(k, v) end
+		for _, tag in ipairs(CollectionService:GetTags(old)) do CollectionService:AddTag(n, tag) end
+		for _, c in ipairs(old:GetChildren()) do c.Parent = n end   -- ses objets enfants suivent
+		local parent = old.Parent
+		old.Name = path:gsub("/", " ▸ ")
+		setEnabled(old, false)
+		old.Parent = backup
+		n.Parent = parent
 	end
 
 	local function walk(folder, target, path)
@@ -59,9 +89,7 @@ return function()
 				if #matches > 1 then
 					table.insert(problems, childPath .. " : " .. #matches .. " scripts portent ce nom → pas touché, à faire à la main")
 				elseif #matches == 1 then
-					local t = matches[1]
-					backupOf(t, childPath)
-					t.Source = child.Source
+					swap(matches[1], child, childPath)
 					table.insert(replaced, childPath)
 				else
 					local n = child:Clone()
@@ -97,7 +125,7 @@ return function()
 		dn.Parent = backup
 	end
 
-	backup.Parent = ServerStorage
+	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
 	pcall(function() CHS:SetWaypoint("Mise à jour du 18/11 installée") end)
 
