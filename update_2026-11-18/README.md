@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v10) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v11) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v9** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v10** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v9).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v10).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v10.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v11.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v10.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v11.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v10… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v11… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v10`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v11`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -32,7 +32,7 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 **Créer :**
 - ReplicatedStorage : `PopupControlConfig`, `PopupGate`, `LeaderboardStyle` (ModuleScripts)
 - ServerScriptService : `PopupControl_Server`, `FriendsBoard_Server`, `Presence_Server` (Scripts)
-- StarterPlayerScripts : `ArenaViewKeeper` (LocalScript)
+- StarterPlayerScripts : `ArenaViewKeeper`, `ScrollTapGuard` (LocalScripts)
 
 **Remplacer :**
 - **ServerScriptService :** `CombatSystem ▸ CombatServer` · `checkpoints system` · `anti fly/tp server` · `PLAYER UGC STATS` · `new donation board server` · `notif chat ` · `DAILY TOOLs` · `10 died = offer 2500 points` · `time` · `STATS` · `ask favorite game` · `datastore alr ask favorite game` · `leave popup` · `server referal friend invite`
@@ -42,18 +42,28 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 - **StarterPlayerScripts :** `DeathCam` · `PlayerProfileHover` · `offers on screen` · `script proposer achat skip obby` · `EngageTrack` · `rebirth offer notify event` · `fenetre dachat gravity coil` · `Fenetre dachat fusion coil` · `Fenetre achat speedcoil` · `achat x2coin` · ` ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD`
 - **StarterCharacterScripts :** `ask favorite game`
 
-**Supprimer :** StarterPlayerScripts ▸ `daily notification`
+**Supprimer :** StarterPlayerScripts ▸ `daily notification`, et dans `UGCshop ▸ ShopFrame` : `Selected ▸` Korblox Dominus, Cyber Raven Wings, Korblox Sword, Demon Sword, Magic Dominus, Fluffy Messy Boy Hair, puis `ScrollingFrame ▸` CyberWingsButton, KorbloxDominusButton, KorbloxSwordButton, DemonSwordButton, FluffyHairButton (garde **MagicDominusButton** et **NoUGCSelected**)
 </details>
 
 ---
 
-## 🆕 NOUVEAU DANS LA v9 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v11 (tes derniers retours)
+
+| Ton retour | Ce qui est fait |
+|---|---|
+| Erreurs dans l'Output (« UGC ID … non trouvé », « UGC … introuvable! ») | Elles venaient des **6 anciens panneaux** et **5 anciennes cartes** du shop UGC, que le générateur remplace depuis longtemps. Il les détruisait au lancement, mais leurs vieux scripts avaient le temps de démarrer avant. L'installateur les **range dans la copie de secours**, sans rien détruire. Le générateur garde ses 2 modèles, `MagicDominusButton` et `NoUGCSelected`. Il n'y avait pas de risque de confusion de nom : le générateur détruisait déjà ces anciens panneaux. |
+| Quêtes sur mobile : en glissant pour défiler, on déclenche un bouton (notif « completed »…) | Nouveau script **`ScrollTapGuard`** (StarterPlayerScripts). Dès qu'une liste défile vraiment sous le doigt (plus de 6 px), ses boutons ignorent le relâché, puis redeviennent normaux 0,1 s après. Un simple tap reste un clic. Ça vaut pour **toutes** les listes du jeu (quêtes, shop UGC, boutiques…), sans modifier leurs scripts. Les curseurs ne sont pas touchés, et rien ne change sur PC ni à la manette. |
+
+## NOUVEAU DANS LA v10
+- Le bouton FILTER revient au bleu d'avant, et un bouclier invisible empêche de cliquer à travers le panneau du filtre.
+
+## NOUVEAU DANS LA v9 (tes derniers retours)
 
 | Ton retour | Ce qui est fait |
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v10) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v11) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8
@@ -213,6 +223,7 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
    - FILTER déroule le panneau depuis le bouton (léger contour noir), un 2e appui le rembobine ;
    - APPLY (vert, à gauche) et RESET (rouge, à droite) sont en bas du panneau ;
    - « Most left / Least left » trie bien sur le stock restant ;
+   - plus d'erreur « UGC ID … non trouvé » dans l'Output ;
    - **manette** (branche-en une sur PC ; Studio n'en simule pas) : Y, B, A, la sélection et le cadre jaune ;
    - les choix contraires s'excluent ;
    - APPLY, pastilles, RESET fonctionnent ;
@@ -222,5 +233,6 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
    - 🔍 sur un board où tu n'es pas : message, puis ta ligne « -- » en bas avec ton score (vrai serveur publié) ;
    - en FRIENDS : un ami hors top affiche « -- ». Son score met environ une seconde à apparaître ; il est lu sur le serveur, donc à vérifier sur un **vrai serveur publié**.
 4. **Admin :** les onglets et la recherche, puis la fiche d'un joueur (badges dans le coin, rien qui déborde).
-5. **Boost :** achète ou donne-toi un boost temporaire → arc-en-ciel sur ton billboard.
+5. **Mobile (émulateur ou téléphone) :** fais défiler les quêtes en posant le doigt sur un bouton : aucune notif ne doit apparaître. Un simple tap doit toujours marcher.
+6. **Boost :** achète ou donne-toi un boost temporaire → arc-en-ciel sur ton billboard.
 6. **Profils :** clique sur un joueur du serveur (🟢 Online), puis ouvre depuis un leaderboard la fiche de quelqu'un qui n'est pas là (🟢 Online sur un autre serveur, ou ⚫ Offline). Le statut d'un autre serveur ne marche que sur un **vrai serveur publié** : MemoryStore n'est pas partagé entre serveurs en Studio.

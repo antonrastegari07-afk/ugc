@@ -2,14 +2,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v10.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v11.INSTALL)()
 --
---  v10 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v9 (les versions remplacées vont dans sa propre copie de secours).
+--  v11 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v10 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v10 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v11 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -18,13 +18,15 @@
 --   3. Les nouveaux scripts sont créés à leur place.
 --   4. Le LocalScript « daily notification » est déplacé dans la copie de secours
 --      (il n'est pas détruit).
---   5. Le dossier d'installation est supprimé du Workspace.
+--   5. Les 6 anciens panneaux + 5 anciennes cartes du shop UGC (remplacés depuis longtemps
+--      par le générateur) sont déplacés dans la copie de secours.
+--   6. Le dossier d'installation est supprimé du Workspace.
 --  Tout se fait en une seule étape d'annulation : Ctrl+Z annule toute l'installation.
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v10 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v10"
+	print("🚀 Installateur v11 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v11"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -33,15 +35,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v10 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v11 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v10 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v10 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v11 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v11 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v10") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v11") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -130,9 +132,30 @@ return function()
 		dn.Parent = backup
 	end
 
+	-- 🧹 anciens modèles du shop UGC (avant le générateur) : leurs vieux scripts démarraient
+	--    avant d'être détruits par le générateur → erreurs « UGC ID … non trouvé » et appels
+	--    inutiles au serveur. Déplacés dans la copie de secours (rien n'est détruit).
+	--    On garde les 2 modèles dont le générateur se sert : MagicDominusButton et NoUGCSelected.
+	local shop = game:GetService("StarterGui"):FindFirstChild("UGCshop")
+	local sf = shop and shop:FindFirstChild("ShopFrame")
+	local oldPanels = { "Korblox Dominus", "Cyber Raven Wings", "Korblox Sword", "Demon Sword", "Magic Dominus", "Fluffy Messy Boy Hair" }
+	local oldCards  = { "CyberWingsButton", "KorbloxDominusButton", "KorbloxSwordButton", "DemonSwordButton", "FluffyHairButton" }
+	local cleaned = 0
+	local function stash(parent, name, label)
+		local o = parent and parent:FindFirstChild(name)
+		if o and o:IsA("GuiObject") then
+			o.Name = label .. name .. " (ancien modèle retiré)"
+			o.Parent = backup
+			cleaned += 1
+		end
+	end
+	for _, n in ipairs(oldPanels) do stash(sf and sf:FindFirstChild("Selected"), n, "UGCshop ▸ Selected ▸ ") end
+	for _, n in ipairs(oldCards) do stash(sf and sf:FindFirstChild("ScrollingFrame"), n, "UGCshop ▸ ScrollingFrame ▸ ") end
+	if cleaned > 0 then print(("🧹 %d ancien(s) modèle(s) du shop UGC rangé(s) dans la copie de secours"):format(cleaned)) end
+
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v10 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v11 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
