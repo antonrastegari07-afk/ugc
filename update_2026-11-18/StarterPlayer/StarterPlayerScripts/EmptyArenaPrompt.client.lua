@@ -3,7 +3,7 @@
 --
 --  Tu entres en PvP mais personne d'autre n'y est sur ce serveur → après un court
 --  moment, une fenêtre te le dit et te propose de rejoindre un serveur où il y a des
---  joueurs en PvP. « JOIN » ouvre le panneau des serveurs (le même que le
+--  joueurs en PvP. « FIND MATCH » ouvre le panneau des serveurs (le même que le
 --  panneau « 1v1 Servers » du lobby).
 --
 --  Quand ? Pas tout de suite à l'entrée : on attend un peu (DELAY) car
@@ -113,16 +113,20 @@ end
 
 -- meilleur autre serveur (le plus de joueurs en PvP), via le même remote que le panneau
 local function bestOtherServer()
-	if CONFIG.StudioTest and game:GetService("RunService"):IsStudio() then return { arena = 4 } end
+	if CONFIG.StudioTest and game:GetService("RunService"):IsStudio() then return { arena = 4, total = 4 } end
 	local fn = ReplicatedStorage:FindFirstChild("GetArenaServers")
 	if not fn then return nil end
 	local ok, list = pcall(function() return fn:InvokeServer() end)
 	if not ok or type(list) ~= "table" then return nil end
-	local best
+	-- best = le serveur le plus rempli (il faut au moins un serveur où on peut jouer) ;
+	-- total = TOUS les joueurs en PvP sur les autres serveurs (le nombre affiché)
+	local best, total = nil, 0
 	for _, s in ipairs(list) do
 		local a = type(s) == "table" and tonumber(s.arena) or 0
+		total += math.max(0, a)
 		if a >= CONFIG.MinOtherArena and (not best or a > best.arena) then best = { arena = a } end
 	end
+	if best then best.total = total end
 	return best
 end
 
@@ -173,7 +177,6 @@ local function show(best)
 		Size = UDim2.fromOffset(400, 210), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 2 }, gui)
 	new("UICorner", { CornerRadius = UDim.new(0, 18) }, card)
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(PANEL_HI, PANEL_LO) }, card)
-	new("UIStroke", { Color = OUTLINE, Thickness = 2, Transparency = 0.15 }, card)
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
 	local scale = math.clamp(math.min(vp.X / 480, vp.Y / 290), 0.55, 1.25)
@@ -187,19 +190,19 @@ local function show(best)
 		BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, head)   -- coins bas carrés
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(HEAD_LO:Lerp(HEAD_HI, 0.3), HEAD_LO) }, flat)
 	local title = new("TextLabel", { Size = UDim2.new(1, -24, 1, -12), Position = UDim2.fromOffset(12, 6), BackgroundTransparency = 1,
-		Text = "NO PLAYERS HERE", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
+		Text = "NOBODY IN PVP", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
 	new("UITextSizeConstraint", { MaxTextSize = 34 }, title)
 	outlined(title, 2)
 
 	-- l'essentiel : personne ici → rejoins un serveur pour jouer
 	local line = new("TextLabel", { Position = UDim2.fromOffset(20, 68), Size = UDim2.new(1, -40, 0, 50), BackgroundTransparency = 1,
-		Text = string.format("Want to play PvP?\nJoin a server with %d player%s! 🔥", best.arena, best.arena > 1 and "s" or ""),
+		Text = string.format("Find a match now!\n%d player%s online in PvP", best.total, best.total > 1 and "s" or ""),
 		Font = FONT, TextScaled = true, TextColor3 = INK, ZIndex = 3 }, card)
 	new("UITextSizeConstraint", { MaxTextSize = 22 }, line)
 
 	local row = new("Frame", { Position = UDim2.new(0, 20, 1, -70), Size = UDim2.new(1, -40, 0, 52), BackgroundTransparency = 1, ZIndex = 3 }, card)
-	local goBtn = button3D(row, "JOIN", COL.green, UDim2.new(0, 0, 0, 0))
-	local stayBtn = button3D(row, "STAY", COL.grey, UDim2.new(0.5, 10, 0, 0))
+	local goBtn = button3D(row, "FIND MATCH", COL.green, UDim2.new(0, 0, 0, 0))
+	local stayBtn = button3D(row, "LATER", COL.grey, UDim2.new(0.5, 10, 0, 0))
 
 	goBtn.Activated:Connect(function() close() ; openServerBrowser() end)
 	stayBtn.Activated:Connect(close)
@@ -207,7 +210,7 @@ local function show(best)
 	-- apparition
 	TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = scale }):Play()
 
-	-- 🎮 manette : A = choisir (JOIN sélectionné), B = rester
+	-- 🎮 manette : A = choisir (FIND MATCH sélectionné), B = plus tard
 	if UserInputService:GetLastInputType().Name:sub(1, 7) == "Gamepad" then GuiService.SelectedObject = goBtn end
 	ContextActionService:BindActionAtPriority(PAD_ACTION, function(_, state)
 		if state == Enum.UserInputState.Begin then close() end
