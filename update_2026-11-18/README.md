@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v11) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v12) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v10** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v11** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v10).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v11).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v11.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v12.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v11.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v12.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v11… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v12… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v11`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v12`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -47,7 +47,16 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v11 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v12 — vérification sécurité avant publication
+
+| Point d'entrée | Risque trouvé | Correction |
+|---|---|---|
+| `FriendsBoard_Server` (scores des amis hors top) | Il acceptait **n'importe quel UserId**, 50 toutes les 3 s : un tricheur pouvait faire lire des milliers de scores au hasard et **user le budget de lectures DataStore** du serveur (sauvegardes et classements ralentis). | Seulement les **vrais amis** du joueur (liste demandée à Roblox par le serveur, gardée 10 min) + lui-même, et **300 lectures max par joueur / 10 min**. Le classement FRIENDS et la loupe marchent pareil. |
+| `Presence_Server` (en ligne / hors ligne) | 2 questions/s par joueur : un tricheur entamait le **quota MemoryStore** du jeu. | **1 question / 1,5 s** ; `PlayerProfileHover` attend en conséquence (rien de visible pour un vrai joueur). |
+
+Tout le reste a été relu (popups admin, stats, favori, popup de départ, retour d'AFK, vue du tueur, son des tirs, dons, parrainage) : voir le récapitulatif de la réponse.
+
+## NOUVEAU DANS LA v11 (tes derniers retours)
 
 | Ton retour | Ce qui est fait |
 |---|---|
@@ -63,7 +72,7 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v11) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v12) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8

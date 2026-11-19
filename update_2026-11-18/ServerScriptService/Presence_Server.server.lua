@@ -8,7 +8,8 @@
 --  (pas un DataStore : rien n'est sauvegardé à vie). Une écriture par joueur
 --  et par minute, avec une expiration de 150 s : un joueur qui part ou un
 --  serveur qui plante disparaît tout seul.
---  Lecture : 1 appel / 0,5 s par joueur, résultat gardé 15 s.
+--  Lecture : 1 appel / 1,5 s par joueur (protège le quota MemoryStore du jeu),
+--  résultat gardé 15 s. Un vrai joueur ouvre une fiche à la fois : il ne voit rien.
 --════════════════════════════════════════════════════════════════════════════
 local Players            = game:GetService("Players")
 local MemoryStoreService = game:GetService("MemoryStoreService")
@@ -57,7 +58,7 @@ remote.OnServerInvoke = function(player, userId)
 	local now = os.clock()
 	local c = cache[userId]
 	if c and now - c.at < 15 then return c.v end
-	if last[player.UserId] and now - last[player.UserId] < 0.5 then return nil end
+	if last[player.UserId] and now - last[player.UserId] < 1.5 then return nil end   -- quota MemoryStore protégé
 	last[player.UserId] = now
 	local ok, v = pcall(function() return map:GetAsync(tostring(userId)) end)
 	if not ok then return nil end

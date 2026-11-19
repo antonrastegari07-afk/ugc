@@ -1441,7 +1441,7 @@ _G.OpenPlayerProfile = function(userId, info)
 			for _ = 1, 3 do
 				local ok, r = pcall(fn.InvokeServer, fn, userId)
 				if ok and r ~= nil then res = r break end
-				task.wait(0.6)
+				task.wait(1.6)   -- le serveur accepte 1 question / 1,5 s
 			end
 		end
 		status = presenceText[res] or "Not in this server"

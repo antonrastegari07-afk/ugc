@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v11</string>
+			<string name="Name">UPDATE_2026_11_18_v12</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,14 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v11.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v12.INSTALL)()
 --
---  v11 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v10 (les versions remplacées vont dans sa propre copie de secours).
+--  v12 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v11 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v11 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v12 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -33,8 +33,8 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v11 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v11"
+	print("🚀 Installateur v12 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v12"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -43,15 +43,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v11 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v12 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v11 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v11 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v12 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v12 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v11") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v12") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -163,7 +163,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v11 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v12 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -11783,7 +11783,11 @@ print("✅ DailyRewards SERVEUR v4 chargé (7 jours, fixes #1-4 appliqués)")
 --
 --  Lecture seule, dans les MÊMES classements que les boards (OrderedDataStore,
 --  clé = UserId). Garde-fous :
---   • 50 amis max par demande, 1 demande / 3 s par joueur ;
+--   • 🔒 SEULEMENT tes VRAIS amis (liste demandée à Roblox par le serveur, gardée
+--     10 min) + toi : un tricheur ne peut pas faire lire des milliers de joueurs
+--     au hasard pour épuiser le budget DataStore du serveur ;
+--   • 50 amis max par demande, 1 demande / 3 s par joueur, et 300 lectures
+--     au maximum par joueur toutes les 10 min ;
 --   • cache serveur de 5 min PARTAGÉ (les amis communs ne sont lus qu'une fois) ;
 --   • si le budget de lectures DataStore est bas, on s'arrête (le client affiche « -- »).
 --════════════════════════════════════════════════════════════════════════════
@@ -11802,6 +11806,8 @@ local MAX_IDS      = 50
 local CACHE_TTL    = 300
 local COOLDOWN     = 3
 local MIN_BUDGET   = 25   -- on laisse toujours ce nombre de lectures aux autres scripts
+local FRIENDS_TTL  = 600  -- liste d'amis gardée 10 min
+local QUOTA, QUOTA_WINDOW = 300, 600   -- lectures DataStore max par joueur / fenêtre (s)
 
 local stores, cache = {}, {}
 for k, name in pairs(STORES) do
@@ -11809,6 +11815,27 @@ for k, name in pairs(STORES) do
 	cache[k] = {}
 end
 local lastCall = {}
+local friendsOf = {}   -- [userId] = { set = { [id] = true }, at = os.clock() }
+local quota = {}       -- [userId] = { n = lectures, t0 = début de fenêtre }
+
+-- 👥 vrais amis du joueur, demandés à Roblox par le SERVEUR (jamais la liste du client)
+local function friendSet(player)
+	local uid = player.UserId
+	local c = friendsOf[uid]
+	if c and os.clock() - c.at < FRIENDS_TTL then return c.set end
+	local set = { [uid] = true }
+	local ok = pcall(function()
+		local pages = Players:GetFriendsAsync(uid)
+		for _ = 1, 10 do   -- 10 pages max (Roblox : 200 amis au maximum)
+			for _, f in ipairs(pages:GetCurrentPage()) do set[f.Id] = true end
+			if pages.IsFinished then break end
+			pages:AdvanceToNextPageAsync()
+		end
+	end)
+	if ok then friendsOf[uid] = { set = set, at = os.clock() }
+	elseif c then return c.set end   -- Roblox injoignable : on garde l'ancienne liste
+	return set
+end
 
 local remote = ReplicatedStorage:FindFirstChild("GetFriendsBoardValues")
 if not remote then
@@ -11830,10 +11857,11 @@ remote.OnServerInvoke = function(player, board, ids)
 	if lastCall[player.UserId] and now - lastCall[player.UserId] < COOLDOWN then return { throttled = true } end
 	lastCall[player.UserId] = now
 
+	local friends = friendSet(player)
 	local out, need, seen = {}, {}, {}
 	for i = 1, math.min(#ids, MAX_IDS) do
 		local id = tonumber(ids[i])
-		if id and id > 0 and id == math.floor(id) and not seen[id] then
+		if id and id > 0 and id == math.floor(id) and not seen[id] and friends[id] then
 			seen[id] = true
 			local c = cache[board][id]
 			if c and now - c.at < CACHE_TTL then out[tostring(id)] = c.v
@@ -11841,8 +11869,11 @@ remote.OnServerInvoke = function(player, board, ids)
 		end
 	end
 	local store = stores[board]
+	local q = quota[player.UserId]
+	if not q or os.clock() - q.t0 > QUOTA_WINDOW then q = { n = 0, t0 = os.clock() } ; quota[player.UserId] = q end
 	for _, id in ipairs(need) do
-		if budget() < MIN_BUDGET then break end
+		if budget() < MIN_BUDGET or q.n >= QUOTA then break end
+		q.n += 1
 		local ok, v = pcall(function() return store:GetAsync(tostring(id)) end)
 		if ok then
 			v = tonumber(v) or 0
@@ -11853,7 +11884,9 @@ remote.OnServerInvoke = function(player, board, ids)
 	return out
 end
 
-Players.PlayerRemoving:Connect(function(p) lastCall[p.UserId] = nil end)
+Players.PlayerRemoving:Connect(function(p)
+	lastCall[p.UserId], friendsOf[p.UserId], quota[p.UserId] = nil, nil, nil
+end)
 
 -- ménage du cache (les entrées expirées ne servent plus)
 task.spawn(function()
@@ -12651,7 +12684,8 @@ print("✅ PopupControl chargé")
 --  (pas un DataStore : rien n'est sauvegardé à vie). Une écriture par joueur
 --  et par minute, avec une expiration de 150 s : un joueur qui part ou un
 --  serveur qui plante disparaît tout seul.
---  Lecture : 1 appel / 0,5 s par joueur, résultat gardé 15 s.
+--  Lecture : 1 appel / 1,5 s par joueur (protège le quota MemoryStore du jeu),
+--  résultat gardé 15 s. Un vrai joueur ouvre une fiche à la fois : il ne voit rien.
 --════════════════════════════════════════════════════════════════════════════
 local Players            = game:GetService("Players")
 local MemoryStoreService = game:GetService("MemoryStoreService")
@@ -12700,7 +12734,7 @@ remote.OnServerInvoke = function(player, userId)
 	local now = os.clock()
 	local c = cache[userId]
 	if c and now - c.at < 15 then return c.v end
-	if last[player.UserId] and now - last[player.UserId] < 0.5 then return nil end
+	if last[player.UserId] and now - last[player.UserId] < 1.5 then return nil end   -- quota MemoryStore protégé
 	last[player.UserId] = now
 	local ok, v = pcall(function() return map:GetAsync(tostring(userId)) end)
 	if not ok then return nil end
@@ -61750,7 +61784,7 @@ _G.OpenPlayerProfile = function(userId, info)
 			for _ = 1, 3 do
 				local ok, r = pcall(fn.InvokeServer, fn, userId)
 				if ok and r ~= nil then res = r break end
-				task.wait(0.6)
+				task.wait(1.6)   -- le serveur accepte 1 question / 1,5 s
 			end
 		end
 		status = presenceText[res] or "Not in this server"
