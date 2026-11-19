@@ -713,7 +713,7 @@ local SF = {
 	total = {},         -- [assetId] = stock total
 	ownedMap = {},      -- [assetId] = true/false (lu une fois sur Roblox)
 	typeOf = {},        -- [assetId] = "Hat" / "Hair"… (lu une fois sur Roblox)
-	LOW_RATIO = 0.3,    -- « Low stock » = 30 % du total ou moins (même seuil que la pastille orange)
+	LOW_RATIO = 0.3,    -- « Rare » = 30 % du total ou moins (même seuil que la pastille orange)
 }
 function SF.isNew(ugc)
 	if UGC_CONFIG.IsNew then return UGC_CONFIG.IsNew(ugc) == true end
@@ -766,7 +766,7 @@ function SF.apply(list)
 			if s == "price_desc" or s == "price_asc" then ka, kb = a.Price or 0, b.Price or 0
 			else
 				ka, kb = leftStockOf(a), leftStockOf(b)
-				-- « Least left » : les ÉPUISÉS (0) vont à la fin → en premier, ceux où il en reste le moins
+				-- « Rarest » : les ÉPUISÉS (0) vont à la fin → en premier, ceux où il en reste le moins
 				if s == "left_asc" then
 					if ka == 0 then ka = math.huge end
 					if kb == 0 then kb = math.huge end
@@ -2089,10 +2089,10 @@ end)
 --     refermer sans APPLY = rien n'est changé).
 --   • Disposition d'avant : SHOW · TYPE (si le shop a plusieurs types) · SORT BY, en
 --     boutons 3D (face en dégradé + socle) qui NE s'enfoncent PAS.
---   • Choix contraires impossibles ensemble : Available / Low stock / Sold out (un seul),
---     Owned / Not owned (un seul), un seul tri. Prendre l'un retire l'autre (les
+--   • Choix contraires impossibles ensemble : Available / Rare / Sold (un seul),
+--     Owned / Unowned (un seul), un seul tri. Prendre l'un retire l'autre (les
 --     boutons gardent leur couleur normale).
---   • « Most left / Least left » = tri sur le stock RESTANT.
+--   • « Stocked / Rarest » = tri sur le stock RESTANT.
 --   • APPLY (vert, à gauche) · RESET (rouge, à droite) en bas DU panneau, sous un trait,
 --     hors de la partie qui défile. Léger contour noir autour du panneau.
 --   • Tous les appareils : tailles minimales pour le doigt (mobile) et la télé (console).
@@ -2197,18 +2197,19 @@ local function buildFilterUI()
 	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
 	-- SHOW : 1re ligne = le stock (un seul), 2e ligne = New + possession (un seul des deux)
 	-- ⭐ les plus utiles en premier
-	local SHOW = { { "avail", "Available" }, { "notOwned", "Not owned" }, { "new", "New" },
-		{ "low", "Low stock" }, { "sold", "Sold out" }, { "owned", "Owned" } }
+	-- ✏️ UN SEUL MOT par option (lisible même sur petit écran)
+	local SHOW = { { "avail", "Available" }, { "notOwned", "Unowned" }, { "new", "New" },
+		{ "low", "Rare" }, { "sold", "Sold" }, { "owned", "Owned" } }
 	local FLAG_LABEL = {}
 	for _, x in ipairs(SHOW) do FLAG_LABEL[x[1]] = x[2] end
 	local GROUP_OF = { avail = "stock", low = "stock", sold = "stock", owned = "own", notOwned = "own" }
 	local GROUPS = { stock = { "avail", "low", "sold" }, own = { "owned", "notOwned" } }
 	-- ⭐ les plus importants en premier : où il en reste le MOINS, puis le moins cher
 	local SORTS = {
-		{ id = "left_asc",   label = "Least left" },    -- stock RESTANT (épuisés à la fin)
-		{ id = "price_asc",  label = "Price: Low" },
-		{ id = "price_desc", label = "Price: High" },
-		{ id = "left_desc",  label = "Most left" },
+		{ id = "left_asc",   label = "Rarest" },     -- le moins de stock RESTANT (épuisés à la fin)
+		{ id = "price_asc",  label = "Cheapest" },   -- prix croissant
+		{ id = "price_desc", label = "Priciest" },   -- prix décroissant
+		{ id = "left_desc",  label = "Stocked" },    -- le plus de stock restant
 		{ id = "default",    label = "Default" },
 	}
 	local SORT_LABEL = {}
@@ -2511,38 +2512,56 @@ local function buildFilterUI()
 		commit()
 	end
 	local function chip(text, colr, onClick, orderN)
+		-- tout suit la hauteur de la barre (= taille de la fenêtre du shop) : même look PC / mobile
 		local h = chipsBar.AbsoluteSize.Y > 4 and chipsBar.AbsoluteSize.Y or 24
 		local c = mk("TextButton", { AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 0, math.floor(h * 0.84)),
 			BackgroundColor3 = colr, Text = "", AutoButtonColor = true, LayoutOrder = orderN,
 			SelectionImageObject = selTemplate }, chipsBar)
 		round(c, 999)
-		mk("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, c)
+		local pad = math.max(3, math.floor(h * 0.4))
+		mk("UIPadding", { PaddingLeft = UDim.new(0, pad), PaddingRight = UDim.new(0, pad) }, c)
 		local l = mk("TextLabel", { BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.new(0, 0, 1, 0),
 			Font = Enum.Font.FredokaOne, Text = text, TextColor3 = WHITE,
-			TextSize = math.clamp(math.floor(h * 0.5), 10, 16) }, c)
-		outlined(l, 1)
+			TextSize = math.clamp(math.floor(h * 0.5), 6, 16) }, c)
+		outlined(l, h < 20 and 0.6 or 1)
 		c.Activated:Connect(onClick)
 	end
 	renderChips = function()
 		for _, c in ipairs(chipsBar:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
 		local on = SF.count() > 0
 		chipsBar.Visible = on
+		local lay = chipsBar:FindFirstChildOfClass("UIListLayout")
+		if lay then lay.Padding = UDim.new(0, math.max(3, math.floor(chipsBar.AbsoluteSize.Y * 0.2))) end
 		ScrollingFrame.Position = on and UDim2.new(sfPos.X.Scale, sfPos.X.Offset, sfPos.Y.Scale + CHIP_H + 0.006, sfPos.Y.Offset) or sfPos
 		ScrollingFrame.Size = on and UDim2.new(sfSize.X.Scale, sfSize.X.Offset, sfSize.Y.Scale - CHIP_H - 0.006, sfSize.Y.Offset) or sfSize
 		if not on then return end
 		local n = 0
 		local function nx() n += 1 return n end
-		chip("RESET ALL", RED, resetAll, nx())
+		chip("RESET", RED, resetAll, nx())
 		for _, x in ipairs(SHOW) do
 			local key = x[1]
-			if SF.f[key] then chip(x[2] .. "  X", OFF, function() SF.f[key] = false ; commit() end, nx()) end
+			if SF.f[key] then chip(x[2] .. " X", OFF, function() SF.f[key] = false ; commit() end, nx()) end
 		end
 		for _, t in ipairs(TYPE_ORDER) do
-			if SF.f.types[t] then chip(t .. "  X", OFF, function() SF.f.types[t] = nil ; commit() end, nx()) end
+			if SF.f.types[t] then chip(t .. " X", OFF, function() SF.f.types[t] = nil ; commit() end, nx()) end
 		end
 		if SF.sort ~= "default" and SORT_LABEL[SF.sort] then
-			chip(SORT_LABEL[SF.sort] .. "  X", BLUE, function() SF.sort = "default" ; commit() end, nx())
+			chip(SORT_LABEL[SF.sort] .. " X", BLUE, function() SF.sort = "default" ; commit() end, nx())
 		end
+	end
+	-- 📱 la fenêtre change de taille (rotation, ouverture) → les pastilles suivent
+	do
+		local lastH, pending = -1, false
+		chipsBar:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+			local hNow = math.floor(chipsBar.AbsoluteSize.Y)
+			if hNow == lastH or pending then return end
+			pending = true
+			task.defer(function()
+				pending = false
+				lastH = math.floor(chipsBar.AbsoluteSize.Y)
+				if chipsBar.Visible then renderChips() end
+			end)
+		end)
 	end
 	SF.onRender = function(shown)
 		empty.Visible = shown == 0 and SF.count() > 0

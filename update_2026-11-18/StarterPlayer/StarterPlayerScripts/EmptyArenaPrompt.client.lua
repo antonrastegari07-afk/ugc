@@ -179,7 +179,9 @@ local function show(best)
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(PANEL_HI, PANEL_LO) }, card)
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-	local scale = math.clamp(math.min(vp.X / 480, vp.Y / 290), 0.55, 1.25)
+	-- taille = part de l'écran : ≤ 38 % de la hauteur et ≤ 55 % de la largeur
+	--   (téléphone 844×390 → carte ~280×150 ; PC 1080p → taille normale ×1.25)
+	local scale = math.clamp(math.min(vp.X * 0.55 / 400, vp.Y * 0.38 / 210), 0.5, 1.25)
 	local uiScale = new("UIScale", { Scale = scale * 0.85 }, card)
 
 	-- bandeau bleu + titre blanc contouré (comme « Servers »)
@@ -190,7 +192,7 @@ local function show(best)
 		BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, head)   -- coins bas carrés
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(HEAD_LO:Lerp(HEAD_HI, 0.3), HEAD_LO) }, flat)
 	local title = new("TextLabel", { Size = UDim2.new(1, -24, 1, -12), Position = UDim2.fromOffset(12, 6), BackgroundTransparency = 1,
-		Text = "NOBODY IN PVP", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
+		Text = "NOBODY IN THIS PVP SERVER", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
 	new("UITextSizeConstraint", { MaxTextSize = 34 }, title)
 	outlined(title, 2)
 
