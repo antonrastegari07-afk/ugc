@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v12) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v13) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v11** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v12** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v11).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v12).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v12.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v13.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v12.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v13.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v12… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v13… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v12`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v13`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -32,13 +32,14 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 **Créer :**
 - ReplicatedStorage : `PopupControlConfig`, `PopupGate`, `LeaderboardStyle` (ModuleScripts)
 - ServerScriptService : `PopupControl_Server`, `FriendsBoard_Server`, `Presence_Server` (Scripts)
-- StarterPlayerScripts : `ArenaViewKeeper`, `ScrollTapGuard` (LocalScripts)
+- StarterPlayerScripts : `ArenaViewKeeper`, `ScrollTapGuard`, `HudLayoutClient` (LocalScripts)
+- ReplicatedStorage : `HudLayout` (ModuleScript)
 
 **Remplacer :**
 - **ServerScriptService :** `CombatSystem ▸ CombatServer` · `checkpoints system` · `anti fly/tp server` · `PLAYER UGC STATS` · `new donation board server` · `notif chat ` · `DAILY TOOLs` · `10 died = offer 2500 points` · `time` · `STATS` · `ask favorite game` · `datastore alr ask favorite game` · `leave popup` · `server referal friend invite`
 - **ServerStorage ▸ AdminClientScripts. :** `Admin client`
 - **ReplicatedStorage :** `LeaderboardCore` · `WeaponSystem ▸ WeaponController` · `WeaponSystem ▸ WeaponServer` · `WeaponSystem ▸ CombatSettings`
-- **StarterGui :** `ShiftLockButton ▸ ImageButton ▸ ShiftGUI` · `VIP offer ▸ make pop th add` · `UGCshop ▸ ShopFrame ▸  UGC SHOP GENERATOR`
+- **StarterGui :** les 6 `animation …` des boutons de gauche + `Bouton hide ▸ Frame ▸ TextButton ▸ gestion hide` · `ShiftLockButton ▸ ImageButton ▸ ShiftGUI` · `VIP offer ▸ make pop th add` · `UGCshop ▸ ShopFrame ▸  UGC SHOP GENERATOR`
 - **StarterPlayerScripts :** `DeathCam` · `PlayerProfileHover` · `offers on screen` · `script proposer achat skip obby` · `EngageTrack` · `rebirth offer notify event` · `fenetre dachat gravity coil` · `Fenetre dachat fusion coil` · `Fenetre achat speedcoil` · `achat x2coin` · ` ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD`
 - **StarterCharacterScripts :** `ask favorite game`
 
@@ -47,7 +48,25 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v12 — vérification sécurité avant publication
+## 🆕 NOUVEAU DANS LA v13 (tes derniers retours)
+
+### 📐 Les boutons de l'écran ne se décollent plus
+- **La cause :** la position de chaque bouton était en % de la **largeur** de l'écran, mais sa taille (bloquée par `UIAspectRatioConstraint`) suivait la **hauteur**. En plus, les animations de survol re-forçaient la position (une valeur PC, une autre mobile). Quand le format de l'écran changeait, les écarts grandissaient ou se resserraient.
+- **La correction :**
+  - Nouveau module `ReplicatedStorage ▸ HudLayout` et script `StarterPlayerScripts ▸ HudLayoutClient`. Ta disposition actuelle (celle d'un écran 16:9) est relue au démarrage, puis **tailles ET écarts suivent la hauteur de l'écran** : le bloc reste identique partout.
+  - Le bloc de gauche (Hide Gui, UGC Shop, Shop, Points, Rebirth, Quests, Rewards, Invite) reste **collé au bord gauche**. Le trio du haut (Skip Obby · Current Stage · Skip Level) reste **centré**.
+  - Si un bloc ne tient plus en largeur, il **rétrécit en entier**, sans jamais se chevaucher.
+  - Recalcul seulement quand la taille de l'écran change : aucun coût en jeu.
+- **Les 6 scripts d'animation de survol** (`animation ugc`, `animation shop`, `animation Points`, `animation rebirth`, `animation quest`, `animation daily`) et **`gestion hide`** sont remplacés. Même effet de survol qu'avant, mais à partir de la bonne place. `gestion hide` garde toute sa logique pour cacher et afficher l'interface.
+- ↩️ **Revenir à avant :** `HudLayout ▸ Enabled = false`.
+- Les places horizontales « PC » de tes anciens scripts sont gardées dans `HudLayout ▸ Groups`. Tu peux les ajuster là, ou y ajouter des boutons (le côté droit par exemple).
+
+### 🔎 Filtre du shop UGC
+- **Taille sur tous les appareils :** le bouton FILTER et son panneau suivent maintenant la **taille de la fenêtre du shop**, et plus le type d'appareil. Avant, un minimum « mobile » les rendait trop gros sur téléphone. Le panneau ne dépasse jamais 45 % de la largeur de la fenêtre, et sa pointe reste sous le centre du bouton.
+- **Les options les plus importantes en premier :** **SORT BY** passe tout en haut : **Least left** (où il en reste le moins), **Price: Low**, Price: High, Most left, Default. Puis SHOW (Available, Not owned, New, Low stock, Sold out, Owned), puis TYPE.
+- **Least left** met les UGC épuisés **à la fin** : en premier, ceux qui sont **encore achetables** mais où il en reste le moins.
+
+## NOUVEAU DANS LA v12 — vérification sécurité avant publication
 
 | Point d'entrée | Risque trouvé | Correction |
 |---|---|---|
@@ -72,7 +91,7 @@ Tout le reste a été relu (popups admin, stats, favori, popup de départ, retou
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v12) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v13) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8
@@ -217,6 +236,7 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
 - Le modèle `.rbxmx` contient exactement le même code que les fichiers (vérifié octet par octet).
 
 ## 🧪 À tester dans Studio avant de publier
+00. **Boutons de l'écran :** dans Studio, essaie plusieurs formats (Test ▸ émulateur d'appareil : téléphone, tablette, et redimensionne la fenêtre). Les 8 boutons de gauche et le trio du haut doivent garder les mêmes écarts. Survole-les : l'animation doit repartir de la bonne place.
 0. **Lag PvP (à 2 joueurs minimum, idéalement sur un vrai serveur) :**
    - tue l'autre joueur : sa vue du tueur doit être fluide, avec tes traçantes, flashs, hitmarkers et sons ;
    - enchaîne 2 kills avec la même arme : la 2e victime voit aussi ton arme ;

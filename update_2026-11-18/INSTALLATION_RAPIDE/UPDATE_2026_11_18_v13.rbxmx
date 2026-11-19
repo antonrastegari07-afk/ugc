@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v12</string>
+			<string name="Name">UPDATE_2026_11_18_v13</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,14 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v12.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v13.INSTALL)()
 --
---  v12 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v11 (les versions remplacées vont dans sa propre copie de secours).
+--  v13 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v12 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v12 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v13 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -33,8 +33,8 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v12 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v12"
+	print("🚀 Installateur v13 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v13"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -43,15 +43,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v12 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v13 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v12 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v12 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v13 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v13 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v12") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v13") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -163,7 +163,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v12 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v13 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -7778,6 +7778,98 @@ return WeaponServer]]></ProtectedString>
 			</Item>
 			<Item class="ModuleScript" referent="RBX8">
 				<Properties>
+					<string name="Name">HudLayout</string>
+					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 📐 HudLayout — ModuleScript dans ReplicatedStorage   (NOUVEAU)
+--
+--  Les boutons de l'écran (les 8 à gauche + Current Stage / Skip Obby / Skip Level)
+--  gardent EXACTEMENT leur disposition, quel que soit le format de l'écran
+--  (PC large, 16:9, 16:10, tablette 4:3, téléphone…).
+--
+--  POURQUOI ILS SE DÉCOLLAIENT : leur position était en % de la LARGEUR de l'écran
+--  alors que leur taille (bloquée par UIAspectRatioConstraint) suivait la HAUTEUR.
+--  Sur un écran plus large, les écarts grandissaient ; plus étroit, ils se
+--  rapprochaient. En plus, chaque animation de survol re-forçait sa propre
+--  position (une valeur PC, une autre mobile).
+--
+--  COMMENT : ta disposition actuelle (comme sur un écran 16:9) est relue au
+--  démarrage, puis TOUT (tailles ET écarts) est recalculé à partir de la hauteur
+--  de l'écran. Le bloc de gauche reste collé au bord gauche, le trio du haut
+--  reste centré. Si un bloc ne tient plus en largeur, il rétrécit en entier
+--  (jamais de chevauchement). Recalcul seulement quand la taille de l'écran
+--  change : aucun coût en jeu. Les animations de survol partent de la bonne place.
+--
+--  ↩️ REVENIR À AVANT : Enabled = false.
+--════════════════════════════════════════════════════════════════════════════
+local TweenService = game:GetService("TweenService")
+
+local M = {}
+
+M.Enabled = true
+
+-- 🧱 Les blocs. x = position horizontale « PC » de ta disposition (en % d'un écran 16:9).
+--    nil = on garde celle de Studio. Tailles et hauteurs : celles de Studio.
+M.Groups = {
+	left = {
+		anchor = "left",
+		maxWidth = 0.42,   -- jamais plus de 42 % de la largeur de l'écran
+		items = {
+			{ gui = "Bouton hide", frame = "Frame",       x = 0.068 },  -- Hide Gui
+			{ gui = "UGCshop",     frame = "Frame",       x = 0.020 },  -- UGC Shop
+			{ gui = "Shop",        frame = "Frame",       x = 0.025 },
+			{ gui = "PointsShop",  frame = "Frame",       x = 0.095 },
+			{ gui = "Rebirth",     frame = "Frame",       x = 0.025 },
+			{ gui = "Quest",       frame = "Frame",       x = 0.095 },
+			{ gui = "Daily tool",  frame = "open button", x = 0.060 },  -- Rewards
+			{ gui = "invites",     frame = "Frame" },                    -- Invite
+		},
+	},
+	top = {
+		anchor = "center",
+		maxWidth = 0.92,
+		items = {
+			{ gui = "Skip Obby",  frame = "Frameskiplevel" },
+			{ gui = "# Stage",    frame = "Frame" },    -- Current Stage (hors PvP)
+			{ gui = "# Stage",    frame = "Frame2" },   -- kills (en PvP)
+			{ gui = "Skip Level", frame = "Frameskiplevel" },
+		},
+	},
+}
+
+-- écran de référence de ta disposition
+M.REF_W, M.REF_H = 1920, 1080
+
+-- 🖱️ Animation de survol (la même qu'avant : 90 % au survol, 85 % à l'appui),
+--    toujours calculée à partir de la place donnée par la mise en page.
+local HOVER_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+function M.Hover(button, frame)
+	local origSize, origPos = frame.Size, frame.Position
+	local function base()
+		local s, p = frame:GetAttribute("HudBaseSize"), frame:GetAttribute("HudBasePos")
+		if typeof(s) == "UDim2" and typeof(p) == "UDim2" then return s, p end
+		return origSize, origPos
+	end
+	local function to(k)
+		local s, p = base()
+		local ns = UDim2.new(s.X.Scale * k, s.X.Offset * k, s.Y.Scale * k, s.Y.Offset * k)
+		local a = frame.AnchorPoint
+		local np = UDim2.new(
+			p.X.Scale + s.X.Scale * (1 - k) * (0.5 - a.X), p.X.Offset + s.X.Offset * (1 - k) * (0.5 - a.X),
+			p.Y.Scale + s.Y.Scale * (1 - k) * (0.5 - a.Y), p.Y.Offset + s.Y.Offset * (1 - k) * (0.5 - a.Y))
+		TweenService:Create(frame, HOVER_INFO, { Size = ns, Position = np }):Play()
+	end
+	button.MouseEnter:Connect(function() to(0.9) end)
+	button.MouseLeave:Connect(function() to(1) end)
+	button.MouseButton1Down:Connect(function() to(0.85) end)
+	button.MouseButton1Up:Connect(function() to(0.9) end)
+end
+
+return M
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX9">
+				<Properties>
 					<string name="Name">LeaderboardCore</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict
 --[[
@@ -10026,7 +10118,7 @@ end
 return Core]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX9">
+			<Item class="ModuleScript" referent="RBX10">
 				<Properties>
 					<string name="Name">LeaderboardStyle</string>
 					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
@@ -10057,7 +10149,7 @@ return {
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX10">
+			<Item class="ModuleScript" referent="RBX11">
 				<Properties>
 					<string name="Name">PopupControlConfig</string>
 					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
@@ -10182,7 +10274,7 @@ return M
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX11">
+			<Item class="ModuleScript" referent="RBX12">
 				<Properties>
 					<string name="Name">PopupGate</string>
 					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
@@ -10299,15 +10391,15 @@ return Gate
 				</Properties>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX12">
+		<Item class="Folder" referent="RBX13">
 			<Properties>
 				<string name="Name">ServerScriptService</string>
 			</Properties>
-			<Item class="Folder" referent="RBX13">
+			<Item class="Folder" referent="RBX14">
 				<Properties>
 					<string name="Name">CombatSystem</string>
 				</Properties>
-				<Item class="Script" referent="RBX14">
+				<Item class="Script" referent="RBX15">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">CombatServer</string>
@@ -11113,7 +11205,7 @@ print(("✅ CombatSystem serveur prêt (respawn géré : %s, temps normal %.1f s
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="Script" referent="RBX15">
+			<Item class="Script" referent="RBX16">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">10 died = offer 2500 points</string>
@@ -11204,7 +11296,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX16">
+			<Item class="Script" referent="RBX17">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">DAILY TOOLs</string>
@@ -11771,7 +11863,7 @@ print("✅ DailyRewards SERVEUR v4 chargé (7 jours, fixes #1-4 appliqués)")
 -- Commandes admin: /resetdaily, /unlockday2]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX17">
+			<Item class="Script" referent="RBX18">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">FriendsBoard_Server</string>
@@ -11901,7 +11993,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX18">
+			<Item class="Script" referent="RBX19">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">PLAYER UGC STATS</string>
@@ -12461,7 +12553,7 @@ end)
 print("✅ PLAYER UGC STATS chargé" .. (READ_ONLY and " (🧪 Studio : lecture seule)" or ""))]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX19">
+			<Item class="Script" referent="RBX20">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">PopupControl_Server</string>
@@ -12670,7 +12762,7 @@ print("✅ PopupControl chargé")
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX20">
+			<Item class="Script" referent="RBX21">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">Presence_Server</string>
@@ -12753,7 +12845,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX21">
+			<Item class="Script" referent="RBX22">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">STATS</string>
@@ -13338,7 +13430,7 @@ print("✅ STATS v2 chargé (achats par provenance, popups, 1re UGC gratuite, in
 	.. (READ_ONLY and " — Studio : lecture seule" or ""))]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX22">
+			<Item class="Script" referent="RBX23">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">anti fly/tp server</string>
@@ -17250,7 +17342,7 @@ task.spawn(function()
 end)]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX23">
+			<Item class="Script" referent="RBX24">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">ask favorite game</string>
@@ -17429,7 +17521,7 @@ print("✅ Demande de favori v2 chargée")
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX24">
+			<Item class="Script" referent="RBX25">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">checkpoints system</string>
@@ -18557,7 +18649,7 @@ end)
 print("✅ Système Checkpoint chargé - VERSION DÉFINITIVE + NOTIFICATIONS SKIP")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX25">
+			<Item class="Script" referent="RBX26">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">datastore alr ask favorite game</string>
@@ -18636,7 +18728,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX26">
+			<Item class="Script" referent="RBX27">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">leave popup</string>
@@ -18816,7 +18908,7 @@ end)
 print("✅ Système Popup de départ chargé")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX27">
+			<Item class="Script" referent="RBX28">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">new donation board server</string>
@@ -19798,7 +19890,7 @@ end
 print("✅ TopDonators Server v3 chargé — UI/ProcessReceipt inchangés")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX28">
+			<Item class="Script" referent="RBX29">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">notif chat </string>
@@ -20159,7 +20251,7 @@ end
 print("✅ CHAT NOTIF SERVER chargé (purchases + gifts points + gifts objets + UGC + donations)")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX29">
+			<Item class="Script" referent="RBX30">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">server referal friend invite</string>
@@ -20774,7 +20866,7 @@ print("   _G.SetReferralCap(n)")
 print("   _G.SetReferralMinAccountAge(n)")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX30">
+			<Item class="Script" referent="RBX31">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">time</string>
@@ -28239,15 +28331,15 @@ print("✅ SYSTÈME DE PARAMÈTRES JOUEUR CHARGÉ (persistés dans PlayerData_v1
 				</Properties>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX31">
+		<Item class="Folder" referent="RBX32">
 			<Properties>
 				<string name="Name">ServerStorage</string>
 			</Properties>
-			<Item class="Folder" referent="RBX32">
+			<Item class="Folder" referent="RBX33">
 				<Properties>
 					<string name="Name">AdminClientScripts.</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX33">
+				<Item class="LocalScript" referent="RBX34">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Admin client</string>
@@ -54243,19 +54335,355 @@ print("✅ ADMIN PANEL CLIENT chargé (Mobile: " .. tostring(IS_MOBILE) .. ")")]
 				</Item>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX34">
+		<Item class="Folder" referent="RBX35">
 			<Properties>
 				<string name="Name">StarterGui</string>
 			</Properties>
-			<Item class="Folder" referent="RBX35">
+			<Item class="Folder" referent="RBX36">
+				<Properties>
+					<string name="Name">Bouton hide</string>
+				</Properties>
+				<Item class="Folder" referent="RBX37">
+					<Properties>
+						<string name="Name">Frame</string>
+					</Properties>
+					<Item class="Folder" referent="RBX38">
+						<Properties>
+							<string name="Name">TextButton</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX39">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">gestion hide</string>
+								<ProtectedString name="Source"><![CDATA[local button = script.Parent
+local frame = button.Parent
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- 📐 La place du bouton est donnée par ReplicatedStorage ▸ HudLayout (mêmes écarts
+--    sur tous les formats d'écran). Avant, ce script forçait une position en % de la
+--    largeur, et le bouton se décollait des autres.
+local HL = require(ReplicatedStorage:WaitForChild("HudLayout"))
+
+local isHidden = false
+local textLabel = button:FindFirstChild("TextLabel") or button
+
+local guisToHide = {
+	{screenGui = "Shop", buttonName = "Frame"},
+	{screenGui = "PointsShop", buttonName = "Frame"},
+	{screenGui = "Rebirth", buttonName = "Frame"},
+	{screenGui = "Quest", buttonName = "Frame"},
+	{screenGui = "Daily tool", buttonName = "open button"},
+	{screenGui = "# Stage", buttonName = "Frame"},    -- checkpoints (hors PVP)
+	{screenGui = "# Stage", buttonName = "Frame2"},   -- kills (en PVP)
+	{screenGui = "Skip Obby", buttonName = "Frameskiplevel"},
+	{screenGui = "Skip Level", buttonName = "Frameskiplevel"},
+	--{screenGui = "invites", buttonName = "Frame"},
+}
+
+local originalFrameSize = frame.Size
+local originalFramePosition = frame.Position
+
+local TweenService = game:GetService("TweenService")
+local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local colorTweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Linear)
+
+local gradient = button:FindFirstChildOfClass("UIGradient")
+if not gradient then
+	gradient = Instance.new("UIGradient")
+	gradient.Parent = button
+end
+
+local stroke = button:FindFirstChildOfClass("UIStroke")
+if not stroke then
+	stroke = Instance.new("UIStroke")
+	stroke.Parent = button
+	stroke.Thickness = 3
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+end
+
+local gradientOff = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 100, 100)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 0, 0)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 80, 80))
+}
+
+local gradientOn = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 255, 100)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 200, 0)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 255, 120))
+}
+
+local strokeColorOff = Color3.fromRGB(180, 0, 0)
+local strokeColorOn = Color3.fromRGB(0, 180, 0)
+
+local function animateGradient(targetGradient, targetStrokeColor)
+	gradient.Color = targetGradient
+	TweenService:Create(gradient, colorTweenInfo, {
+		Rotation = gradient.Rotation + 360
+	}):Play()
+	TweenService:Create(stroke, colorTweenInfo, {
+		Color = targetStrokeColor
+	}):Play()
+end
+
+local function getScaledSizeAndPosition(originalSize, originalPosition, scale)
+	local newSize = UDim2.new(
+		originalSize.X.Scale * scale,
+		originalSize.X.Offset * scale,
+		originalSize.Y.Scale * scale,
+		originalSize.Y.Offset * scale
+	)
+	local anchorPoint = frame.AnchorPoint
+	if anchorPoint.X == 0.5 and anchorPoint.Y == 0.5 then
+		return newSize, originalPosition
+	else
+		local newPosition = UDim2.new(
+			originalPosition.X.Scale + (originalSize.X.Scale * (1 - scale) / 2),
+			originalPosition.X.Offset + (originalSize.X.Offset * (1 - scale) / 2),
+			originalPosition.Y.Scale + (originalSize.Y.Scale * (1 - scale) / 2),
+			originalPosition.Y.Offset + (originalSize.Y.Offset * (1 - scale) / 2)
+		)
+		return newSize, newPosition
+	end
+end
+
+-- ✅ Fonction centrale : applique un état précis sans toggle
+-- 🔧 Frames exclusives à un mode. Clé = "NomDuScreenGui|NomDeLaFrame".
+local PVP_ONLY  = { ["# Stage|Frame2"] = true }   -- visible UNIQUEMENT en PVP (kills)
+local OBBY_ONLY = { ["# Stage|Frame"]  = true }   -- visible UNIQUEMENT hors PVP (checkpoints)
+-- 🔧 JAMAIS visible tant que le joueur est en PVP, même si le hide est sur OFF
+local FORCE_HIDDEN_IN_PVP = { ["Skip Obby"] = true, ["Skip Level"] = true }
+
+local function isInArena()
+	return player:GetAttribute("InArena") == true
+end
+
+local function applyHiddenState(hidden, autoPvp)
+	isHidden = hidden
+	local inArena = isInArena()
+	for _, guiData in ipairs(guisToHide) do
+		local screenGui = playerGui:FindFirstChild(guiData.screenGui)
+		if screenGui then
+			local buttonToHide = screenGui:FindFirstChild(guiData.buttonName)
+			if buttonToHide then
+				local key = guiData.screenGui .. "|" .. guiData.buttonName
+				local visible = not isHidden
+
+				-- en ENTRANT en arène, la frame kills reste à l'écran
+				if autoPvp and PVP_ONLY[key] then visible = true end
+
+				-- chaque frame n'existe que dans son mode
+				if inArena and OBBY_ONLY[key] then visible = false end
+				if (not inArena) and PVP_ONLY[key] then visible = false end
+
+				-- skip level / skip obby : jamais en PVP
+				if inArena and FORCE_HIDDEN_IN_PVP[guiData.screenGui] then
+					visible = false
+				end
+
+				buttonToHide.Visible = visible
+			else
+				warn("Bouton '" .. guiData.buttonName .. "' non trouvé dans " .. guiData.screenGui)
+			end
+		else
+			warn("ScreenGui '" .. guiData.screenGui .. "' non trouvé")
+		end
+	end
+	if isHidden then
+		animateGradient(gradientOn, strokeColorOn)
+		if textLabel then textLabel.Text = "ON" end
+	else
+		animateGradient(gradientOff, strokeColorOff)
+		if textLabel then textLabel.Text = "OFF" end
+	end
+end
+
+-- ✅ Toggle manuel via clic
+local function toggleGuis()
+	applyHiddenState(not isHidden)
+end
+
+-- Initialisation
+gradient.Color = gradientOff
+gradient.Rotation = 90
+stroke.Color = strokeColorOff
+if textLabel then textLabel.Text = "OFF" end
+
+-- ✅ Écouter l'événement dédié depuis le serveur
+local hideUIEvent = ReplicatedStorage:WaitForChild("HideUIEvent", 10)
+if hideUIEvent then
+	hideUIEvent.OnClientEvent:Connect(function(shouldHide)
+		-- shouldHide = true  → entré en arène, forcer ON (tout cacher)
+		-- shouldHide = false → sorti d'arène, forcer OFF (tout réafficher)
+		applyHiddenState(shouldHide, shouldHide)
+	end)
+	-- 🔁 Resynchronise si InArena change (l'ordre d'arrivée avec HideUIEvent n'est pas garanti)
+	player:GetAttributeChangedSignal("InArena"):Connect(function()
+		applyHiddenState(isHidden, isInArena())
+	end)
+
+	-- ▶️ État initial au spawn : sinon Frame et Frame2 gardent leur Visible de
+	--    Studio et les deux peuvent s'afficher en même temps.
+	task.spawn(function()
+		task.wait(1)
+		applyHiddenState(isHidden, isInArena())
+	end)
+end
+
+-- Hover (même effet qu'avant, à partir de la place donnée par HudLayout)
+HL.Hover(button, frame)
+
+button.MouseButton1Click:Connect(function()
+	toggleGuis()
+end)]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+			</Item>
+			<Item class="Folder" referent="RBX40">
+				<Properties>
+					<string name="Name">Daily tool</string>
+				</Properties>
+				<Item class="Folder" referent="RBX41">
+					<Properties>
+						<string name="Name">open button</string>
+					</Properties>
+					<Item class="Folder" referent="RBX42">
+						<Properties>
+							<string name="Name">ImageButton</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX43">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">animation daily</string>
+								<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🖱️ Animation du bouton (survol 90 %, appui 85 %) — même effet qu'avant.
+--  🩹 Avant, ce script forçait aussi la position du bouton en % de la largeur de
+--  l'écran (une valeur PC, une autre mobile) : les boutons se décollaient quand le
+--  format de l'écran changeait. La place est maintenant donnée par
+--  ReplicatedStorage ▸ HudLayout, et l'animation part de cette place.
+--════════════════════════════════════════════════════════════════════════════
+local button = script.Parent
+local frame = button.Parent
+local HL = require(game:GetService("ReplicatedStorage"):WaitForChild("HudLayout"))
+HL.Hover(button, frame)
+]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+			</Item>
+			<Item class="Folder" referent="RBX44">
+				<Properties>
+					<string name="Name">PointsShop</string>
+				</Properties>
+				<Item class="Folder" referent="RBX45">
+					<Properties>
+						<string name="Name">Frame</string>
+					</Properties>
+					<Item class="Folder" referent="RBX46">
+						<Properties>
+							<string name="Name">PointToggle</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX47">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">animation Points</string>
+								<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🖱️ Animation du bouton (survol 90 %, appui 85 %) — même effet qu'avant.
+--  🩹 Avant, ce script forçait aussi la position du bouton en % de la largeur de
+--  l'écran (une valeur PC, une autre mobile) : les boutons se décollaient quand le
+--  format de l'écran changeait. La place est maintenant donnée par
+--  ReplicatedStorage ▸ HudLayout, et l'animation part de cette place.
+--════════════════════════════════════════════════════════════════════════════
+local button = script.Parent
+local frame = button.Parent
+local HL = require(game:GetService("ReplicatedStorage"):WaitForChild("HudLayout"))
+HL.Hover(button, frame)
+]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+			</Item>
+			<Item class="Folder" referent="RBX48">
+				<Properties>
+					<string name="Name">Quest</string>
+				</Properties>
+				<Item class="Folder" referent="RBX49">
+					<Properties>
+						<string name="Name">Frame</string>
+					</Properties>
+					<Item class="Folder" referent="RBX50">
+						<Properties>
+							<string name="Name">ShopToggle1</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX51">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">animation quest</string>
+								<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🖱️ Animation du bouton (survol 90 %, appui 85 %) — même effet qu'avant.
+--  🩹 Avant, ce script forçait aussi la position du bouton en % de la largeur de
+--  l'écran (une valeur PC, une autre mobile) : les boutons se décollaient quand le
+--  format de l'écran changeait. La place est maintenant donnée par
+--  ReplicatedStorage ▸ HudLayout, et l'animation part de cette place.
+--════════════════════════════════════════════════════════════════════════════
+local button = script.Parent
+local frame = button.Parent
+local HL = require(game:GetService("ReplicatedStorage"):WaitForChild("HudLayout"))
+HL.Hover(button, frame)
+]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+			</Item>
+			<Item class="Folder" referent="RBX52">
+				<Properties>
+					<string name="Name">Rebirth</string>
+				</Properties>
+				<Item class="Folder" referent="RBX53">
+					<Properties>
+						<string name="Name">Frame</string>
+					</Properties>
+					<Item class="Folder" referent="RBX54">
+						<Properties>
+							<string name="Name">ShopToggle1</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX55">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">animation rebirth</string>
+								<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🖱️ Animation du bouton (survol 90 %, appui 85 %) — même effet qu'avant.
+--  🩹 Avant, ce script forçait aussi la position du bouton en % de la largeur de
+--  l'écran (une valeur PC, une autre mobile) : les boutons se décollaient quand le
+--  format de l'écran changeait. La place est maintenant donnée par
+--  ReplicatedStorage ▸ HudLayout, et l'animation part de cette place.
+--════════════════════════════════════════════════════════════════════════════
+local button = script.Parent
+local frame = button.Parent
+local HL = require(game:GetService("ReplicatedStorage"):WaitForChild("HudLayout"))
+HL.Hover(button, frame)
+]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+			</Item>
+			<Item class="Folder" referent="RBX56">
 				<Properties>
 					<string name="Name">ShiftLockButton</string>
 				</Properties>
-				<Item class="Folder" referent="RBX36">
+				<Item class="Folder" referent="RBX57">
 					<Properties>
 						<string name="Name">ImageButton</string>
 					</Properties>
-					<Item class="LocalScript" referent="RBX37">
+					<Item class="LocalScript" referent="RBX58">
 						<Properties>
 							<bool name="Disabled">true</bool>
 							<string name="Name">ShiftGUI</string>
@@ -54396,15 +54824,76 @@ setImage(false)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX38">
+			<Item class="Folder" referent="RBX59">
+				<Properties>
+					<string name="Name">Shop</string>
+				</Properties>
+				<Item class="Folder" referent="RBX60">
+					<Properties>
+						<string name="Name">Frame</string>
+					</Properties>
+					<Item class="Folder" referent="RBX61">
+						<Properties>
+							<string name="Name">PointToggle</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX62">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">animation shop</string>
+								<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🖱️ Animation du bouton (survol 90 %, appui 85 %) — même effet qu'avant.
+--  🩹 Avant, ce script forçait aussi la position du bouton en % de la largeur de
+--  l'écran (une valeur PC, une autre mobile) : les boutons se décollaient quand le
+--  format de l'écran changeait. La place est maintenant donnée par
+--  ReplicatedStorage ▸ HudLayout, et l'animation part de cette place.
+--════════════════════════════════════════════════════════════════════════════
+local button = script.Parent
+local frame = button.Parent
+local HL = require(game:GetService("ReplicatedStorage"):WaitForChild("HudLayout"))
+HL.Hover(button, frame)
+]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+			</Item>
+			<Item class="Folder" referent="RBX63">
 				<Properties>
 					<string name="Name">UGCshop</string>
 				</Properties>
-				<Item class="Folder" referent="RBX39">
+				<Item class="Folder" referent="RBX64">
+					<Properties>
+						<string name="Name">Frame</string>
+					</Properties>
+					<Item class="Folder" referent="RBX65">
+						<Properties>
+							<string name="Name">ShopToggle1</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX66">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">animation ugc</string>
+								<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🖱️ Animation du bouton (survol 90 %, appui 85 %) — même effet qu'avant.
+--  🩹 Avant, ce script forçait aussi la position du bouton en % de la largeur de
+--  l'écran (une valeur PC, une autre mobile) : les boutons se décollaient quand le
+--  format de l'écran changeait. La place est maintenant donnée par
+--  ReplicatedStorage ▸ HudLayout, et l'animation part de cette place.
+--════════════════════════════════════════════════════════════════════════════
+local button = script.Parent
+local frame = button.Parent
+local HL = require(game:GetService("ReplicatedStorage"):WaitForChild("HudLayout"))
+HL.Hover(button, frame)
+]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+				<Item class="Folder" referent="RBX67">
 					<Properties>
 						<string name="Name">ShopFrame</string>
 					</Properties>
-					<Item class="LocalScript" referent="RBX40">
+					<Item class="LocalScript" referent="RBX68">
 						<Properties>
 							<bool name="Disabled">true</bool>
 							<string name="Name"> UGC SHOP GENERATOR</string>
@@ -55152,7 +55641,14 @@ function SF.apply(list)
 		table.sort(out, function(a, b)
 			local ka, kb
 			if s == "price_desc" or s == "price_asc" then ka, kb = a.Price or 0, b.Price or 0
-			else ka, kb = leftStockOf(a), leftStockOf(b) end
+			else
+				ka, kb = leftStockOf(a), leftStockOf(b)
+				-- « Least left » : les ÉPUISÉS (0) vont à la fin → en premier, ceux où il en reste le moins
+				if s == "left_asc" then
+					if ka == 0 then ka = math.huge end
+					if kb == 0 then kb = math.huge end
+				end
+			end
 			if ka == nil or kb == nil then   -- stock pas encore connu : à la fin, dans l'ordre du shop
 				if (ka == nil) ~= (kb == nil) then return kb == nil end
 				return rank[a] < rank[b]
@@ -56575,18 +57071,20 @@ local function buildFilterUI()
 	}
 	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
 	-- SHOW : 1re ligne = le stock (un seul), 2e ligne = New + possession (un seul des deux)
-	local SHOW = { { "avail", "Available" }, { "low", "Low stock" }, { "sold", "Sold out" },
-		{ "new", "New" }, { "owned", "Owned" }, { "notOwned", "Not owned" } }
+	-- ⭐ les plus utiles en premier
+	local SHOW = { { "avail", "Available" }, { "notOwned", "Not owned" }, { "new", "New" },
+		{ "low", "Low stock" }, { "sold", "Sold out" }, { "owned", "Owned" } }
 	local FLAG_LABEL = {}
 	for _, x in ipairs(SHOW) do FLAG_LABEL[x[1]] = x[2] end
 	local GROUP_OF = { avail = "stock", low = "stock", sold = "stock", owned = "own", notOwned = "own" }
 	local GROUPS = { stock = { "avail", "low", "sold" }, own = { "owned", "notOwned" } }
+	-- ⭐ les plus importants en premier : où il en reste le MOINS, puis le moins cher
 	local SORTS = {
-		{ id = "default",    label = "Default" },
-		{ id = "price_desc", label = "Price: High" },
+		{ id = "left_asc",   label = "Least left" },    -- stock RESTANT (épuisés à la fin)
 		{ id = "price_asc",  label = "Price: Low" },
-		{ id = "left_desc",  label = "Most left" },     -- stock RESTANT
-		{ id = "left_asc",   label = "Least left" },
+		{ id = "price_desc", label = "Price: High" },
+		{ id = "left_desc",  label = "Most left" },
+		{ id = "default",    label = "Default" },
 	}
 	local SORT_LABEL = {}
 	for _, x in ipairs(SORTS) do SORT_LABEL[x.id] = x.label end
@@ -56639,9 +57137,19 @@ local function buildFilterUI()
 
 	-- 📱🖥️📺 échelle : dessiné pour une fenêtre de 620 px de haut, avec un minimum
 	--    lisible / touchable au doigt (mobile) et à distance (télé / console)
-	local function uiScaleValue()
-		local minS = IS_TV and 1 or (IS_TOUCH and 0.75 or 0.55)
-		return math.clamp(ShopFrame.AbsoluteSize.Y / 620, minS, 1.3)
+	-- 📏 tailles : TOUT suit la taille de la fenêtre du shop (et plus l'appareil). Avant, un
+	--    minimum « mobile » rendait le bouton et le panneau trop gros sur téléphone.
+	local function shopRatio()
+		return math.min(ShopFrame.AbsoluteSize.Y / 620, ShopFrame.AbsoluteSize.X / 1100)
+	end
+	local function uiScaleValue()          -- bouton FILTER, message « aucun résultat »
+		return math.clamp(shopRatio(), 0.35, 1.3)
+	end
+	local function panelScaleValue()       -- panneau : jamais plus large que 45 % de la fenêtre
+		local s = math.clamp(shopRatio(), 0.4, 1.3)
+		local maxW = ShopFrame.AbsoluteSize.X * 0.45
+		if maxW > 1 and 300 * s > maxW then s = maxW / 300 end
+		return s
 	end
 	local function padActive()
 		return UIS:GetLastInputType().Name:sub(1, 7) == "Gamepad"
@@ -56730,7 +57238,7 @@ local function buildFilterUI()
 	round(body, 12)
 	mk("UIStroke", OUTLINE, body)
 	-- raccord pointe ↔ panneau : on cache le trait du contour sous la pointe
-	mk("Frame", { Name = "NotchJoin", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(19, 4),
+	local notchJoin = mk("Frame", { Name = "NotchJoin", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(19, 4),
 		Position = UDim2.fromOffset(notchX, NOTCH), BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = Z + 3 }, holder)
 	local scroll = mk("ScrollingFrame", { BackgroundTransparency = 1, BorderSizePixel = 0, Selectable = false,
 		Size = UDim2.new(1, 0, 1, -FOOT_H), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(),
@@ -56795,6 +57303,11 @@ local function buildFilterUI()
 		for _, c in ipairs(scroll:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
 		table.clear(painters) ; firstBtn = nil
 		order, contentH = 0, 0
+		-- ⭐ ordre : SORT BY (le plus utilisé) · SHOW · TYPE
+		title("SORT BY")
+		grid(SORTS, function(id)
+			return draft.sort == id and "on" or "off"
+		end, function(id) draft.sort = (draft.sort == id and id ~= "default") and "default" or id end)
 		title("SHOW")
 		local showItems = {}
 		for _, x in ipairs(SHOW) do table.insert(showItems, { id = x[1], label = x[2] }) end
@@ -56816,10 +57329,6 @@ local function buildFilterUI()
 					function(id) draft.f.types[id] = (not draft.f.types[id]) or nil end)
 			end
 		end
-		title("SORT BY")
-		grid(SORTS, function(id)
-			return draft.sort == id and "on" or "off"
-		end, function(id) draft.sort = (draft.sort == id and id ~= "default") and "default" or id end)
 		contentH += PAD * 2
 	end
 
@@ -56831,8 +57340,12 @@ local function buildFilterUI()
 	end
 	local room = 400
 	local function place()
-		local sc = uiScaleValue()
-		fScale.Scale, pScale.Scale, emptyScale.Scale = sc, sc, sc
+		local sc, psc = uiScaleValue(), panelScaleValue()
+		fScale.Scale, pScale.Scale, emptyScale.Scale = sc, psc, sc
+		-- la pointe reste sous le CENTRE du bouton (bouton et panneau n'ont pas la même échelle)
+		local nx = PW - EDGE - (BTN_W / 2) * sc / psc
+		notch.Position = UDim2.fromOffset(nx, NOTCH + 2)
+		notchJoin.Position = UDim2.fromOffset(nx, NOTCH)
 		local shopAbs = ShopFrame.AbsolutePosition
 		local w = ScrollingFrame.AbsoluteWindowSize.X
 		if w <= 1 or ShopFrame.AbsoluteSize.X <= 1 then return end
@@ -56844,7 +57357,7 @@ local function buildFilterUI()
 		local top = cy + (BTN_H / 2) * sc
 		holder.Position = UDim2.fromOffset(right, top)
 		-- hauteur dispo dans la fenêtre : au-delà, le panneau défile (petits écrans)
-		room = math.max(CELL_H * 3, (ShopFrame.AbsoluteSize.Y - top - 10) / sc - NOTCH - FOOT_H - EDGE)
+		room = math.max(CELL_H * 3, (ShopFrame.AbsoluteSize.Y - top - 10) / psc - NOTCH - FOOT_H - EDGE)
 		bodyH = math.min(contentH, room)
 		layoutPanel()
 	end
@@ -57067,11 +57580,11 @@ buildFilterUI()
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX41">
+			<Item class="Folder" referent="RBX69">
 				<Properties>
 					<string name="Name">VIP offer</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX42">
+				<Item class="LocalScript" referent="RBX70">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">make pop th add</string>
@@ -57197,15 +57710,15 @@ hideFrame()]]></ProtectedString>
 				</Item>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX43">
+		<Item class="Folder" referent="RBX71">
 			<Properties>
 				<string name="Name">StarterPlayer</string>
 			</Properties>
-			<Item class="Folder" referent="RBX44">
+			<Item class="Folder" referent="RBX72">
 				<Properties>
 					<string name="Name">StarterCharacterScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX45">
+				<Item class="LocalScript" referent="RBX73">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ask favorite game</string>
@@ -57276,11 +57789,11 @@ waitForDeath()]]></ProtectedString>
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX46">
+			<Item class="Folder" referent="RBX74">
 				<Properties>
 					<string name="Name">StarterPlayerScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX47">
+				<Item class="LocalScript" referent="RBX75">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name"> ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD</string>
@@ -57505,7 +58018,7 @@ Players.PlayerAdded:Connect(function(p)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX48">
+				<Item class="LocalScript" referent="RBX76">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ArenaViewKeeper</string>
@@ -57923,7 +58436,7 @@ refresh()
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX49">
+				<Item class="LocalScript" referent="RBX77">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">DeathCam</string>
@@ -60192,7 +60705,7 @@ end)
 print("✅ DeathCam prêt")]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX50">
+				<Item class="LocalScript" referent="RBX78">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">EngageTrack</string>
@@ -60286,7 +60799,7 @@ playerGui.ChildAdded:Connect(function(g)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX51">
+				<Item class="LocalScript" referent="RBX79">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre achat speedcoil</string>
@@ -60311,7 +60824,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX52">
+				<Item class="LocalScript" referent="RBX80">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre dachat fusion coil</string>
@@ -60337,7 +60850,130 @@ end)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX53">
+				<Item class="LocalScript" referent="RBX81">
+					<Properties>
+						<bool name="Disabled">true</bool>
+						<string name="Name">HudLayoutClient</string>
+						<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 📐 HudLayoutClient — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (NOUVEAU)
+--  Applique ReplicatedStorage ▸ HudLayout : les boutons de l'écran gardent leurs
+--  écarts sur TOUS les formats d'écran. Réglages et explications dans HudLayout.
+--════════════════════════════════════════════════════════════════════════════
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local HL = require(ReplicatedStorage:WaitForChild("HudLayout"))
+if not HL.Enabled then return end
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local REF_W, REF_H = HL.REF_W, HL.REF_H
+
+-- disposition de Studio relue UNE fois par cadre (un nouveau cadre au respawn = relu)
+local design = setmetatable({}, { __mode = "k" })
+
+local function designOf(frame, xOverride)
+	local d = design[frame]
+	if d then return d end
+	local s, p = frame.Size, frame.Position
+	local w = s.X.Scale * REF_W + s.X.Offset
+	local h = s.Y.Scale * REF_H + s.Y.Offset
+	local ar = frame:FindFirstChildOfClass("UIAspectRatioConstraint")
+	if ar and ar.AspectRatio > 0 and w > 0 and h > 0 then
+		local r = ar.AspectRatio
+		if ar.AspectType == Enum.AspectType.ScaleWithParentSize then
+			if ar.DominantAxis == Enum.DominantAxis.Width then h = w / r else w = h * r end
+		elseif w / h > r then
+			w = h * r
+		else
+			h = w / r
+		end
+	end
+	local x = (xOverride or p.X.Scale) * REF_W + p.X.Offset
+	local y = p.Y.Scale * REF_H + p.Y.Offset
+	local a = frame.AnchorPoint
+	d = { x = x - a.X * w, y = y - a.Y * h, w = w, h = h }   -- coin haut-gauche
+	design[frame] = d
+	return d
+end
+
+local function layoutGroup(g)
+	local live = {}
+	for _, it in ipairs(g.items) do
+		local gui = playerGui:FindFirstChild(it.gui)
+		local fr = gui and gui:FindFirstChild(it.frame)
+		if fr and fr:IsA("GuiObject") and gui:IsA("LayerCollector") then
+			table.insert(live, { fr = fr, gui = gui, d = designOf(fr, it.x) })
+		end
+	end
+	if #live == 0 then return end
+	local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
+	for _, e in ipairs(live) do
+		minX = math.min(minX, e.d.x) ; maxX = math.max(maxX, e.d.x + e.d.w)
+		minY = math.min(minY, e.d.y) ; maxY = math.max(maxY, e.d.y + e.d.h)
+	end
+	for _, e in ipairs(live) do
+		local GW, GH = e.gui.AbsoluteSize.X, e.gui.AbsoluteSize.Y
+		if GW > 1 and GH > 1 then
+			local u = GH / REF_H                      -- tout suit la HAUTEUR de l'écran
+			local k = 1                               -- rétrécit le bloc s'il ne tient plus en largeur
+			local x, y
+			if g.anchor == "center" then
+				local span = math.max(math.abs(maxX - REF_W / 2), math.abs(minX - REF_W / 2)) * 2 * u
+				if span > GW * g.maxWidth then k = GW * g.maxWidth / span end
+				x = GW / 2 + (e.d.x - REF_W / 2) * u * k
+				y = e.d.y * u * k
+			else
+				local right = maxX * u
+				if right > GW * g.maxWidth then k = GW * g.maxWidth / right end
+				local cy = (minY + maxY) / 2
+				x = e.d.x * u * k
+				y = (cy + (e.d.y - cy) * k) * u
+			end
+			local w, h = e.d.w * u * k, e.d.h * u * k
+			local a = e.fr.AnchorPoint
+			local size = UDim2.fromOffset(w, h)
+			local pos = UDim2.fromOffset(x + a.X * w, y + a.Y * h)
+			e.fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
+			e.fr:SetAttribute("HudBasePos", pos)
+			e.fr.Size, e.fr.Position = size, pos
+		end
+	end
+end
+
+local queued = false
+local function relayout()
+	if queued then return end
+	queued = true
+	task.defer(function()
+		queued = false
+		for _, g in pairs(HL.Groups) do pcall(layoutGroup, g) end
+	end)
+end
+
+-- ce qu'il faut surveiller : la taille de l'écran et les ScreenGui (recréés au respawn)
+local watched = setmetatable({}, { __mode = "k" })
+local wanted = {}
+for _, g in pairs(HL.Groups) do for _, it in ipairs(g.items) do wanted[it.gui] = true end end
+local function watch(gui)
+	if not wanted[gui.Name] or watched[gui] or not gui:IsA("LayerCollector") then return end
+	watched[gui] = true
+	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+	relayout()
+end
+for _, c in ipairs(playerGui:GetChildren()) do watch(c) end
+playerGui.ChildAdded:Connect(function(c) task.defer(watch, c) end)
+local function watchCam()
+	local cam = workspace.CurrentCamera
+	if cam then cam:GetPropertyChangedSignal("ViewportSize"):Connect(relayout) end
+end
+watchCam()
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() watchCam() ; relayout() end)
+relayout()
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="LocalScript" referent="RBX82">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">PlayerProfileHover</string>
@@ -61961,7 +62597,7 @@ UserInputService.TouchTapInWorld:Connect(function(pos, processedByUI)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX54">
+				<Item class="LocalScript" referent="RBX83">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ScrollTapGuard</string>
@@ -62049,7 +62685,7 @@ end)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX55">
+				<Item class="LocalScript" referent="RBX84">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">achat x2coin</string>
@@ -62067,7 +62703,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX56">
+				<Item class="LocalScript" referent="RBX85">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">fenetre dachat gravity coil</string>
@@ -62092,7 +62728,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX57">
+				<Item class="LocalScript" referent="RBX86">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">offers on screen</string>
@@ -63046,7 +63682,7 @@ end
 print("✅ OffersDisplay + Referral chargé —", #OFFERS, "offre(s)")]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX58">
+				<Item class="LocalScript" referent="RBX87">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">rebirth offer notify event</string>
@@ -63280,7 +63916,7 @@ end)
 log("Actif pour " .. player.Name)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX59">
+				<Item class="LocalScript" referent="RBX88">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">script proposer achat skip obby</string>

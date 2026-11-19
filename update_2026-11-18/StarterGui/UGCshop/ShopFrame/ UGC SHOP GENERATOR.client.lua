@@ -742,7 +742,14 @@ function SF.apply(list)
 		table.sort(out, function(a, b)
 			local ka, kb
 			if s == "price_desc" or s == "price_asc" then ka, kb = a.Price or 0, b.Price or 0
-			else ka, kb = leftStockOf(a), leftStockOf(b) end
+			else
+				ka, kb = leftStockOf(a), leftStockOf(b)
+				-- « Least left » : les ÉPUISÉS (0) vont à la fin → en premier, ceux où il en reste le moins
+				if s == "left_asc" then
+					if ka == 0 then ka = math.huge end
+					if kb == 0 then kb = math.huge end
+				end
+			end
 			if ka == nil or kb == nil then   -- stock pas encore connu : à la fin, dans l'ordre du shop
 				if (ka == nil) ~= (kb == nil) then return kb == nil end
 				return rank[a] < rank[b]
@@ -2165,18 +2172,20 @@ local function buildFilterUI()
 	}
 	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
 	-- SHOW : 1re ligne = le stock (un seul), 2e ligne = New + possession (un seul des deux)
-	local SHOW = { { "avail", "Available" }, { "low", "Low stock" }, { "sold", "Sold out" },
-		{ "new", "New" }, { "owned", "Owned" }, { "notOwned", "Not owned" } }
+	-- ⭐ les plus utiles en premier
+	local SHOW = { { "avail", "Available" }, { "notOwned", "Not owned" }, { "new", "New" },
+		{ "low", "Low stock" }, { "sold", "Sold out" }, { "owned", "Owned" } }
 	local FLAG_LABEL = {}
 	for _, x in ipairs(SHOW) do FLAG_LABEL[x[1]] = x[2] end
 	local GROUP_OF = { avail = "stock", low = "stock", sold = "stock", owned = "own", notOwned = "own" }
 	local GROUPS = { stock = { "avail", "low", "sold" }, own = { "owned", "notOwned" } }
+	-- ⭐ les plus importants en premier : où il en reste le MOINS, puis le moins cher
 	local SORTS = {
-		{ id = "default",    label = "Default" },
-		{ id = "price_desc", label = "Price: High" },
+		{ id = "left_asc",   label = "Least left" },    -- stock RESTANT (épuisés à la fin)
 		{ id = "price_asc",  label = "Price: Low" },
-		{ id = "left_desc",  label = "Most left" },     -- stock RESTANT
-		{ id = "left_asc",   label = "Least left" },
+		{ id = "price_desc", label = "Price: High" },
+		{ id = "left_desc",  label = "Most left" },
+		{ id = "default",    label = "Default" },
 	}
 	local SORT_LABEL = {}
 	for _, x in ipairs(SORTS) do SORT_LABEL[x.id] = x.label end
@@ -2229,9 +2238,19 @@ local function buildFilterUI()
 
 	-- 📱🖥️📺 échelle : dessiné pour une fenêtre de 620 px de haut, avec un minimum
 	--    lisible / touchable au doigt (mobile) et à distance (télé / console)
-	local function uiScaleValue()
-		local minS = IS_TV and 1 or (IS_TOUCH and 0.75 or 0.55)
-		return math.clamp(ShopFrame.AbsoluteSize.Y / 620, minS, 1.3)
+	-- 📏 tailles : TOUT suit la taille de la fenêtre du shop (et plus l'appareil). Avant, un
+	--    minimum « mobile » rendait le bouton et le panneau trop gros sur téléphone.
+	local function shopRatio()
+		return math.min(ShopFrame.AbsoluteSize.Y / 620, ShopFrame.AbsoluteSize.X / 1100)
+	end
+	local function uiScaleValue()          -- bouton FILTER, message « aucun résultat »
+		return math.clamp(shopRatio(), 0.35, 1.3)
+	end
+	local function panelScaleValue()       -- panneau : jamais plus large que 45 % de la fenêtre
+		local s = math.clamp(shopRatio(), 0.4, 1.3)
+		local maxW = ShopFrame.AbsoluteSize.X * 0.45
+		if maxW > 1 and 300 * s > maxW then s = maxW / 300 end
+		return s
 	end
 	local function padActive()
 		return UIS:GetLastInputType().Name:sub(1, 7) == "Gamepad"
@@ -2320,7 +2339,7 @@ local function buildFilterUI()
 	round(body, 12)
 	mk("UIStroke", OUTLINE, body)
 	-- raccord pointe ↔ panneau : on cache le trait du contour sous la pointe
-	mk("Frame", { Name = "NotchJoin", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(19, 4),
+	local notchJoin = mk("Frame", { Name = "NotchJoin", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(19, 4),
 		Position = UDim2.fromOffset(notchX, NOTCH), BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = Z + 3 }, holder)
 	local scroll = mk("ScrollingFrame", { BackgroundTransparency = 1, BorderSizePixel = 0, Selectable = false,
 		Size = UDim2.new(1, 0, 1, -FOOT_H), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(),
@@ -2385,6 +2404,11 @@ local function buildFilterUI()
 		for _, c in ipairs(scroll:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
 		table.clear(painters) ; firstBtn = nil
 		order, contentH = 0, 0
+		-- ⭐ ordre : SORT BY (le plus utilisé) · SHOW · TYPE
+		title("SORT BY")
+		grid(SORTS, function(id)
+			return draft.sort == id and "on" or "off"
+		end, function(id) draft.sort = (draft.sort == id and id ~= "default") and "default" or id end)
 		title("SHOW")
 		local showItems = {}
 		for _, x in ipairs(SHOW) do table.insert(showItems, { id = x[1], label = x[2] }) end
@@ -2406,10 +2430,6 @@ local function buildFilterUI()
 					function(id) draft.f.types[id] = (not draft.f.types[id]) or nil end)
 			end
 		end
-		title("SORT BY")
-		grid(SORTS, function(id)
-			return draft.sort == id and "on" or "off"
-		end, function(id) draft.sort = (draft.sort == id and id ~= "default") and "default" or id end)
 		contentH += PAD * 2
 	end
 
@@ -2421,8 +2441,12 @@ local function buildFilterUI()
 	end
 	local room = 400
 	local function place()
-		local sc = uiScaleValue()
-		fScale.Scale, pScale.Scale, emptyScale.Scale = sc, sc, sc
+		local sc, psc = uiScaleValue(), panelScaleValue()
+		fScale.Scale, pScale.Scale, emptyScale.Scale = sc, psc, sc
+		-- la pointe reste sous le CENTRE du bouton (bouton et panneau n'ont pas la même échelle)
+		local nx = PW - EDGE - (BTN_W / 2) * sc / psc
+		notch.Position = UDim2.fromOffset(nx, NOTCH + 2)
+		notchJoin.Position = UDim2.fromOffset(nx, NOTCH)
 		local shopAbs = ShopFrame.AbsolutePosition
 		local w = ScrollingFrame.AbsoluteWindowSize.X
 		if w <= 1 or ShopFrame.AbsoluteSize.X <= 1 then return end
@@ -2434,7 +2458,7 @@ local function buildFilterUI()
 		local top = cy + (BTN_H / 2) * sc
 		holder.Position = UDim2.fromOffset(right, top)
 		-- hauteur dispo dans la fenêtre : au-delà, le panneau défile (petits écrans)
-		room = math.max(CELL_H * 3, (ShopFrame.AbsoluteSize.Y - top - 10) / sc - NOTCH - FOOT_H - EDGE)
+		room = math.max(CELL_H * 3, (ShopFrame.AbsoluteSize.Y - top - 10) / psc - NOTCH - FOOT_H - EDGE)
 		bodyH = math.min(contentH, room)
 		layoutPanel()
 	end
