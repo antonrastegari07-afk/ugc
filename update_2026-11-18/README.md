@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v23) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v24) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v22** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v23** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v22).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v23).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v23.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v24.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v23.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v24.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v23… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v24… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v23`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v24`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,20 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v23
+## 🆕 NOUVEAU DANS LA v24
+- **Filtre du shop UGC, libellés corrigés selon ta demande :**
+
+  | v23 | v24 |
+  |---|---|
+  | Rarest (tri) | **Low stock** |
+  | Stocked (tri) | **High stock** |
+  | Rare (SHOW : presque épuisés) | **Few left** |
+  | Sold (SHOW) | **Sold out** |
+
+  Cheapest, Priciest, Unowned, Available, New, Owned et Default restent pareils.
+- **Le texte des boutons du filtre reste toujours sur UNE ligne :** s'il est un peu long, il rétrécit légèrement au lieu de se couper en deux petites lignes illisibles (c'était le problème de « Price: Low » sur mobile).
+
+## NOUVEAU DANS LA v23
 - **Fenêtre PvP plus petite sur mobile :** sa taille suit l'écran (au plus 38 % de la hauteur et 55 % de la largeur). Sur un téléphone en paysage (844×390), elle fait environ 280×150 au lieu de 500×260. Sur PC, rien ne change.
 - **Titre de la fenêtre PvP :** « **NOBODY IN THIS PVP SERVER** ». C'est ton changement, repris dans le fichier pour que l'installateur ne l'écrase pas.
 - **Filtre du shop UGC : un seul mot par option**, lisible même sur un petit écran :

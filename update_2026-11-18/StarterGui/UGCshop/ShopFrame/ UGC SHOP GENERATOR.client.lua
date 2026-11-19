@@ -713,7 +713,7 @@ local SF = {
 	total = {},         -- [assetId] = stock total
 	ownedMap = {},      -- [assetId] = true/false (lu une fois sur Roblox)
 	typeOf = {},        -- [assetId] = "Hat" / "Hair"… (lu une fois sur Roblox)
-	LOW_RATIO = 0.3,    -- « Rare » = 30 % du total ou moins (même seuil que la pastille orange)
+	LOW_RATIO = 0.3,    -- « Few left » = 30 % du total ou moins (même seuil que la pastille orange)
 }
 function SF.isNew(ugc)
 	if UGC_CONFIG.IsNew then return UGC_CONFIG.IsNew(ugc) == true end
@@ -766,7 +766,7 @@ function SF.apply(list)
 			if s == "price_desc" or s == "price_asc" then ka, kb = a.Price or 0, b.Price or 0
 			else
 				ka, kb = leftStockOf(a), leftStockOf(b)
-				-- « Rarest » : les ÉPUISÉS (0) vont à la fin → en premier, ceux où il en reste le moins
+				-- « Low stock » : les ÉPUISÉS (0) vont à la fin → en premier, ceux où il en reste le moins
 				if s == "left_asc" then
 					if ka == 0 then ka = math.huge end
 					if kb == 0 then kb = math.huge end
@@ -2089,10 +2089,10 @@ end)
 --     refermer sans APPLY = rien n'est changé).
 --   • Disposition d'avant : SHOW · TYPE (si le shop a plusieurs types) · SORT BY, en
 --     boutons 3D (face en dégradé + socle) qui NE s'enfoncent PAS.
---   • Choix contraires impossibles ensemble : Available / Rare / Sold (un seul),
+--   • Choix contraires impossibles ensemble : Available / Few left / Sold out (un seul),
 --     Owned / Unowned (un seul), un seul tri. Prendre l'un retire l'autre (les
 --     boutons gardent leur couleur normale).
---   • « Stocked / Rarest » = tri sur le stock RESTANT.
+--   • « High stock / Low stock » = tri sur le stock RESTANT.
 --   • APPLY (vert, à gauche) · RESET (rouge, à droite) en bas DU panneau, sous un trait,
 --     hors de la partie qui défile. Léger contour noir autour du panneau.
 --   • Tous les appareils : tailles minimales pour le doigt (mobile) et la télé (console).
@@ -2175,6 +2175,7 @@ local function buildFilterUI()
 		local grad = mk("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
 		local lbl = mk("TextLabel", { Size = UDim2.new(1, -8, 1, 0), Position = UDim2.fromOffset(4, 0),
 			BackgroundTransparency = 1, Text = text, Font = Enum.Font.FredokaOne, TextScaled = true,
+			TextWrapped = false,   -- toujours sur UNE ligne : le texte rétrécit au lieu de se couper
 			TextColor3 = WHITE, ZIndex = Z + 5 }, btn)
 		mk("UITextSizeConstraint", { MaxTextSize = textSize, MinTextSize = 8 }, lbl)
 		mk("UIPadding", { PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5) }, lbl)
@@ -2197,19 +2198,19 @@ local function buildFilterUI()
 	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
 	-- SHOW : 1re ligne = le stock (un seul), 2e ligne = New + possession (un seul des deux)
 	-- ⭐ les plus utiles en premier
-	-- ✏️ UN SEUL MOT par option (lisible même sur petit écran)
+	-- ✏️ libellés COURTS (lisibles même sur petit écran)
 	local SHOW = { { "avail", "Available" }, { "notOwned", "Unowned" }, { "new", "New" },
-		{ "low", "Rare" }, { "sold", "Sold" }, { "owned", "Owned" } }
+		{ "low", "Few left" }, { "sold", "Sold out" }, { "owned", "Owned" } }
 	local FLAG_LABEL = {}
 	for _, x in ipairs(SHOW) do FLAG_LABEL[x[1]] = x[2] end
 	local GROUP_OF = { avail = "stock", low = "stock", sold = "stock", owned = "own", notOwned = "own" }
 	local GROUPS = { stock = { "avail", "low", "sold" }, own = { "owned", "notOwned" } }
 	-- ⭐ les plus importants en premier : où il en reste le MOINS, puis le moins cher
 	local SORTS = {
-		{ id = "left_asc",   label = "Rarest" },     -- le moins de stock RESTANT (épuisés à la fin)
+		{ id = "left_asc",   label = "Low stock" },  -- le moins de stock RESTANT (épuisés à la fin)
 		{ id = "price_asc",  label = "Cheapest" },   -- prix croissant
 		{ id = "price_desc", label = "Priciest" },   -- prix décroissant
-		{ id = "left_desc",  label = "Stocked" },    -- le plus de stock restant
+		{ id = "left_desc",  label = "High stock" }, -- le plus de stock restant
 		{ id = "default",    label = "Default" },
 	}
 	local SORT_LABEL = {}
