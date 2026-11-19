@@ -23,17 +23,19 @@ local function viewport()
 	return nil
 end
 
--- 📍 où commence un ScreenGui sur l'ÉCRAN. Roblox mesure les positions d'un ScreenGui qui
---    respecte la barre du haut SOUS cette barre (AbsolutePosition ne la compte pas) :
---    sans ça, tout ce qu'on voulait « tout en haut » arrivait plus bas de la hauteur de la barre.
+-- 📍 COORDONNÉES ÉCRAN. Roblox donne TOUS les AbsolutePosition à partir du DESSOUS de sa
+--    barre du haut (même pour un ScreenGui qui couvre la barre : il est alors en Y négatif).
+--    Donc, pour n'importe quel objet : position à l'écran = AbsolutePosition + GetGuiInset().
+--    (v17 se trompait ici : le bloc du haut sortait par le haut de l'écran.)
 local GuiService = game:GetService("GuiService")
-local function origin(gui, VW)
-	local s = gui.AbsoluteSize
-	local ox = math.max(0, (VW - s.X) / 2)   -- zones sûres gauche / droite (encoche), symétriques
-	local oy = 0
-	local ok, ignore = pcall(function() return gui.IgnoreGuiInset end)
-	if not (ok and ignore) then oy = GuiService:GetGuiInset().Y end
-	return ox, oy
+local function inset()
+	local tl = GuiService:GetGuiInset()
+	return tl.X, tl.Y
+end
+local function origin(gui)   -- coin haut-gauche du ScreenGui, en coordonnées ÉCRAN
+	local ix, iy = inset()
+	local p = gui.AbsolutePosition
+	return p.X + ix, p.Y + iy
 end
 
 -- 🚧 boutons du haut (coordonnées ÉCRAN) : seulement de VRAIS boutons, visibles, de taille normale
@@ -44,8 +46,8 @@ local function topButtonRects(VW, VH)
 	for _, name in ipairs(HL.TopButtonGuis or {}) do
 		local g = playerGui:FindFirstChild(name)
 		if g and g:IsA("LayerCollector") and g.Enabled then
-			local ox, oy = origin(g, VW)
-			local gp = Vector2.new(ox, oy)
+			local ix, iy = inset()
+			local gp = Vector2.new(ix, iy)   -- AbsolutePosition d'un objet = déjà absolu (sous la barre)
 			for _, c in ipairs(g:GetDescendants()) do
 				if c:IsA("GuiButton") and c.Visible then
 					local s = c.AbsoluteSize
@@ -66,7 +68,7 @@ end
 -- screen = true : (sx, sy) en coordonnées ÉCRAN (bloc du haut) ; sinon coordonnées du ScreenGui
 local function apply(fr, gui, sx, sy, w, h, screen, VW)
 	local gx, gy = 0, 0
-	if screen then gx, gy = origin(gui, VW) end
+	if screen then gx, gy = origin(gui) end
 	local an = fr.AnchorPoint
 	local size = UDim2.fromOffset(w, h)
 	local pos = UDim2.fromOffset(sx - gx + an.X * w, sy - gy + an.Y * h)
