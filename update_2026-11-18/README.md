@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v5) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v6) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2, v3 ou v4** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v5** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v4).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v5).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v5.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v6.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v5.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v6.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v5… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v6… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v5`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v6`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -47,7 +47,22 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v5 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v6 (tes derniers retours)
+
+| Ton retour | Ce qui est fait |
+|---|---|
+| Pas besoin de CANCEL, FILTER sert à refermer | **CANCEL est retiré.** Un 2e appui sur FILTER rembobine le panneau sans rien changer. Il reste **RESET** et **APPLY**, qui glissent de dessous le panneau. |
+| La disposition d'avant, avec des boutons qui ne s'enfoncent pas | Retour de **SHOW · TYPE · SORT BY**, en boutons 3D (dégradé + socle) **fixes** : plus aucun effet d'enfoncement. Couleurs dans le bleu du bouton : bleu = choisi, ardoise = pas choisi, grisé = contraire. |
+| Pas de X rouge, on doit voir que ça vient du bouton | **Pas de X.** Le panneau **sort du bouton FILTER** : une petite pointe le relie au bouton, il se déroule vers le bas et remonte dedans quand on referme. La flèche du bouton passe ▼ / ▲. |
+| Contraires impossibles ensemble | 1re ligne de SHOW : Available / Low stock / Sold out (un seul). 2e ligne : New + Owned / Not owned (un seul des deux). Un seul tri. Les contraires sont grisés. |
+| Least / Most | **Most left / Least left** = tri sur le stock **restant**. |
+| Tous les appareils | Le panneau suit la taille de la fenêtre, avec un minimum pour le doigt (mobile) et pour la télé (console). Sur un petit écran, il défile au lieu de dépasser. |
+| Console, dans tout le shop | <ul><li>La **touche Y** (icône officielle Xbox / PlayStation) est affichée à côté de FILTER.</li><li>**Y** ouvre et ferme le filtre.</li><li>**B** ferme le filtre, puis le shop.</li><li>**A** choisit.</li><li>À l'ouverture du shop, la **1re carte est sélectionnée**. La sélection ne sort pas du shop, ni du filtre quand il est ouvert. La grille défile toute seule.</li><li>Un **cadre jaune** montre le bouton sélectionné.</li></ul> |
+| « FIND ME » sous la loupe | La loupe a **« FIND ME » écrit en petit dessous**. Toute la zone est cliquable. |
+
+> 🩹 **Correction importante :** le script du shop UGC de la **v5** dépassait la limite de Luau (200 variables locales actives dans un script). Si tu as installé la v5, le shop UGC ne marchait sans doute plus du tout. En v6, le filtre est dans sa propre fonction : 145 au maximum. J'ai ajouté ce contrôle à mes vérifications, et tous les scripts de la mise à jour sont en dessous de 200.
+
+## NOUVEAU DANS LA v5
 
 ### ⚡ Le lag en PvP : la cause
 
@@ -83,7 +98,7 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
 | Vue PvP sans arme : rotation moins fluide, curseur qui réapparaît en tournant vite | **Trouvé :** la « garde souris » de `DeathCam` libérait la souris à chaque image, parce que tu n'avais pas d'outil en main. Elle reconnaît maintenant la vue sans arme. Le perso tourne aussi avec la même règle que les armes (0,5° au lieu de 2°). |
 | Loupe trop petite | **Plus grosse** (84 % de la hauteur de l'en-tête au lieu de 60 %). |
 | Loupe quand tu n'es pas dans le top | Un message s'affiche : « You're not in the top 100 yet — your score is at the bottom ». **Ta ligne « -- » est ajoutée sous le dernier**, avec ton score lu dans le même classement, et la liste descend jusqu'à elle. Tu vois l'écart avec le dernier. La ligne reste jusqu'à ce que tu changes d'onglet. |
-| Filtre : une seule liste | **Une seule liste de rangées pleine largeur**, les plus utiles en premier : Available · Not owned · New · Price ↑ / ↓ · Stock left ↑ / ↓ · Type · Low stock · Sold out · Owned. On n'en voit qu'une partie (5 rangées et demie), le reste en faisant défiler. |
+| Filtre : une seule liste (*remplacé en v6 par la disposition SHOW / TYPE / SORT BY*) | **Une seule liste de rangées pleine largeur**, les plus utiles en premier : Available · Not owned · New · Price ↑ / ↓ · Stock left ↑ / ↓ · Type · Low stock · Sold out · Owned. On n'en voit qu'une partie (5 rangées et demie), le reste en faisant défiler. |
 | Type : une autre liste qui se déroule au bon endroit | Clic sur **Type ▶** : sa sous-liste se déroule **juste en dessous**, et la liste défile toute seule pour la montrer. Re-clic : elle se rembobine. Plusieurs types possibles. |
 | Trier par stock restant (Least / Most) | **« Stock left: Least » et « Stock left: Most »** trient sur le stock **restant**. Épuisé = 0. Le stock total n'est plus utilisé. |
 | Boutons sous la liste, qui glissent derrière | CANCEL · RESET · APPLY sont **sous** la liste. Ils **glissent de derrière elle** quand elle se déroule et repartent derrière quand elle se rembobine. |
@@ -138,7 +153,7 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
    - une faille DataStore bloquée ;
    - les morts de la 1re vie sont maintenant comptées.
 8. **Leaderboards :** look d'avant + ALL / FRIENDS / 🔍 (voir plus haut).
-9. **Shop UGC :** bouton FILTER plat + liste unique déroulante, sous-liste Type, tri par stock restant (voir plus haut).
+9. **Shop UGC :** bouton FILTER plat, panneau SHOW / TYPE / SORT BY qui se déroule du bouton, tri par stock restant, navigation manette complète (voir plus haut).
 10. **Parrainage :** paie seulement si l'invité découvre le jeu. Ça ferme la faille des amis qui s'invitent entre eux et celle des joueurs qui jouaient déjà.
 11. **Arène sans arme :** même vue qu'avec une arme, B change la vue, panneau des contrôles (voir plus haut).
 12. **Admin :** accueil en onglets + recherche (voir plus haut).
@@ -149,7 +164,7 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
 ---
 
 ## ✅ Vérifié de mon côté (sans pouvoir lancer le jeu)
-- Les 42 fichiers (41 scripts + l'installateur) passent l'analyseur de syntaxe Luau. Ce même analyseur valide les 669 scripts d'origine sans erreur.
+- Les 42 fichiers (41 scripts + l'installateur) — **nouveau contrôle v6 : aucun script ne dépasse 200 variables locales actives** passent l'analyseur de syntaxe Luau. Ce même analyseur valide les 669 scripts d'origine sans erreur.
 - **Nouveau contrôle :** « utilisé avant d'être créé » (l'erreur de `ArenaViewKeeper`) sur tous les scripts → **0**. J'ai vérifié qu'il détecte bien l'erreur d'origine.
 - Aucune fonction ni variable de niveau principal perdue (comparaison avec les originaux).
 - `time` reste à 199 variables locales (limite 200). Le panel admin n'a aucune variable locale en plus (162).
@@ -168,9 +183,9 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
    - teste aussi au doigt (émulateur mobile) et à la manette si tu peux ;
    - aucune erreur rouge dans l'Output.
 2. **Shop UGC :**
-   - FILTER se déroule et se rembobine, et les boutons glissent de derrière la liste ;
-   - Type déroule sa sous-liste au bon endroit ;
-   - « Stock left » trie bien sur le stock restant ;
+   - FILTER déroule le panneau depuis le bouton, un 2e appui le rembobine, et RESET / APPLY glissent de dessous ;
+   - « Most left / Least left » trie bien sur le stock restant ;
+   - **manette** (branche-en une sur PC ; Studio n'en simule pas) : Y, B, A, la sélection et le cadre jaune ;
    - les choix contraires s'excluent ;
    - APPLY, pastilles, RESET fonctionnent ;
    - teste aussi en mobile (émulateur).

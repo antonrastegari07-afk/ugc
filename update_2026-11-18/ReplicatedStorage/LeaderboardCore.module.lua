@@ -1270,25 +1270,48 @@ local function buildBoardUI(cfg, sg)
 		local allB = half("ALL", 0)
 		local frB  = half("FRIENDS", 0.5)
 
+		-- 🔍 FIND ME : loupe ronde + « FIND ME » écrit en petit dessous (toute la zone est cliquable)
 		local find = Instance.new("TextButton")
 		find.Name = "FindMe"
 		find.AnchorPoint = Vector2.new(1, 0.5)
-		find.Position = UDim2.new(0.988, 0, 0.5, 0)
-		find.Size = UDim2.new(0.09, 0, 0.84, 0)   -- plus grosse (avant : 0,6 de la hauteur)
-		find.BackgroundColor3 = dark
-		find.BackgroundTransparency = 0.2
-		find.AutoButtonColor = true
-		find.Text = "🔍"
-		find.TextScaled = true
-		find.TextColor3 = Color3.new(1, 1, 1)
+		find.Position = UDim2.new(0.98, 0, 0.5, 0)
+		find.Size = UDim2.new(0.1, 0, 0.96, 0)
+		find.BackgroundTransparency = 1
+		find.AutoButtonColor = false
+		find.Text = ""
 		find.Parent = header
-		-- 🩹 carré calé sur la HAUTEUR (avant : largeur 0 + contrainte sur la largeur = bouton invisible)
-		local far = Instance.new("UIAspectRatioConstraint", find)
+		local glass = Instance.new("TextLabel")
+		glass.Name = "Loupe"
+		glass.AnchorPoint = Vector2.new(0.5, 0)
+		glass.Position = UDim2.new(0.5, 0, 0, 0)
+		glass.Size = UDim2.new(0, 0, 0.7, 0)
+		glass.BackgroundColor3 = dark
+		glass.BackgroundTransparency = 0.2
+		glass.Text = "🔍"
+		glass.TextScaled = true
+		glass.TextColor3 = Color3.new(1, 1, 1)
+		glass.Parent = find
+		-- 🩹 carré calé sur la HAUTEUR (une contrainte sur la largeur donnait un bouton invisible)
+		local far = Instance.new("UIAspectRatioConstraint", glass)
 		far.AspectRatio = 1
 		far.DominantAxis = Enum.DominantAxis.Height
-		Instance.new("UICorner", find).CornerRadius = UDim.new(1, 0)
-		local fs = Instance.new("UIStroke") ; fs.Color = accent ; fs.Thickness = 1.5 ; fs.Transparency = 0.5 ; fs.Parent = find
-		local fp = Instance.new("UIPadding", find) ; fp.PaddingTop = UDim.new(0.1, 0) ; fp.PaddingBottom = UDim.new(0.1, 0)
+		Instance.new("UICorner", glass).CornerRadius = UDim.new(1, 0)
+		local fs = Instance.new("UIStroke") ; fs.Color = accent ; fs.Thickness = 1.5 ; fs.Transparency = 0.5 ; fs.Parent = glass
+		local fp = Instance.new("UIPadding", glass) ; fp.PaddingTop = UDim.new(0.12, 0) ; fp.PaddingBottom = UDim.new(0.12, 0)
+		local cap = Instance.new("TextLabel")
+		cap.Name = "Caption"
+		cap.AnchorPoint = Vector2.new(0.5, 1)
+		cap.Position = UDim2.new(0.5, 0, 1, 0)
+		cap.Size = UDim2.new(1.4, 0, 0.26, 0)   -- un peu plus large que la loupe : le texte reste lisible
+		cap.BackgroundTransparency = 1
+		cap.Text = "FIND ME"
+		cap.Font = Enum.Font.FredokaOne
+		cap.TextScaled = true
+		cap.TextColor3 = p.muted or Color3.fromRGB(190, 190, 200)
+		cap.Parent = find
+		local cc = Instance.new("UITextSizeConstraint", cap) ; cc.MaxTextSize = 18 ; cc.MinTextSize = 6
+		find.MouseEnter:Connect(function() glass.BackgroundTransparency = 0 end)
+		find.MouseLeave:Connect(function() glass.BackgroundTransparency = 0.2 end)
 
 		tabs = {
 			all = allB, friends = frB, findMe = find, frL = frB, friendsText = "FRIENDS",
