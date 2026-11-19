@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v14</string>
+			<string name="Name">UPDATE_2026_11_18_v15</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,14 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v14.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v15.INSTALL)()
 --
---  v14 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v13 (les versions remplacées vont dans sa propre copie de secours).
+--  v15 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v14 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v14 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v15 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -33,8 +33,8 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v14 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v14"
+	print("🚀 Installateur v15 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v15"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -43,15 +43,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v14 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v15 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v14 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v14 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v15 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v15 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v14") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v15") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -163,7 +163,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v14 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v15 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -7782,7 +7782,7 @@ return WeaponServer]]></ProtectedString>
 					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
 -- 📐 HudLayout — ModuleScript dans ReplicatedStorage   (NOUVEAU)
 --
---  Les boutons de l'écran (les 8 à gauche + Current Stage / Skip Obby / Skip Level)
+--  Les boutons de l'écran (les 8 à gauche + Skip Obby / Current Stage / Skip Level + la roulette)
 --  gardent EXACTEMENT leur disposition, quel que soit le format de l'écran
 --  (PC large, 16:9, 16:10, tablette 4:3, téléphone…).
 --
@@ -7827,17 +7827,26 @@ M.Groups = {
 	top = {
 		anchor = "center",
 		maxWidth = 0.92,
+		-- 🚧 le bloc du haut ne touche JAMAIS les boutons du haut de l'écran : ceux de Roblox et
+		--    tes boutons How To Play / série de jours (à gauche sur PC, à droite sur mobile).
+		--    Leur place est MESURÉE en direct : il s'écarte ou rétrécit selon l'appareil.
+		avoidTopButtons = true,
 		items = {
 			{ gui = "Skip Obby",  frame = "Frameskiplevel" },
 			{ gui = "# Stage",    frame = "Frame" },    -- Current Stage
 			-- (pas « # Stage ▸ Frame2 » : ArenaHUD la cache hors de l'écran et la remplace)
 			{ gui = "Skip Level", frame = "Frameskiplevel" },
+			{ gui = "dailyspin",  frame = "Frame" },    -- 🎡 la roulette (à droite de Skip Level)
 		},
 	},
 }
 
 -- écran de référence de ta disposition
 M.REF_W, M.REF_H = 1920, 1080
+
+-- boutons du haut à éviter (en plus de ceux de Roblox) : ScreenGui créés par tes scripts
+M.TopButtonGuis = { "TopBarGui" }   -- How To Play + série de jours
+M.TopGap = 10                        -- écart minimum avec eux (px)
 
 -- 🖱️ Animation de survol (la même qu'avant : 90 % au survol, 85 % à l'appui),
 --    toujours calculée à partir de la place donnée par la mise en page.
@@ -57709,16 +57718,48 @@ hideFrame()]]></ProtectedString>
 					</Properties>
 				</Item>
 			</Item>
+			<Item class="Folder" referent="RBX71">
+				<Properties>
+					<string name="Name">dailyspin</string>
+				</Properties>
+				<Item class="Folder" referent="RBX72">
+					<Properties>
+						<string name="Name">Frame</string>
+					</Properties>
+					<Item class="Folder" referent="RBX73">
+						<Properties>
+							<string name="Name">PointToggle</string>
+						</Properties>
+						<Item class="LocalScript" referent="RBX74">
+							<Properties>
+								<bool name="Disabled">true</bool>
+								<string name="Name">animation shop</string>
+								<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🖱️ Animation du bouton de la roulette (survol 90 %, appui 85 %) — même effet qu'avant.
+--  🩹 Avant, ce script déplaçait aussi la roulette à 25 % de la largeur sur mobile :
+--  elle se décollait du reste. Sa place est maintenant donnée par
+--  ReplicatedStorage ▸ HudLayout (à droite de Skip Level, en évitant les boutons du haut).
+--════════════════════════════════════════════════════════════════════════════
+local button = script.Parent
+local frame = button.Parent
+local HL = require(game:GetService("ReplicatedStorage"):WaitForChild("HudLayout"))
+HL.Hover(button, frame)
+]]></ProtectedString>
+							</Properties>
+						</Item>
+					</Item>
+				</Item>
+			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX71">
+		<Item class="Folder" referent="RBX75">
 			<Properties>
 				<string name="Name">StarterPlayer</string>
 			</Properties>
-			<Item class="Folder" referent="RBX72">
+			<Item class="Folder" referent="RBX76">
 				<Properties>
 					<string name="Name">StarterCharacterScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX73">
+				<Item class="LocalScript" referent="RBX77">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ask favorite game</string>
@@ -57789,11 +57830,11 @@ waitForDeath()]]></ProtectedString>
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX74">
+			<Item class="Folder" referent="RBX78">
 				<Properties>
 					<string name="Name">StarterPlayerScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX75">
+				<Item class="LocalScript" referent="RBX79">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name"> ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD</string>
@@ -58018,7 +58059,972 @@ Players.PlayerAdded:Connect(function(p)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX76">
+				<Item class="LocalScript" referent="RBX80">
+					<Properties>
+						<bool name="Disabled">true</bool>
+						<string name="Name">1v1 cross server local</string>
+						<ProtectedString name="Source"><![CDATA[--[[
+	ServerBrowserDisplay (Client) — v5.2 (chargement tardif + restauration GUI)
+	➜ À placer dans : StarterPlayer > StarterPlayerScripts  (LocalScript)
+	➜ Supprime l'ancien script qui était DANS le model (sinon double prompt).
+	Positions des displays : ReplicatedStorage/ServerBrowserAnchors (CFrameValue).
+	  • Le script serveur doit publier ces positions ; un tag seul ne suffit pas.
+	  • Les prompts locaux restent disponibles lorsque la zone se décharge.
+	GUI attendu (1 seul, dans PlayerGui) :
+	  ScreenGui  "Servers"
+	    └ Frame "ShopFrame"
+	        └ ScrollingFrame "ScrollingFrame"
+	            └ Frame "Entrydemo"   (gabarit — cloné par serveur)
+	NOUVEAU v5.1 : message "No other servers available" au lieu d'une page blanche.
+--]]
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local Lighting          = game:GetService("Lighting")
+local Workspace         = game:GetService("Workspace")
+
+
+-- Le menu et ses prompts ne dépendent pas du chargement de MapConfig.
+local MapConfig = { Maps = {}, getByKey = function() return nil end }
+local loadedMapModule
+local function loadMapConfig(module)
+	if not module or not module:IsA("ModuleScript") or loadedMapModule == module then return end
+	loadedMapModule = module
+	task.spawn(function()
+		local ok, result = pcall(require, module)
+		if ok and type(result) == "table" and loadedMapModule == module then
+			MapConfig = result
+		elseif not ok then warn("[ServerBrowser] MapConfig : " .. tostring(result)) end
+	end)
+end
+ReplicatedStorage.ChildAdded:Connect(function(child)
+	if child.Name == "MapConfig" then loadMapConfig(child) end
+end)
+loadMapConfig(ReplicatedStorage:FindFirstChild("MapConfig"))
+
+local localPlayer = Players.LocalPlayer
+local playerGui   = localPlayer:WaitForChild("PlayerGui")
+-- Une seule copie de cette version doit gérer l'interface.
+local guard = playerGui:FindFirstChild("ServerBrowserController")
+if guard and guard:IsA("ObjectValue") and guard.Value and guard.Value.Parent then return end
+if guard then guard:Destroy() end
+guard = Instance.new("ObjectValue")
+guard.Name = "ServerBrowserController"
+guard.Value = script
+guard.Parent = playerGui
+
+local isMobile    = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- Remotes (non-bloquant : le menu s'affiche même sans serveur)
+local getServersFn    = ReplicatedStorage:FindFirstChild("GetArenaServers")
+local joinServerEvent = ReplicatedStorage:FindFirstChild("JoinArenaServer")
+local joinFailedEvent = ReplicatedStorage:FindFirstChild("ArenaJoinFailed")
+
+--========================================================
+-- 🔧 RÉGLAGES
+--========================================================
+local FORCE_FAKE      = false  -- true = TOUJOURS la démo (test pur de l'UI)
+local FAKE_WHEN_EMPTY = false  -- true = démo si la vraie liste est vide (Studio / 1 seul serveur)
+local UNIFORM_SCALE   = true
+local REF_W, REF_H    = 1100, 750
+local MIN_SCALE       = 1.00
+local MAX_SCALE       = 1.00
+local USE_OVERLAY     = true
+local AUTO_REFRESH    = 10
+local MAX_PFP         = 6
+local PFP_PADDING     = 4
+
+--========================================================
+-- 🧪 DONNÉES DÉMO
+--========================================================
+local FAKE_IDS = { localPlayer.UserId, 1, 2, 3, 156, 261 }
+local function fakePlayers(count)
+	local t = {}
+	for i = 1, count do
+		t[i] = { id = FAKE_IDS[((i - 1) % #FAKE_IDS) + 1], name = "Player" .. i }
+	end
+	return t
+end
+local function makeFakeServers()
+	local presets = { 6, 3, 8, 1, 4, 2, 5, 7, 2, 6, 3, 8, 1, 4 }
+	local mapKeys = {}
+	for _, m in ipairs(MapConfig.Maps or {}) do table.insert(mapKeys, m.key) end
+	local servers = {}
+	for i, arena in ipairs(presets) do
+		servers[i] = {
+			fake    = true,
+			jobId   = string.format("demo%d-aaaaaaaa", i),
+			total   = arena + math.random(2, 9),
+			arena   = arena,
+			region  = ({"US","CA","FR","DE","BR","GB"})[((i - 1) % 6) + 1],
+			map     = mapKeys[((i - 1) % math.max(#mapKeys, 1)) + 1],
+			players = fakePlayers(arena),
+		}
+	end
+	return servers
+end
+
+--========================================================
+-- 🌫️ BLUR (frosted glass — 1 seul par joueur)
+--========================================================
+local blur = Lighting:FindFirstChild("ServerBrowserBlur")
+if not blur then
+	blur = Instance.new("BlurEffect")
+	blur.Name    = "ServerBrowserBlur"
+	blur.Enabled = true
+	blur.Size    = 0
+	blur.Parent  = Lighting
+end
+
+--========================================================
+-- OVERLAY (curseur libre + bloque le tir + clic-dehors)
+--========================================================
+local overlayGui, overlayBtn
+if USE_OVERLAY then
+	overlayGui = Instance.new("ScreenGui")
+	overlayGui.Name           = "ServerBrowserOverlay"
+	overlayGui.ResetOnSpawn   = false
+	overlayGui.IgnoreGuiInset = true
+	overlayGui.DisplayOrder    = -1
+	overlayGui.Enabled         = false
+	overlayGui.Parent          = playerGui
+
+	overlayBtn = Instance.new("TextButton")
+	overlayBtn.Size                   = UDim2.fromScale(1, 1)
+	overlayBtn.BackgroundTransparency = 1
+	overlayBtn.AutoButtonColor        = false
+	overlayBtn.Modal                  = true
+	overlayBtn.Text                   = ""
+	overlayBtn.Parent                 = overlayGui
+end
+
+--========================================================
+-- 📐 RÉFÉRENCES UI (ton GUI) + responsive
+--========================================================
+local activeGui, shopFrame, scrolling, template, menuScale
+local isOpen, autoToken = false, 0
+local uiGeneration, animationToken = 0, 0
+local pendingOpen = false
+local setupGui, trySetupGui, close
+local guiConnections = {}
+local joinResets = {}
+local function resetJoins()
+	for _, reset in ipairs(joinResets) do reset() end
+end
+local function uiReady()
+	return activeGui and activeGui.Parent == playerGui
+		and shopFrame and shopFrame:IsDescendantOf(activeGui)
+		and scrolling and scrolling:IsDescendantOf(shopFrame)
+		and template ~= nil
+end
+local function track(connection)
+	table.insert(guiConnections, connection)
+	return connection
+end
+local responsiveFactor, animatingScale = 1, false
+
+local function getViewport()
+	local cam = Workspace.CurrentCamera
+	if cam and cam.ViewportSize.Y > 1 then return cam.ViewportSize end
+	return Vector2.new(1280, 720)
+end
+local function computeFactor()
+	if not UNIFORM_SCALE then return 1 end
+	local vp = getViewport()
+	local s = math.min(vp.X / REF_W, vp.Y / REF_H)
+	return math.clamp(s, MIN_SCALE, MAX_SCALE)
+end
+local function applyScale()
+	responsiveFactor = computeFactor()
+	if menuScale and not animatingScale then
+		menuScale.Scale = responsiveFactor
+	end
+end
+
+local camConn
+local function hookCamera()
+	local cam = Workspace.CurrentCamera
+	if cam then
+		if camConn then camConn:Disconnect() end
+		camConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(applyScale)
+	end
+end
+
+--========================================================
+-- CARTE (clone de Entrydemo)
+--========================================================
+local function shortCode(jobId)
+	local clean = (jobId or ""):gsub("-", "")
+	return clean:sub(1, 8):upper()
+end
+
+local function trySet(entry, names, text)
+	for _, n in ipairs(names) do
+		local lbl = entry:FindFirstChild(n, true)
+		if lbl and lbl:IsA("TextLabel") then lbl.Text = text; return true end
+	end
+	return false
+end
+
+local function fillAvatars(container, players, arena)
+	for _, ch in ipairs(container:GetChildren()) do
+		if ch:IsA("GuiObject") then ch:Destroy() end
+	end
+	container.BackgroundTransparency = 1
+	container.BorderSizePixel        = 0
+	for _, d in ipairs(container:GetChildren()) do
+		if d:IsA("UIStroke") then d.Enabled = false end
+	end
+
+	local lay = container:FindFirstChildOfClass("UIListLayout") or Instance.new("UIListLayout")
+	lay.FillDirection       = Enum.FillDirection.Horizontal
+	lay.Padding             = UDim.new(0, PFP_PADDING)
+	lay.VerticalAlignment   = Enum.VerticalAlignment.Center
+	lay.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	lay.SortOrder           = Enum.SortOrder.LayoutOrder
+	lay.Parent              = container
+
+	local shown, avatarFrames = 0, {}
+	for i, p in ipairs(players) do
+		if shown >= MAX_PFP then break end
+		shown += 1
+		local af = Instance.new("Frame")
+		af.Name             = "PFP"
+		af.BackgroundColor3 = Color3.fromRGB(70, 75, 86)
+		af.BorderSizePixel  = 0
+		af.LayoutOrder      = i
+		af.Size             = UDim2.fromScale(1, 1)
+		af.Parent           = container
+		Instance.new("UICorner", af).CornerRadius = UDim.new(1, 0)
+		local ring = Instance.new("UIStroke", af)
+		ring.Color = Color3.fromRGB(255,255,255); ring.Thickness = 1.5; ring.Transparency = 0.35
+		local img = Instance.new("ImageLabel")
+		img.Size                   = UDim2.fromScale(1, 1)
+		img.BackgroundTransparency = 1
+		img.Image                  = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", p.id)
+		img.Parent                 = af
+		Instance.new("UICorner", img).CornerRadius = UDim.new(1, 0)
+		avatarFrames[#avatarFrames+1] = af
+	end
+
+	local moreLabel
+	if arena > shown then
+		moreLabel = Instance.new("TextLabel")
+		moreLabel.Name                 = "More"
+		moreLabel.BackgroundTransparency = 1
+		moreLabel.Text                 = "+" .. (arena - shown)
+		moreLabel.Font                 = Enum.Font.GothamBold
+		moreLabel.TextColor3           = Color3.fromRGB(120, 128, 142)
+		moreLabel.TextScaled           = true
+		moreLabel.LayoutOrder          = 999
+		moreLabel.Size                 = UDim2.fromScale(1, 1)
+		moreLabel.Parent               = container
+	end
+
+	local function resize()
+		local h = container.AbsoluteSize.Y
+		if h < 2 then return end
+		local side = UDim2.fromOffset(h, h)
+		for _, af in ipairs(avatarFrames) do af.Size = side end
+		if moreLabel then moreLabel.Size = UDim2.fromOffset(math.floor(h * 1.4), h) end
+	end
+
+	task.spawn(function()
+		local guard = 0
+		while container.Parent and container.AbsoluteSize.Y < 2 and guard < 180 do
+			task.wait(); guard += 1
+		end
+		if container.AbsoluteSize.Y < 2 then
+			for _, af in ipairs(avatarFrames) do af.Size = UDim2.fromOffset(28, 28) end
+			if moreLabel then moreLabel.Size = UDim2.fromOffset(40, 28) end
+			warn("[ServerBrowser] 'Frameexemplepositionprofils' a une hauteur ~0 → avatars en taille fixe.")
+		else
+			resize()
+		end
+	end)
+	container:GetPropertyChangedSignal("AbsoluteSize"):Connect(resize)
+end
+
+local function buildCard(data, order)
+	local arena   = data.arena or 0
+	local total   = data.total or 0
+	local players = data.players or {}
+
+	local entry = template:Clone()
+	entry.Name = "ServerCard"
+	entry:SetAttribute("_serverCard", true)
+	entry.LayoutOrder = order
+	entry.Visible = false
+
+	local countLabel = entry:FindFirstChild("Count", true)
+	if countLabel and countLabel:IsA("TextLabel") then
+		countLabel.Text = tostring(arena)
+	end
+
+	local pfpAnchor = entry:FindFirstChild("Frameexemplepositionprofils", true)
+	if not pfpAnchor then
+		for _, d in ipairs(entry:GetDescendants()) do
+			if d:IsA("GuiObject") then
+				local n = d.Name:lower()
+				if n:find("profil") or n:find("pfp") or n:find("avatar") then
+					pfpAnchor = d; break
+				end
+			end
+		end
+	end
+	if pfpAnchor then
+		fillAvatars(pfpAnchor, players, arena)
+	else
+		warn("[ServerBrowser] ⚠️ Cadre des avatars introuvable dans Entrydemo.")
+	end
+
+	local idLabel = entry:FindFirstChild("ServerID", true)
+	if idLabel and idLabel:IsA("TextLabel") then
+		idLabel.Text = "Server " .. shortCode(data.jobId)
+	end
+
+	local regionLabel = entry:FindFirstChild("Region", true)
+	if regionLabel and regionLabel:IsA("TextLabel") then
+		regionLabel.Text = data.region or "…"
+	end
+
+	local mapInfo
+	if data.map and type(MapConfig.getByKey) == "function" then
+		local ok, result = pcall(MapConfig.getByKey, data.map)
+		if ok and type(result) == "table" then mapInfo = result end
+	end
+	local mapImage = entry:FindFirstChild("MapImage", true)
+	if mapImage and mapImage:IsA("ImageLabel") then
+		mapImage.Image = (mapInfo and mapInfo.Image) or ""
+	end
+	local mapNameLbl = entry:FindFirstChild("MapName", true)
+	if mapNameLbl and mapNameLbl:IsA("TextLabel") then
+		mapNameLbl.Text = (mapInfo and mapInfo.Name) or (data.map or "?")
+	end
+
+	trySet(entry, {"TotalCount","Total","InServer","ServerCount","Totalcount"}, total .. " in server")
+
+	local joinBtn = entry:FindFirstChild("Joinbutton", true)
+	if joinBtn and joinBtn:IsA("GuiButton") then
+		local press = joinBtn:FindFirstChild("PressScale")
+		if not press then press = Instance.new("UIScale"); press.Name = "PressScale"; press.Parent = joinBtn end
+		joinBtn.MouseButton1Down:Connect(function() TweenService:Create(press, TweenInfo.new(0.08), {Scale = 0.93}):Play() end)
+		joinBtn.MouseButton1Up:Connect(function()   TweenService:Create(press, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Scale = 1}):Play() end)
+		joinBtn.MouseLeave:Connect(function()       TweenService:Create(press, TweenInfo.new(0.12), {Scale = 1}):Play() end)
+
+		local joining = false
+		local originalText = joinBtn:IsA("TextButton") and joinBtn.Text
+		local joinAttempt = 0
+		local function resetJoin()
+			joining = false
+			joinAttempt += 1
+			if joinBtn.Parent and originalText then joinBtn.Text = originalText end
+		end
+		table.insert(joinResets, resetJoin)
+		joinBtn.Activated:Connect(function()
+			if joining then return end
+			if data.fake then
+				TweenService:Create(press, TweenInfo.new(0.08), {Scale = 0.9}):Play()
+				task.delay(0.1, function() if press then TweenService:Create(press, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Scale = 1}):Play() end end)
+				return
+			end
+			joinServerEvent = ReplicatedStorage:FindFirstChild("JoinArenaServer")
+			if not joinServerEvent or not joinServerEvent:IsA("RemoteEvent") then
+				warn("[ServerBrowser] JoinArenaServer indisponible (serveur non installé ?)")
+				return
+			end
+			joining = true
+			if joinBtn:IsA("TextButton") then joinBtn.Text = "..." end
+			joinAttempt += 1
+			local attempt = joinAttempt
+			local ok, err = pcall(function() joinServerEvent:FireServer(data.jobId) end)
+			if not ok then resetJoin(); warn("[ServerBrowser] Join : " .. tostring(err)); return end
+			task.delay(15, function()
+				if joining and attempt == joinAttempt then resetJoin() end
+			end)
+		end)
+	end
+
+	return entry
+end
+
+--========================================================
+-- RENDER / REFRESH  (pagination : 10 par 10 + bouton "Load More")
+--========================================================
+local PAGE_SIZE     = 10
+local currentCards  = {}
+local sortedList    = {}
+local renderedCount = 0
+local loadMoreBtn   = nil
+local emptyLabel    = nil   -- 🆕 message quand aucun serveur
+
+local function destroyLoadMore()
+	if loadMoreBtn then loadMoreBtn:Destroy(); loadMoreBtn = nil end
+end
+
+local function destroyEmpty()   -- 🆕
+	if emptyLabel then emptyLabel:Destroy(); emptyLabel = nil end
+end
+
+local function clearCards()
+	resetJoins()
+	table.clear(joinResets)
+	sortedList = {}
+	destroyEmpty()          -- 🆕
+	destroyLoadMore()
+	for _, c in ipairs(currentCards) do c:Destroy() end
+	table.clear(currentCards)
+	renderedCount = 0
+	if scrolling then
+		for _, ch in ipairs(scrolling:GetChildren()) do
+			if ch:GetAttribute("_serverCard") or ch:GetAttribute("_loadMore") then ch:Destroy() end
+		end
+	end
+end
+
+local appendPage -- forward declaration
+
+local function buildLoadMore()
+	destroyLoadMore()
+	local remaining = #sortedList - renderedCount
+	if remaining <= 0 then return end
+	local btn = Instance.new("TextButton")
+	btn:SetAttribute("_loadMore", true)
+	btn.Name = "LoadMoreButton"; btn.LayoutOrder = 1000000
+	btn.Size = UDim2.new(1, -20, 0, 44); btn.BackgroundColor3 = Color3.fromRGB(46, 50, 64)
+	btn.AutoButtonColor = false; btn.Font = Enum.Font.FredokaOne
+	btn.Text = string.format("Load More  (%d)", remaining)
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255); btn.TextSize = 20; btn.Parent = scrolling
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+	local st = Instance.new("UIStroke", btn)
+	st.Color = Color3.fromRGB(120, 128, 150); st.Thickness = 1.5; st.Transparency = 0.4
+	btn.MouseEnter:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(60, 66, 84)}):Play() end)
+	btn.MouseLeave:Connect(function() TweenService:Create(btn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(46, 50, 64)}):Play() end)
+	btn.Activated:Connect(function() appendPage(true) end)
+	loadMoreBtn = btn
+end
+
+appendPage = function(animate)
+	if not scrolling or not template then return end
+	destroyLoadMore()
+	local startIdx = renderedCount + 1
+	local endIdx   = math.min(renderedCount + PAGE_SIZE, #sortedList)
+	for i = startIdx, endIdx do
+		local card = buildCard(sortedList[i], i)
+		card.Parent = scrolling
+		table.insert(currentCards, card)
+		if animate then
+			task.delay(0.035 * (i - startIdx), function()
+				if card.Parent then card.Visible = true end
+			end)
+		else
+			card.Visible = true
+		end
+	end
+	renderedCount = endIdx
+	buildLoadMore()
+end
+
+-- 🆕 affiche un message centré quand la liste est vide (au lieu d'une page blanche)
+local function showEmptyState()
+	destroyEmpty()
+	emptyLabel = Instance.new("TextLabel")
+	emptyLabel:SetAttribute("_serverCard", true) -- purgé par clearCards
+	emptyLabel.Name                 = "EmptyState"
+	emptyLabel.LayoutOrder          = 1
+	emptyLabel.Size                 = UDim2.new(1, -20, 0, 90)
+	emptyLabel.BackgroundTransparency = 1
+	emptyLabel.Font                 = Enum.Font.FredokaOne
+	emptyLabel.TextColor3           = Color3.fromRGB(150, 156, 170)
+	emptyLabel.TextWrapped          = true
+	emptyLabel.TextScaled           = true
+	emptyLabel.Text                 = "No other servers available yet"
+	emptyLabel.Parent               = scrolling
+	local con = Instance.new("UITextSizeConstraint", emptyLabel)
+	con.MaxTextSize = 22
+end
+
+local function render(list, animate)
+	if not scrolling or not template then return end
+	local keepCount = renderedCount
+	clearCards()
+	if #list == 0 then
+		showEmptyState()   -- 🆕 plus de page blanche
+		return
+	end
+	table.sort(list, function(a, b)
+		local aArena, bArena = a.arena or 0, b.arena or 0
+		if aArena ~= bArena then return aArena > bArena end
+		return (a.total or 0) > (b.total or 0)
+	end)
+	sortedList = list
+	-- 🩹 l'actualisation auto (toutes les 10 s) repartait à 10 serveurs : ceux chargés avec
+	--    « Load More » disparaissaient. On réaffiche autant de serveurs qu'avant, sans bouger
+	--    la position de défilement.
+	local keep = (not animate) and keepCount or 0
+	local keepPos = scrolling.CanvasPosition
+	appendPage(animate)
+	while renderedCount < math.min(keep, #sortedList) do appendPage(false) end
+	if not animate then scrolling.CanvasPosition = keepPos end
+end
+
+-- Une requête en cours par RemoteFunction : pas d'accumulation si le serveur ne répond pas.
+local inFlight = setmetatable({}, { __mode = "k" })
+local lastListSig = nil   -- dernière liste affichée (pour ne pas tout reconstruire si rien n'a changé)
+local function showStatus(message)
+	if not uiReady() then return end
+	if #currentCards == 0 then showEmptyState(); emptyLabel.Text = message end
+end
+local function normalizeList(raw)
+	local list = {}
+	for _, data in ipairs(raw) do
+		if type(data) == "table" and type(data.jobId) == "string" then
+			local item = table.clone(data)
+			local function count(value)
+				value = tonumber(value) or 0
+				if value ~= value or math.abs(value) == math.huge then return 0 end
+				return math.max(0, math.floor(value))
+			end
+			item.arena, item.total = count(data.arena), count(data.total)
+			item.region = type(data.region) == "string" and data.region or "…"
+			item.map = type(data.map) == "string" and data.map or nil
+			item.players = {}
+			if type(data.players) == "table" then
+				for _, p in ipairs(data.players) do
+					if type(p) == "table" and count(p.id) > 0 then
+						table.insert(item.players, { id = count(p.id) })
+					end
+					if #item.players >= MAX_PFP then break end
+				end
+			end
+			table.insert(list, item)
+		end
+	end
+	return list
+end
+local function refresh(animate)
+	if not isOpen or not uiReady() then return end
+	if FORCE_FAKE then render(makeFakeServers(), animate); return end
+	getServersFn = ReplicatedStorage:FindFirstChild("GetArenaServers")
+	local remote = getServersFn
+	if not remote or not remote:IsA("RemoteFunction") then
+		showStatus("Server list unavailable. Retrying...")
+		return
+	end
+	if inFlight[remote] then
+		showStatus("Waiting for the server list...")
+		return
+	end
+	local request = { gui = activeGui, generation = uiGeneration, session = autoToken }
+	inFlight[remote] = request
+	showStatus("Loading servers...")
+	local function currentRequest()
+		return isOpen and uiReady() and activeGui == request.gui
+			and uiGeneration == request.generation and autoToken == request.session
+	end
+	task.delay(8, function()
+		if inFlight[remote] == request and currentRequest() then
+			showStatus("The server is taking too long. You can close this menu.")
+		end
+	end)
+	task.spawn(function()
+		local ok, result = pcall(function() return remote:InvokeServer() end)
+		inFlight[remote] = nil
+		if not currentRequest() or remote ~= ReplicatedStorage:FindFirstChild("GetArenaServers") then return end
+		if not ok or type(result) ~= "table" then
+			showStatus("Unable to load servers. Please try Refresh.")
+			warn("[ServerBrowser] GetArenaServers : " .. tostring(result))
+			return
+		end
+		local list = normalizeList(result)
+		if #list == 0 and FAKE_WHEN_EMPTY then list = makeFakeServers() end
+		-- ⚡ PERF : actualisation auto (toutes les 10 s) sans AUCUN changement → on ne reconstruit
+		--    rien (avant : toutes les cartes étaient détruites et recréées à chaque fois).
+		local parts = {}
+		for _, it in ipairs(list) do
+			local ids = {}
+			for _, pp in ipairs(it.players or {}) do ids[#ids + 1] = tostring(pp.id) end
+			parts[#parts + 1] = table.concat({ it.jobId, it.arena, it.total, it.region or "",
+				it.map or "", table.concat(ids, ",") }, "|")
+		end
+		local sig = table.concat(parts, ";")
+		if not animate and sig == lastListSig and #currentCards > 0 then return end
+		lastListSig = sig
+		local rendered, err = pcall(render, list, animate)
+		if not rendered then
+			warn("[ServerBrowser] Affichage : " .. tostring(err))
+			clearCards()
+			showStatus("Unable to display servers. Please try Refresh.")
+		end
+	end)
+end
+
+--========================================================
+-- OPEN / CLOSE : état synchronisé avec la visibilité réelle du GUI
+--========================================================
+local function open()
+	if not uiReady() then
+		pendingOpen = true
+		if trySetupGui then trySetupGui() end
+		if not uiReady() then
+			warn("[ServerBrowser] Menu en attente : Servers > ShopFrame > ScrollingFrame > Entrydemo")
+			return
+		end
+	end
+	pendingOpen = false
+	if isOpen and activeGui.Enabled and shopFrame.Visible then return end
+	isOpen = true
+	autoToken += 1
+	animationToken += 1
+	local myToken, myAnimation = autoToken, animationToken
+	if overlayGui then
+		overlayGui.DisplayOrder = activeGui.DisplayOrder - 1
+		overlayGui.Enabled = true
+	end
+	activeGui.Enabled = true
+	shopFrame.Visible = true
+	applyScale()
+	if menuScale then
+		animatingScale = true
+		menuScale.Scale = responsiveFactor * 0.92
+		local t = TweenService:Create(menuScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = responsiveFactor})
+		t.Completed:Once(function()
+			if animationToken == myAnimation then animatingScale = false end
+		end)
+		t:Play()
+	end
+	TweenService:Create(blur, TweenInfo.new(0.25), {Size = 18}):Play()
+	refresh(true)
+	task.spawn(function()
+		while isOpen and myToken == autoToken do
+			task.wait(AUTO_REFRESH)
+			if isOpen and myToken == autoToken then refresh(false) end
+		end
+	end)
+end
+close = function(immediate)
+	pendingOpen = false
+	isOpen = false
+	autoToken += 1
+	animationToken += 1
+	local token = animationToken
+	TweenService:Create(blur, TweenInfo.new(0.2), {Size = 0}):Play()
+	-- Libérer le bouton Modal dès la fermeture, même si l'animation est interrompue.
+	if overlayGui then overlayGui.Enabled = false end
+	local frame, gui = shopFrame, activeGui
+	local function finish()
+		if token ~= animationToken or isOpen then return end
+		animatingScale = false
+		if frame and frame.Parent then frame.Visible = false end
+		if gui and gui.Parent then gui.Enabled = false end
+	end
+	if menuScale and menuScale.Parent and immediate ~= true then
+		animatingScale = true
+		local t = TweenService:Create(menuScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = responsiveFactor * 0.92})
+		t.Completed:Once(finish)
+		t:Play()
+	else finish() end
+end
+
+--========================================================
+-- SETUP DE TON GUI (réessayé si les descendants arrivent plus tard)
+--========================================================
+setupGui = function(gui)
+	if not gui:IsA("ScreenGui") then return false end
+	local newFrame = gui:FindFirstChild("ShopFrame", true)
+	local newScrolling = newFrame and newFrame:FindFirstChild("ScrollingFrame", true)
+	local original = newScrolling and newScrolling:FindFirstChild("Entrydemo", true)
+	if not newFrame or not newFrame:IsA("GuiObject") or not newScrolling
+		or not newScrolling:IsA("ScrollingFrame") or not original or not original:IsA("GuiObject") then return false end
+	local cloned = original:Clone()
+	if not cloned then return false end
+	local wanted = pendingOpen
+	close(true)
+	pendingOpen = wanted
+	for _, conn in ipairs(guiConnections) do conn:Disconnect() end
+	table.clear(guiConnections)
+	clearCards()
+	if template then template:Destroy() end
+	shopFrame, scrolling, menuScale = newFrame, newScrolling, nil
+	gui.ResetOnSpawn = false
+	gui.Enabled = false
+	shopFrame.Visible = false
+	uiGeneration += 1
+	template = cloned
+	template.Name = "EntryTemplate"
+	template.Visible = true
+	original.Visible = false -- garder le gabarit pour une réinitialisation ultérieure
+
+	local listLayout = scrolling:FindFirstChildOfClass("UIListLayout")
+	local gridLayout = scrolling:FindFirstChildOfClass("UIGridLayout")
+	if not listLayout and not gridLayout then
+		listLayout = Instance.new("UIListLayout")
+		listLayout.SortOrder           = Enum.SortOrder.LayoutOrder
+		listLayout.Padding             = UDim.new(0, 10)
+		listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		listLayout.Parent              = scrolling
+	end
+
+	scrolling.AutomaticCanvasSize  = Enum.AutomaticSize.None
+	scrolling.ScrollingEnabled     = true
+	scrolling.ScrollingDirection   = Enum.ScrollingDirection.Y
+	if scrolling.ScrollBarThickness < 4 then scrolling.ScrollBarThickness = 6 end
+
+	local canvasLayout = listLayout or gridLayout
+	local canvasScrolling = scrolling
+	local function syncCanvas()
+		if not canvasLayout or not canvasScrolling.Parent then return end
+		canvasScrolling.CanvasSize = UDim2.new(0, 0, 0, canvasLayout.AbsoluteContentSize.Y + 12)
+	end
+	track(canvasLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(syncCanvas))
+	syncCanvas()
+
+	if not scrolling:FindFirstChildOfClass("UIPadding") then
+		local p = Instance.new("UIPadding", scrolling)
+		p.PaddingTop = UDim.new(0, 6); p.PaddingBottom = UDim.new(0, 10)
+	end
+
+	if UNIFORM_SCALE then
+		shopFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+		shopFrame.Position    = UDim2.fromScale(0.5, 0.5)
+		menuScale = shopFrame:FindFirstChildOfClass("UIScale")
+		if not menuScale then menuScale = Instance.new("UIScale"); menuScale.Parent = shopFrame end
+		hookCamera()
+		applyScale()
+	end
+
+	local exitBtn = shopFrame:FindFirstChild("Exit", true)
+	if exitBtn and exitBtn:IsA("GuiButton") then
+		local ps = exitBtn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", exitBtn)
+		track(exitBtn.MouseButton1Down:Connect(function() TweenService:Create(ps, TweenInfo.new(0.08), {Scale = 0.9}):Play() end))
+		track(exitBtn.MouseButton1Up:Connect(function()   TweenService:Create(ps, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Scale = 1}):Play() end))
+		track(exitBtn.MouseLeave:Connect(function()       TweenService:Create(ps, TweenInfo.new(0.12), {Scale = 1}):Play() end))
+		track(exitBtn.Activated:Connect(function() close() end))
+	else
+		warn("[ServerBrowser] Bouton 'Exit' introuvable dans ShopFrame")
+	end
+
+	local refreshBtn = shopFrame:FindFirstChild("Refresh", true)
+	if refreshBtn and refreshBtn:IsA("GuiButton") then
+		track(refreshBtn.Activated:Connect(function()
+			refreshBtn.Rotation = 0
+			TweenService:Create(refreshBtn, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {Rotation = 360}):Play()
+			task.delay(0.4, function() if refreshBtn.Parent then refreshBtn.Rotation = 0 end end)
+			refresh(true)
+		end))
+	else
+		warn("[ServerBrowser] Bouton 'Refresh' introuvable dans ShopFrame")
+	end
+
+	activeGui = gui
+	track(gui:GetPropertyChangedSignal("Enabled"):Connect(function()
+		if isOpen and not gui.Enabled then close(true) end
+	end))
+	track(shopFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+		if isOpen and not shopFrame.Visible then close(true) end
+	end))
+	return true
+end
+
+--========================================================
+-- SETUP D'UN DISPLAY (par model) — billboard + prompt
+--========================================================
+-- 📍 Le prompt vit sur une part LOCALE (créée par ce script) posée à la
+--    position publiée par le serveur. Une part locale n'est JAMAIS déchargée
+--    par le streaming → le prompt survit au départ/retour et aux swaps de map.
+local localAnchors = Instance.new("Folder")
+localAnchors.Name   = "ServerBrowserLocalAnchors"
+localAnchors.Parent = Workspace
+
+local function createDisplayAt(cf)
+	local anchorPart = Instance.new("Part")
+	anchorPart.Name         = "ServerBrowserAnchor"
+	anchorPart.Size         = Vector3.new(1, 1, 1)
+	anchorPart.Transparency = 1
+	anchorPart.Anchored     = true
+	anchorPart.CanCollide   = false
+	anchorPart.CanTouch     = false
+	anchorPart.CanQuery     = false
+	anchorPart.CastShadow   = false
+	anchorPart.CFrame       = cf
+	anchorPart.Parent       = localAnchors
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name           = "ServerBrowserHeadline"
+	billboard.Size           = UDim2.fromScale(10, 3)
+	billboard.StudsOffset    = Vector3.new(0, 6, 0)
+	billboard.MaxDistance    = 70
+	billboard.LightInfluence = 0
+	billboard.Parent         = anchorPart
+
+	local headline = Instance.new("TextLabel")
+	headline.Size                   = UDim2.fromScale(1, 0.6)
+	headline.BackgroundTransparency = 1
+	headline.Text                   = "Find servers with players"
+	headline.Font                   = Enum.Font.FredokaOne
+	headline.TextColor3             = Color3.fromRGB(255, 254, 242)
+	headline.TextScaled             = true
+	headline.Parent                 = billboard
+	local hStroke = Instance.new("UIStroke", headline)
+	hStroke.Color = Color3.fromRGB(0,0,0); hStroke.Thickness = 3; hStroke.Transparency = 0
+
+	local headSub = Instance.new("TextLabel")
+	headSub.Size                   = UDim2.fromScale(1, 0.3)
+	headSub.Position               = UDim2.fromScale(0, 0.66)
+	headSub.BackgroundTransparency = 1
+	headSub.Text                   = isMobile and "Tap to browse" or "Press E to browse"
+	headSub.Font                   = Enum.Font.FredokaOne
+	headSub.TextColor3             = Color3.fromRGB(248, 251, 240)
+	headSub.TextScaled             = true
+	headSub.Parent                 = billboard
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name                  = "ServerBrowserPrompt"
+	prompt.ActionText            = "Browse Servers"
+	prompt.ObjectText            = "1v1 Servers"
+	prompt.KeyboardKeyCode       = Enum.KeyCode.E
+	prompt.HoldDuration          = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight   = false
+	prompt.Parent                = anchorPart
+
+	prompt.Triggered:Connect(function(p)
+		if p ~= localPlayer then return end
+		open() -- idempotent : deux prompts ne peuvent pas ouvrir puis fermer aussitôt
+	end)
+	return anchorPart
+end
+
+--========================================================
+-- BOOTSTRAP GUI (1 seul, par joueur) + filet anti-duplication au respawn
+--========================================================
+trySetupGui = function()
+	if uiReady() then return end
+	for _, gui in ipairs(playerGui:GetChildren()) do
+		if gui.Name == "Servers" and gui:IsA("ScreenGui") then
+			local ok, ready = pcall(setupGui, gui)
+			if not ok then warn("[ServerBrowser] Setup : " .. tostring(ready)) end
+			if ok and ready then
+				if pendingOpen then open() end
+				return
+			end
+		end
+	end
+end
+local setupQueued = false
+local function queueSetup()
+	if setupQueued or uiReady() then return end
+	setupQueued = true
+	task.defer(function()
+		setupQueued = false
+		trySetupGui()
+	end)
+end
+-- Écouter AVANT le scan ; aucune suppression d'un GUI encore incomplet.
+playerGui.DescendantAdded:Connect(queueSetup)
+playerGui.DescendantRemoving:Connect(function(obj)
+	if obj == activeGui or obj == shopFrame or obj == scrolling then
+		close(true)
+		task.defer(queueSetup)
+	end
+end)
+trySetupGui()
+localPlayer.CharacterAdded:Connect(function() close(true) end)
+
+-- Positions publiées par le serveur : écoute permanente, même après 30 secondes
+-- ou si le dossier est remplacé lors d'un changement de carte.
+local built = {}
+local anchorFolder, folderAdded, folderRemoved
+local function addAnchor(v)
+	if not v:IsA("CFrameValue") or built[v] then return end
+	local part = createDisplayAt(v.Value)
+	built[v] = { part = part, connection = v.Changed:Connect(function(newCf)
+		if part.Parent then part.CFrame = newCf end
+	end) }
+end
+local function removeAnchor(v)
+	local record = built[v]
+	if record then record.connection:Disconnect(); record.part:Destroy() end
+	built[v] = nil
+end
+local function syncAnchorFolder()
+	local folder = ReplicatedStorage:FindFirstChild("ServerBrowserAnchors")
+	if folder == anchorFolder then return end
+	if folderAdded then folderAdded:Disconnect(); folderAdded = nil end
+	if folderRemoved then folderRemoved:Disconnect(); folderRemoved = nil end
+	for v in pairs(built) do removeAnchor(v) end
+	anchorFolder = folder
+	if not folder then return end
+	folderAdded = folder.ChildAdded:Connect(addAnchor)
+	folderRemoved = folder.ChildRemoved:Connect(removeAnchor)
+	for _, v in ipairs(folder:GetChildren()) do addAnchor(v) end
+end
+ReplicatedStorage.ChildAdded:Connect(function(c)
+	if c.Name == "ServerBrowserAnchors" then syncAnchorFolder() end
+end)
+ReplicatedStorage.ChildRemoved:Connect(function(c)
+	if c == anchorFolder then syncAnchorFolder() end
+end)
+syncAnchorFolder()
+task.delay(30, function()
+	if not anchorFolder then warn("[ServerBrowser] ServerBrowserAnchors absent : vérifier le script serveur. Détection toujours active.") end
+end)
+
+--========================================================
+-- CAMERA (re-hook si la caméra change)
+--========================================================
+Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	hookCamera(); applyScale()
+end)
+
+--========================================================
+-- WIRING global
+--========================================================
+if overlayBtn then
+	overlayBtn.Activated:Connect(function() close() end)
+end
+
+local failureRemote, failureConn
+local function syncRemotes()
+	getServersFn = ReplicatedStorage:FindFirstChild("GetArenaServers")
+	joinServerEvent = ReplicatedStorage:FindFirstChild("JoinArenaServer")
+	joinFailedEvent = ReplicatedStorage:FindFirstChild("ArenaJoinFailed")
+	if failureRemote ~= joinFailedEvent then
+		if failureConn then failureConn:Disconnect(); failureConn = nil end
+		failureRemote = joinFailedEvent
+		if failureRemote and failureRemote:IsA("RemoteEvent") then
+			failureConn = failureRemote.OnClientEvent:Connect(function()
+				resetJoins()
+				if isOpen then refresh(false) end
+			end)
+		end
+	end
+end
+local remoteNames = { GetArenaServers = true, JoinArenaServer = true, ArenaJoinFailed = true }
+ReplicatedStorage.ChildAdded:Connect(function(c)
+	if remoteNames[c.Name] then syncRemotes(); if isOpen then refresh(false) end end
+end)
+ReplicatedStorage.ChildRemoved:Connect(function(c)
+	if remoteNames[c.Name] then syncRemotes() end
+end)
+syncRemotes()
+
+print("✅ ServerBrowserDisplay v5.2 chargé (GUI récupérable + anchors persistants)")
+--========================================================
+-- 🆕 OUVERTURE DEPUIS UN AUTRE SCRIPT (ex. EmptyArenaPrompt : « arène vide → autres serveurs »)
+--    PlayerGui ▸ ServerBrowserController ▸ Open:Fire()   (même ouverture que le ProximityPrompt)
+--========================================================
+do
+	local openEvent = guard:FindFirstChild("Open") or Instance.new("BindableEvent")
+	openEvent.Name = "Open"
+	openEvent.Parent = guard
+	openEvent.Event:Connect(function() open() end)
+end
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="LocalScript" referent="RBX81">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ArenaViewKeeper</string>
@@ -58436,7 +59442,7 @@ refresh()
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX77">
+				<Item class="LocalScript" referent="RBX82">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">DeathCam</string>
@@ -60705,7 +61711,263 @@ end)
 print("✅ DeathCam prêt")]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX78">
+				<Item class="LocalScript" referent="RBX83">
+					<Properties>
+						<bool name="Disabled">true</bool>
+						<string name="Name">EmptyArenaPrompt</string>
+						<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- ⚔️ EmptyArenaPrompt — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (NOUVEAU)
+--
+--  Tu entres en PvP mais personne d'autre n'y est sur ce serveur → après un court
+--  moment, une fenêtre te le dit et te propose de rejoindre un serveur où il y a des
+--  joueurs en PvP. « FIND SERVERS » ouvre le panneau des serveurs (le même que le
+--  panneau « 1v1 Servers » du lobby).
+--
+--  Quand ? Pas tout de suite à l'entrée : on attend un peu (DELAY) car
+--   • d'autres joueurs entrent souvent juste après toi (même vague, même vote de map) ;
+--   • l'arrivée en arène a déjà son bouclier, sa caméra et son chargement de map ;
+--   • on revérifie juste avant d'afficher : si quelqu'un est arrivé, rien ne s'affiche.
+--  Et seulement si un AUTRE serveur a vraiment des joueurs en PvP (sinon, inutile).
+--
+--  Jamais d'abus : une fois par entrée en arène, au plus MaxPerSession fois, pas pendant
+--  les premières secondes après un changement de serveur, et la fenêtre se ferme toute
+--  seule si quelqu'un entre dans l'arène, si tu en sors ou si tu meurs.
+--
+--  ↩️ Pour couper : Enabled = false.
+--════════════════════════════════════════════════════════════════════════════
+local CONFIG = {
+	Enabled          = true,
+	DELAY            = 7,     -- s après ton arrivée en arène
+	MinOtherArena    = 1,     -- un autre serveur doit avoir au moins ça de joueurs en PvP
+	MaxPerSession    = 3,
+	Cooldown         = 150,   -- s minimum entre deux fenêtres
+	AfterTeleport    = 90,    -- s sans fenêtre après être arrivé par le panneau des serveurs
+	AutoClose        = 25,    -- s : la fenêtre se ferme toute seule
+	-- 🧪 Studio : la liste des serveurs est toujours vide (pas de vrais serveurs). Mets true
+	--    pour VOIR la fenêtre en Studio (un faux serveur à 4 joueurs est utilisé).
+	StudioTest       = false,
+}
+if not CONFIG.Enabled then return end
+
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService      = game:GetService("TweenService")
+local UserInputService  = game:GetService("UserInputService")
+local GuiService        = game:GetService("GuiService")
+local ContextActionService = game:GetService("ContextActionService")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local joinedAt  = os.clock()
+local cameByTeleport = false
+pcall(function()
+	local jd = player:GetJoinData()
+	cameByTeleport = jd and type(jd.TeleportData) == "table" and jd.TeleportData.joinArena == true
+end)
+
+-- 🎨 même style que tes Paramètres / HUD d'arène
+local FONT      = Enum.Font.FredokaOne
+local WHITE     = Color3.new(1, 1, 1)
+local NAVY      = Color3.fromRGB(15, 25, 48)
+local OUTLINE   = Color3.fromRGB(10, 30, 80)
+local BLUE_HI   = Color3.fromRGB(92, 196, 255)
+local BLUE_LO   = Color3.fromRGB(30, 108, 236)
+local GOLD      = Color3.fromRGB(255, 214, 92)
+local SUB       = Color3.fromRGB(190, 205, 230)
+local COL = {
+	green = { Color3.fromRGB(40, 185, 80), Color3.fromRGB(12, 115, 42), Color3.fromRGB(8, 65, 25) },
+	grey  = { Color3.fromRGB(88, 94, 112), Color3.fromRGB(50, 54, 68), Color3.fromRGB(28, 30, 40) },
+}
+
+local function new(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do o[k] = v end
+	if parent then o.Parent = parent end
+	return o
+end
+local function outlined(lbl, t)
+	new("UIStroke", { Color = OUTLINE, Thickness = t or 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual }, lbl)
+end
+-- bouton 3D des Paramètres (dégradé + socle)
+local function button3D(parent, text, col, pos)
+	local slot = new("Frame", { Size = UDim2.new(0.5, -10, 0, 50), Position = pos, BackgroundTransparency = 1 }, parent)
+	local edge = new("Frame", { Size = UDim2.new(1, 0, 1, -4), Position = UDim2.fromOffset(0, 4),
+		BackgroundColor3 = col[3], BorderSizePixel = 0 }, slot)
+	new("UICorner", { CornerRadius = UDim.new(0, 10) }, edge)
+	local btn = new("TextButton", { Size = UDim2.new(1, 0, 1, -4), BackgroundColor3 = WHITE, BorderSizePixel = 0,
+		AutoButtonColor = false, Text = "", ZIndex = 2 }, slot)
+	new("UICorner", { CornerRadius = UDim.new(0, 10) }, btn)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
+	local l = new("TextLabel", { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.fromOffset(6, 0), BackgroundTransparency = 1,
+		Text = text, Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 3 }, btn)
+	new("UITextSizeConstraint", { MaxTextSize = 22 }, l)
+	new("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8) }, l)
+	outlined(l, 1.6)
+	btn.MouseButton1Down:Connect(function() btn.Position = UDim2.fromOffset(0, 3) end)
+	btn.MouseButton1Up:Connect(function() btn.Position = UDim2.fromOffset(0, 0) end)
+	btn.MouseLeave:Connect(function() btn.Position = UDim2.fromOffset(0, 0) end)
+	return btn
+end
+
+local function inArena(p) return p:GetAttribute("InArena") == true end
+local function othersInArena()
+	local n = 0
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player and inArena(p) then n += 1 end
+	end
+	return n
+end
+local function alive()
+	local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	return h ~= nil and h.Health > 0
+end
+
+-- meilleur autre serveur (le plus de joueurs en PvP), via le même remote que le panneau
+local function bestOtherServer()
+	if CONFIG.StudioTest and game:GetService("RunService"):IsStudio() then return { arena = 4 } end
+	local fn = ReplicatedStorage:FindFirstChild("GetArenaServers")
+	if not fn then return nil end
+	local ok, list = pcall(function() return fn:InvokeServer() end)
+	if not ok or type(list) ~= "table" then return nil end
+	local best
+	for _, s in ipairs(list) do
+		local a = type(s) == "table" and tonumber(s.arena) or 0
+		if a >= CONFIG.MinOtherArena and (not best or a > best.arena) then best = { arena = a } end
+	end
+	return best
+end
+
+local function openServerBrowser()
+	local ctrl = playerGui:FindFirstChild("ServerBrowserController")
+	local ev = ctrl and ctrl:FindFirstChild("Open")
+	if ev and ev:IsA("BindableEvent") then ev:Fire() return true end
+	warn("[EmptyArenaPrompt] panneau des serveurs introuvable (1v1 cross server local à jour ?)")
+	return false
+end
+
+--════════════════════════════════════════════════════════════
+-- 🪟 LA FENÊTRE
+--════════════════════════════════════════════════════════════
+local gui, card, closeToken = nil, nil, 0
+local shownCount, lastShownAt = 0, -math.huge
+local PAD_ACTION = "EmptyArenaPromptPad"
+
+local function close()
+	closeToken += 1
+	ContextActionService:UnbindAction(PAD_ACTION)
+	if not gui then return end
+	local g, c = gui, card
+	gui, card = nil, nil
+	local sel = GuiService.SelectedObject
+	if sel and sel:IsDescendantOf(g) then GuiService.SelectedObject = nil end
+	if c then
+		local sc = c:FindFirstChildOfClass("UIScale")
+		if sc then TweenService:Create(sc, TweenInfo.new(0.15), { Scale = sc.Scale * 0.9 }):Play() end
+	end
+	task.delay(0.15, function() g:Destroy() end)
+end
+
+local function show(best)
+	if gui then return end
+	shownCount += 1
+	lastShownAt = os.clock()
+	closeToken += 1
+	local my = closeToken
+
+	gui = new("ScreenGui", { Name = "EmptyArenaPrompt", ResetOnSpawn = false, IgnoreGuiInset = true,
+		DisplayOrder = 60, ZIndexBehavior = Enum.ZIndexBehavior.Sibling }, playerGui)
+	-- fond assombri ; Modal = la souris est libérée même avec une arme en main
+	new("TextButton", { Name = "Backdrop", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.55, Text = "", AutoButtonColor = false, Modal = true, Selectable = false }, gui)
+
+	card = new("Frame", { Name = "Card", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(440, 250), BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = 2 }, gui)
+	new("UICorner", { CornerRadius = UDim.new(0, 16) }, card)
+	new("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 2, Transparency = 0.4 }, card)
+	local cam = workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+	local scale = math.clamp(math.min(vp.X / 520, vp.Y / 330), 0.55, 1.25)
+	local uiScale = new("UIScale", { Scale = scale * 0.85 }, card)
+
+	-- bandeau bleu brillant (comme le HUD d'arène)
+	local head = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, card)
+	new("UICorner", { CornerRadius = UDim.new(0, 16) }, head)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(BLUE_HI, BLUE_LO) }, head)
+	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 16),
+		BackgroundColor3 = BLUE_LO, BorderSizePixel = 0, ZIndex = 3 }, head)   -- coins bas carrés
+	local title = new("TextLabel", { Size = UDim2.new(1, -24, 1, -10), Position = UDim2.fromOffset(12, 5), BackgroundTransparency = 1,
+		Text = "⚔️  ARENA IS EMPTY", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
+	new("UITextSizeConstraint", { MaxTextSize = 32 }, title)
+	outlined(title, 2.5)
+
+	local body = new("TextLabel", { Position = UDim2.fromOffset(20, 74), Size = UDim2.new(1, -40, 0, 50), BackgroundTransparency = 1,
+		Text = "You're the only player in PvP on this server.\nJoin a server with players to fight?", Font = FONT,
+		TextScaled = true, TextColor3 = WHITE, ZIndex = 3 }, card)
+	new("UITextSizeConstraint", { MaxTextSize = 20 }, body)
+	outlined(body, 1.5)
+	local hint = new("TextLabel", { Position = UDim2.fromOffset(20, 128), Size = UDim2.new(1, -40, 0, 26), BackgroundTransparency = 1,
+		Text = string.format("🔥 A server has %d player%s in PvP right now!", best.arena, best.arena > 1 and "s" or ""),
+		Font = FONT, TextScaled = true, TextColor3 = GOLD, ZIndex = 3 }, card)
+	new("UITextSizeConstraint", { MaxTextSize = 18 }, hint)
+	outlined(hint, 1.5)
+
+	local row = new("Frame", { Position = UDim2.new(0, 20, 1, -76), Size = UDim2.new(1, -40, 0, 56), BackgroundTransparency = 1, ZIndex = 3 }, card)
+	local goBtn = button3D(row, "FIND SERVERS", COL.green, UDim2.new(0, 0, 0, 0))
+	local stayBtn = button3D(row, "STAY HERE", COL.grey, UDim2.new(0.5, 10, 0, 0))
+	local countdown = new("TextLabel", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(1, 0, 0, 14),
+		BackgroundTransparency = 1, Text = "", Font = FONT, TextScaled = true, TextColor3 = SUB, ZIndex = 3 }, card)
+
+	goBtn.Activated:Connect(function() close() ; openServerBrowser() end)
+	stayBtn.Activated:Connect(close)
+
+	-- apparition
+	TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = scale }):Play()
+
+	-- 🎮 manette : A = choisir (FIND SERVERS sélectionné), B = rester
+	if UserInputService:GetLastInputType().Name:sub(1, 7) == "Gamepad" then GuiService.SelectedObject = goBtn end
+	ContextActionService:BindActionAtPriority(PAD_ACTION, function(_, state)
+		if state == Enum.UserInputState.Begin then close() end
+		return Enum.ContextActionResult.Sink
+	end, false, Enum.ContextActionPriority.High.Value, Enum.KeyCode.ButtonB)
+
+	-- fermeture automatique : quelqu'un entre en PvP, tu sors, tu meurs, ou le temps est écoulé
+	task.spawn(function()
+		local t0 = os.clock()
+		while my == closeToken and gui do
+			local left = CONFIG.AutoClose - (os.clock() - t0)
+			if left <= 0 or othersInArena() > 0 or not inArena(player) or not alive() then close() break end
+			countdown.Text = string.format("closes in %ds", math.ceil(left))
+			task.wait(0.5)
+		end
+	end)
+end
+
+--════════════════════════════════════════════════════════════
+-- ⏱️ QUAND ?
+--════════════════════════════════════════════════════════════
+local entryToken = 0
+local function onArenaChanged()
+	entryToken += 1
+	local my = entryToken
+	if not inArena(player) then close() return end
+	task.delay(CONFIG.DELAY, function()
+		if my ~= entryToken or not inArena(player) or not alive() then return end
+		if shownCount >= CONFIG.MaxPerSession then return end
+		if os.clock() - lastShownAt < CONFIG.Cooldown then return end
+		if cameByTeleport and os.clock() - joinedAt < CONFIG.AfterTeleport then return end
+		if othersInArena() > 0 then return end
+		local best = bestOtherServer()
+		-- on revérifie APRÈS la question au serveur (quelqu'un a pu entrer entre-temps)
+		if not best or my ~= entryToken or not inArena(player) or othersInArena() > 0 then return end
+		show(best)
+	end)
+end
+player:GetAttributeChangedSignal("InArena"):Connect(onArenaChanged)
+if inArena(player) then onArenaChanged() end
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="LocalScript" referent="RBX84">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">EngageTrack</string>
@@ -60799,7 +62061,7 @@ playerGui.ChildAdded:Connect(function(g)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX79">
+				<Item class="LocalScript" referent="RBX85">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre achat speedcoil</string>
@@ -60824,7 +62086,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX80">
+				<Item class="LocalScript" referent="RBX86">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre dachat fusion coil</string>
@@ -60850,17 +62112,20 @@ end)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX81">
+				<Item class="LocalScript" referent="RBX87">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">HudLayoutClient</string>
 						<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
 -- 📐 HudLayoutClient — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (NOUVEAU)
 --  Applique ReplicatedStorage ▸ HudLayout : les boutons de l'écran gardent leurs
---  écarts sur TOUS les formats d'écran. Réglages et explications dans HudLayout.
+--  écarts sur TOUS les formats d'écran, et le bloc du haut évite les boutons du haut
+--  (Roblox + How To Play / série de jours), où qu'ils soient selon l'appareil.
+--  Réglages et explications dans HudLayout.
 --════════════════════════════════════════════════════════════════════════════
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiService        = game:GetService("GuiService")
 
 local HL = require(ReplicatedStorage:WaitForChild("HudLayout"))
 if not HL.Enabled then return end
@@ -60897,6 +62162,35 @@ local function designOf(frame, xOverride)
 	return d
 end
 
+-- 🚧 boutons du haut de l'écran (coordonnées ÉCRAN) : ceux de Roblox + les tiens
+local function topButtonRects()
+	local rects = {}
+	local cam = workspace.CurrentCamera
+	local vw = cam and cam.ViewportSize.X or 0
+	local ok, inset = pcall(function() return GuiService.TopbarInset end)
+	if ok and typeof(inset) == "Rect" and inset.Height > 0 then
+		-- TopbarInset = la place LIBRE entre les boutons Roblox de gauche et ceux de droite
+		if inset.Min.X > 0 then table.insert(rects, { x0 = 0, x1 = inset.Min.X, y0 = 0, y1 = inset.Max.Y }) end
+		if vw > 0 and inset.Max.X < vw then table.insert(rects, { x0 = inset.Max.X, x1 = vw, y0 = 0, y1 = inset.Max.Y }) end
+	else
+		local top = GuiService:GetGuiInset()
+		table.insert(rects, { x0 = 0, x1 = 140, y0 = 0, y1 = math.max(top.Y, 36) })
+	end
+	for _, name in ipairs(HL.TopButtonGuis or {}) do
+		local g = playerGui:FindFirstChild(name)
+		if g and g:IsA("LayerCollector") and g.Enabled then
+			local gp = g.AbsolutePosition
+			for _, c in ipairs(g:GetChildren()) do
+				if c:IsA("GuiObject") and c.Visible and c.AbsoluteSize.X > 1 then
+					local p = gp + c.AbsolutePosition
+					table.insert(rects, { x0 = p.X, x1 = p.X + c.AbsoluteSize.X, y0 = p.Y, y1 = p.Y + c.AbsoluteSize.Y })
+				end
+			end
+		end
+	end
+	return rects
+end
+
 local function layoutGroup(g)
 	local live = {}
 	for _, it in ipairs(g.items) do
@@ -60912,37 +62206,57 @@ local function layoutGroup(g)
 		end
 	end
 	if #live == 0 then return end
+	local gui0 = live[1].gui
+	local GW, GH = gui0.AbsoluteSize.X, gui0.AbsoluteSize.Y
+	if GW <= 1 or GH <= 1 then return end
+	local u = GH / REF_H                         -- tout suit la HAUTEUR de l'écran
 	local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
 	for _, e in ipairs(live) do
 		minX = math.min(minX, e.d.x) ; maxX = math.max(maxX, e.d.x + e.d.w)
 		minY = math.min(minY, e.d.y) ; maxY = math.max(maxY, e.d.y + e.d.h)
 	end
-	for _, e in ipairs(live) do
-		local GW, GH = e.gui.AbsoluteSize.X, e.gui.AbsoluteSize.Y
-		if GW > 1 and GH > 1 then
-			local u = GH / REF_H                      -- tout suit la HAUTEUR de l'écran
-			local k = 1                               -- rétrécit le bloc s'il ne tient plus en largeur
-			local x, y
-			if g.anchor == "center" then
-				local span = math.max(math.abs(maxX - REF_W / 2), math.abs(minX - REF_W / 2)) * 2 * u
-				if span > GW * g.maxWidth then k = GW * g.maxWidth / span end
-				x = GW / 2 + (e.d.x - REF_W / 2) * u * k
-				y = e.d.y * u * k
-			else
-				local right = maxX * u
-				if right > GW * g.maxWidth then k = GW * g.maxWidth / right end
-				local cy = (minY + maxY) / 2
-				x = e.d.x * u * k
-				y = (cy + (e.d.y - cy) * k) * u
+
+	local k, cx = 1, nil   -- k = rétrécissement du bloc, cx = centre (bloc centré)
+	if g.anchor == "center" then
+		local eL, eR = (REF_W / 2 - minX) * u, (maxX - REF_W / 2) * u   -- débords gauche / droite du centre
+		local a, b = 0, GW                                              -- place disponible en largeur
+		if g.avoidTopButtons then
+			local top = gui0.AbsolutePosition.Y + minY * u
+			local bottom = gui0.AbsolutePosition.Y + maxY * u
+			for _, r in ipairs(topButtonRects()) do
+				if r.y1 > top - 2 and r.y0 < bottom then   -- même bande de hauteur que le bloc
+					if (r.x0 + r.x1) / 2 < GW / 2 then a = math.max(a, r.x1 + (HL.TopGap or 10))
+					else b = math.min(b, r.x0 - (HL.TopGap or 10)) end
+				end
 			end
-			local w, h = e.d.w * u * k, e.d.h * u * k
-			local a = e.fr.AnchorPoint
-			local size = UDim2.fromOffset(w, h)
-			local pos = UDim2.fromOffset(x + a.X * w, y + a.Y * h)
-			e.fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
-			e.fr:SetAttribute("HudBasePos", pos)
-			e.fr.Size, e.fr.Position = size, pos
 		end
+		local margin = GW * (1 - g.maxWidth) / 2
+		a, b = math.max(a, margin), math.min(b, GW - margin)
+		if eL + eR > b - a then k = math.max(0.2, (b - a) / (eL + eR)) end
+		-- centré si possible, sinon décalé juste assez pour éviter les boutons
+		cx = math.clamp(GW / 2, a + eL * k, math.max(a + eL * k, b - eR * k))
+	else
+		local right = maxX * u
+		if right > GW * g.maxWidth then k = GW * g.maxWidth / right end
+	end
+
+	for _, e in ipairs(live) do
+		local x, y
+		if g.anchor == "center" then
+			x = cx + (e.d.x - REF_W / 2) * u * k
+			y = e.d.y * u * k
+		else
+			local cy = (minY + maxY) / 2
+			x = e.d.x * u * k
+			y = (cy + (e.d.y - cy) * k) * u
+		end
+		local w, h = e.d.w * u * k, e.d.h * u * k
+		local an = e.fr.AnchorPoint
+		local size = UDim2.fromOffset(w, h)
+		local pos = UDim2.fromOffset(x + an.X * w, y + an.Y * h)
+		e.fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
+		e.fr:SetAttribute("HudBasePos", pos)
+		e.fr.Size, e.fr.Position = size, pos
 	end
 end
 
@@ -60952,18 +62266,25 @@ local function relayout()
 	queued = true
 	task.defer(function()
 		queued = false
-		for _, g in pairs(HL.Groups) do pcall(layoutGroup, g) end
+		for _, g in pairs(HL.Groups) do
+			local ok, err = pcall(layoutGroup, g)
+			if not ok then warn("[HudLayout] " .. tostring(err)) end
+		end
 	end)
 end
 
--- ce qu'il faut surveiller : la taille de l'écran et les ScreenGui (recréés au respawn)
+-- ce qu'il faut surveiller : la taille de l'écran, les ScreenGui (recréés au respawn)
+-- et les boutons du haut (ils apparaissent un peu après le chargement)
 local watched = setmetatable({}, { __mode = "k" })
 local wanted = {}
 for _, g in pairs(HL.Groups) do for _, it in ipairs(g.items) do wanted[it.gui] = true end end
+for _, n in ipairs(HL.TopButtonGuis or {}) do wanted[n] = true end
 local function watch(gui)
 	if not wanted[gui.Name] or watched[gui] or not gui:IsA("LayerCollector") then return end
 	watched[gui] = true
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+	gui:GetPropertyChangedSignal("Enabled"):Connect(relayout)
+	gui.ChildAdded:Connect(relayout)
 	relayout()
 end
 for _, c in ipairs(playerGui:GetChildren()) do watch(c) end
@@ -60974,11 +62295,13 @@ local function watchCam()
 end
 watchCam()
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() watchCam() ; relayout() end)
+pcall(function() GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(relayout) end)
 relayout()
+task.delay(3, relayout)   -- filet : les boutons du haut sont créés par script un peu après
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX82">
+				<Item class="LocalScript" referent="RBX88">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">PlayerProfileHover</string>
@@ -62602,7 +63925,7 @@ UserInputService.TouchTapInWorld:Connect(function(pos, processedByUI)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX83">
+				<Item class="LocalScript" referent="RBX89">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ScrollTapGuard</string>
@@ -62690,7 +64013,7 @@ end)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX84">
+				<Item class="LocalScript" referent="RBX90">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">achat x2coin</string>
@@ -62708,7 +64031,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX85">
+				<Item class="LocalScript" referent="RBX91">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">fenetre dachat gravity coil</string>
@@ -62733,7 +64056,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX86">
+				<Item class="LocalScript" referent="RBX92">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">offers on screen</string>
@@ -63687,7 +65010,7 @@ end
 print("✅ OffersDisplay + Referral chargé —", #OFFERS, "offre(s)")]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX87">
+				<Item class="LocalScript" referent="RBX93">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">rebirth offer notify event</string>
@@ -63921,7 +65244,7 @@ end)
 log("Actif pour " .. player.Name)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX88">
+				<Item class="LocalScript" referent="RBX94">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">script proposer achat skip obby</string>

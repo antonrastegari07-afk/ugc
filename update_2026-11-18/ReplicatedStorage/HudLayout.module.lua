@@ -1,7 +1,7 @@
 --════════════════════════════════════════════════════════════════════════════
 -- 📐 HudLayout — ModuleScript dans ReplicatedStorage   (NOUVEAU)
 --
---  Les boutons de l'écran (les 8 à gauche + Current Stage / Skip Obby / Skip Level)
+--  Les boutons de l'écran (les 8 à gauche + Skip Obby / Current Stage / Skip Level + la roulette)
 --  gardent EXACTEMENT leur disposition, quel que soit le format de l'écran
 --  (PC large, 16:9, 16:10, tablette 4:3, téléphone…).
 --
@@ -46,17 +46,26 @@ M.Groups = {
 	top = {
 		anchor = "center",
 		maxWidth = 0.92,
+		-- 🚧 le bloc du haut ne touche JAMAIS les boutons du haut de l'écran : ceux de Roblox et
+		--    tes boutons How To Play / série de jours (à gauche sur PC, à droite sur mobile).
+		--    Leur place est MESURÉE en direct : il s'écarte ou rétrécit selon l'appareil.
+		avoidTopButtons = true,
 		items = {
 			{ gui = "Skip Obby",  frame = "Frameskiplevel" },
 			{ gui = "# Stage",    frame = "Frame" },    -- Current Stage
 			-- (pas « # Stage ▸ Frame2 » : ArenaHUD la cache hors de l'écran et la remplace)
 			{ gui = "Skip Level", frame = "Frameskiplevel" },
+			{ gui = "dailyspin",  frame = "Frame" },    -- 🎡 la roulette (à droite de Skip Level)
 		},
 	},
 }
 
 -- écran de référence de ta disposition
 M.REF_W, M.REF_H = 1920, 1080
+
+-- boutons du haut à éviter (en plus de ceux de Roblox) : ScreenGui créés par tes scripts
+M.TopButtonGuis = { "TopBarGui" }   -- How To Play + série de jours
+M.TopGap = 10                        -- écart minimum avec eux (px)
 
 -- 🖱️ Animation de survol (la même qu'avant : 90 % au survol, 85 % à l'appui),
 --    toujours calculée à partir de la place donnée par la mise en page.

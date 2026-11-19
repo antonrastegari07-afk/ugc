@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v14) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v15) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v13** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v14** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v13).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v14).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v14.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v15.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v14.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v15.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v14… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v15… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v14`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v15`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -32,7 +32,7 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 **Créer :**
 - ReplicatedStorage : `PopupControlConfig`, `PopupGate`, `LeaderboardStyle` (ModuleScripts)
 - ServerScriptService : `PopupControl_Server`, `FriendsBoard_Server`, `Presence_Server` (Scripts)
-- StarterPlayerScripts : `ArenaViewKeeper`, `ScrollTapGuard`, `HudLayoutClient` (LocalScripts)
+- StarterPlayerScripts : `ArenaViewKeeper`, `ScrollTapGuard`, `HudLayoutClient`, `EmptyArenaPrompt` (LocalScripts)
 - ReplicatedStorage : `HudLayout` (ModuleScript)
 
 **Remplacer :**
@@ -48,7 +48,37 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v14 — correctif
+## 🆕 NOUVEAU DANS LA v15 (tes derniers retours)
+
+### 📐 Haut de l'écran : trio + roulette, sans jamais toucher les boutons du haut
+- La **roulette** fait maintenant partie du bloc du haut (Skip Obby · Current Stage · Skip Level · roulette) : mêmes écarts sur tous les écrans. Son ancien script la déplaçait à 25 % de la largeur sur mobile ; il est remplacé (même animation, sans déplacement).
+- Le bloc **mesure en direct** la place des boutons du haut : ceux de Roblox, et tes boutons How To Play et série de jours (**à gauche sur PC, à droite sur mobile**). Il reste centré quand c'est possible, sinon il se décale juste assez, et en dernier recours il rétrécit. Il ne les chevauche jamais, sur aucun appareil.
+- Simulé avec les vraies valeurs de ton jeu :
+  - PC : rien ne bouge par rapport à avant.
+  - Tablette : le bloc se décale de quelques dizaines de pixels pour ne pas toucher How To Play et la série.
+  - Téléphone : tout tient sans rétrécir.
+- **Bouton Invite :** il fait partie du bloc de gauche (mêmes écarts partout). Aucun autre script ne le déplace. Tes `StyleLink` sont vides (aucune feuille de style), ils n'y sont pour rien.
+
+### ⚔️ Nouveau : « ARENA IS EMPTY » (`StarterPlayerScripts ▸ EmptyArenaPrompt`)
+- Tu entres en PvP et **personne d'autre n'y est** sur ce serveur : **7 secondes plus tard**, si c'est toujours vide **et** qu'un autre serveur a des joueurs en PvP, une fenêtre s'affiche.
+  - Elle te dit combien de joueurs ce serveur a en PvP.
+  - **FIND SERVERS** ouvre le panneau des serveurs (le même que « 1v1 Servers » du lobby).
+  - **STAY HERE** ferme la fenêtre.
+- **Pourquoi pas tout de suite à l'entrée :**
+  - d'autres joueurs arrivent souvent juste après toi ;
+  - l'arrivée a déjà son bouclier, sa caméra et la map qui charge ;
+  - on revérifie juste avant d'afficher, donc la fenêtre n'apparaît pas pour rien.
+- **Jamais envahissante :**
+  - une fois par entrée en arène, au plus 3 fois par session, 2 min 30 minimum entre deux fenêtres ;
+  - jamais dans les 90 s après un changement de serveur ;
+  - elle se ferme toute seule si quelqu'un entre en PvP, si tu sors, si tu meurs, ou au bout de 25 s.
+- **Style de tes Paramètres et du HUD d'arène :** bandeau bleu brillant, panneau bleu nuit, boutons 3D vert et gris, texte Fredoka contourné.
+  - La souris est libérée même avec une arme en main.
+  - À la manette, FIND SERVERS est sélectionné et B ferme.
+- `1v1 cross server local` reçoit un petit ajout : un `BindableEvent` « Open » pour ouvrir le panneau depuis un autre script. Rien d'autre ne change.
+- **Tester dans Studio :** il n'y a pas de vrais serveurs en Studio. Mets `StudioTest = true` en haut de `EmptyArenaPrompt` pour voir la fenêtre, puis remets `false` avant de publier.
+
+## NOUVEAU DANS LA v14 — correctif
 - **Les 3 boutons du haut (Skip Obby · Current Stage · Skip Level) avaient disparu en v13.**
   - La cause : `ArenaHUD` cache l'ancienne case kills (`# Stage ▸ Frame2`) en l'envoyant hors de l'écran. `HudLayout` la comptait dans le bloc du haut : le bloc paraissait immense et tout rétrécissait jusqu'à disparaître.
   - La correction : cette case est retirée du bloc, et tout cadre placé hors de l'écran par un autre script est désormais ignoré.
@@ -97,7 +127,7 @@ Tout le reste a été relu (popups admin, stats, favori, popup de départ, retou
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v14) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v15) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8
