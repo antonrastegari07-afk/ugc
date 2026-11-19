@@ -75,13 +75,16 @@ local function outlined(lbl, t)
 end
 -- bouton 3D des Paramètres (dégradé + socle)
 local function button3D(parent, text, col, pos)
-	local slot = new("Frame", { Size = UDim2.new(0.5, -10, 0, 50), Position = pos, BackgroundTransparency = 1 }, parent)
+	-- 🔒 forme verrouillée : ratio fixe (jamais écrasé) et coins proportionnels (jamais rond)
+	local slot = new("Frame", { Size = UDim2.new(0.5, -10, 1, 0), Position = pos, BackgroundTransparency = 1 }, parent)
+	new("UIAspectRatioConstraint", { AspectRatio = 3.4 }, slot)
+	local CORNER = UDim.new(0.22, 0)
 	local edge = new("Frame", { Size = UDim2.new(1, 0, 1, -4), Position = UDim2.fromOffset(0, 4),
 		BackgroundColor3 = col[3], BorderSizePixel = 0 }, slot)
-	new("UICorner", { CornerRadius = UDim.new(0, 10) }, edge)
+	new("UICorner", { CornerRadius = CORNER }, edge)
 	local btn = new("TextButton", { Size = UDim2.new(1, 0, 1, -4), BackgroundColor3 = WHITE, BorderSizePixel = 0,
 		AutoButtonColor = false, Text = "", ZIndex = 2 }, slot)
-	new("UICorner", { CornerRadius = UDim.new(0, 10) }, btn)
+	new("UICorner", { CornerRadius = CORNER }, btn)
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
 	local l = new("TextLabel", { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.fromOffset(6, 0), BackgroundTransparency = 1,
 		Text = text, Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 3 }, btn)
@@ -184,17 +187,17 @@ local function show(best)
 		BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, head)   -- coins bas carrés
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(HEAD_LO:Lerp(HEAD_HI, 0.3), HEAD_LO) }, flat)
 	local title = new("TextLabel", { Size = UDim2.new(1, -24, 1, -12), Position = UDim2.fromOffset(12, 6), BackgroundTransparency = 1,
-		Text = "ARENA EMPTY", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
+		Text = "NO PLAYERS HERE", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
 	new("UITextSizeConstraint", { MaxTextSize = 34 }, title)
 	outlined(title, 2)
 
-	-- UNE ligne : l'essentiel
-	local line = new("TextLabel", { Position = UDim2.fromOffset(20, 72), Size = UDim2.new(1, -40, 0, 34), BackgroundTransparency = 1,
-		Text = string.format("🔥 %d player%s in PvP on another server", best.arena, best.arena > 1 and "s" or ""),
+	-- l'essentiel : personne ici → rejoins un serveur pour jouer
+	local line = new("TextLabel", { Position = UDim2.fromOffset(20, 68), Size = UDim2.new(1, -40, 0, 50), BackgroundTransparency = 1,
+		Text = string.format("Want to play PvP?\nJoin a server with %d player%s! 🔥", best.arena, best.arena > 1 and "s" or ""),
 		Font = FONT, TextScaled = true, TextColor3 = INK, ZIndex = 3 }, card)
 	new("UITextSizeConstraint", { MaxTextSize = 22 }, line)
 
-	local row = new("Frame", { Position = UDim2.new(0, 20, 1, -78), Size = UDim2.new(1, -40, 0, 56), BackgroundTransparency = 1, ZIndex = 3 }, card)
+	local row = new("Frame", { Position = UDim2.new(0, 20, 1, -70), Size = UDim2.new(1, -40, 0, 52), BackgroundTransparency = 1, ZIndex = 3 }, card)
 	local goBtn = button3D(row, "JOIN", COL.green, UDim2.new(0, 0, 0, 0))
 	local stayBtn = button3D(row, "STAY", COL.grey, UDim2.new(0.5, 10, 0, 0))
 

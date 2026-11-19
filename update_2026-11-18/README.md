@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v20) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v21) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v19** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v20** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v19).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v20).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v20.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v21.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v20.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v21.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v20… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v21… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v20`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v21`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,26 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v20
+## 🆕 NOUVEAU DANS LA v21
+- **Message de la fenêtre PvP :** titre « **NO PLAYERS HERE** », puis « Want to play PvP? Join a server with 4 players! 🔥 », puis **JOIN** / **STAY**.
+- **Forme des boutons verrouillée :** ratio fixe (jamais écrasés ni étirés) et coins arrondis **proportionnels** (jamais ronds), sur tous les écrans. Les boutons 3D du panneau des serveurs gardent eux aussi exactement la forme et les coins de leur bouton : leur socle copie les mêmes `UICorner` / `UIAspectRatioConstraint`.
+
+### ⏱️ Quand la fenêtre apparaît
+1. Tu entres en PvP.
+2. **5 secondes** plus tard, on vérifie que :
+   - tu es **seul** en PvP sur ce serveur ;
+   - tu es en vie et toujours dans l'arène ;
+   - **un autre serveur a des joueurs en PvP** (sinon, inutile de proposer) ;
+   - c'est encore vrai juste avant d'afficher (personne n'est arrivé entre-temps).
+3. Si tout est vrai, elle s'affiche.
+- **Elle ne s'affiche jamais :**
+  - plus de **3 fois** par session ;
+  - plus d'une fois toutes les **2 min 30** ;
+  - pendant **90 s** après un changement de serveur.
+- **Elle se ferme toute seule** si quelqu'un entre en PvP, si tu sors de l'arène, si tu meurs, ou au bout de **25 s**.
+- **En Studio** (`StudioTest = true`), un faux serveur à 4 joueurs est utilisé pour que tu puisses la voir.
+
+## NOUVEAU DANS LA v20
 ### ⚔️ Fenêtre « ARENA EMPTY » refaite
 - Elle apparaît **5 secondes** après ton entrée en PvP (au lieu de 7).
 - **Même look que ton panneau des serveurs :** panneau blanc arrondi, bandeau bleu en dégradé, titre blanc contouré de noir.
@@ -185,7 +204,7 @@ Tout le reste a été relu (popups admin, stats, favori, popup de départ, retou
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v20) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v21) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8
