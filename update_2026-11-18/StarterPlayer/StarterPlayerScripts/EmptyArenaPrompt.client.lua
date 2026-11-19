@@ -3,7 +3,7 @@
 --
 --  Tu entres en PvP mais personne d'autre n'y est sur ce serveur → après un court
 --  moment, une fenêtre te le dit et te propose de rejoindre un serveur où il y a des
---  joueurs en PvP. « FIND SERVERS » ouvre le panneau des serveurs (le même que le
+--  joueurs en PvP. « JOIN » ouvre le panneau des serveurs (le même que le
 --  panneau « 1v1 Servers » du lobby).
 --
 --  Quand ? Pas tout de suite à l'entrée : on attend un peu (DELAY) car
@@ -20,7 +20,7 @@
 --════════════════════════════════════════════════════════════════════════════
 local CONFIG = {
 	Enabled          = true,
-	DELAY            = 7,     -- s après ton arrivée en arène
+	DELAY            = 5,     -- s après ton arrivée en arène
 	MinOtherArena    = 1,     -- un autre serveur doit avoir au moins ça de joueurs en PvP
 	MaxPerSession    = 3,
 	Cooldown         = 150,   -- s minimum entre deux fenêtres
@@ -49,15 +49,16 @@ pcall(function()
 	cameByTeleport = jd and type(jd.TeleportData) == "table" and jd.TeleportData.joinArena == true
 end)
 
--- 🎨 même style que tes Paramètres / HUD d'arène
+-- 🎨 même look que ton panneau des serveurs (panneau blanc, bandeau bleu, titre blanc
+--    contouré) + boutons 3D enfonçables de tes Paramètres
 local FONT      = Enum.Font.FredokaOne
 local WHITE     = Color3.new(1, 1, 1)
-local NAVY      = Color3.fromRGB(15, 25, 48)
-local OUTLINE   = Color3.fromRGB(10, 30, 80)
-local BLUE_HI   = Color3.fromRGB(92, 196, 255)
-local BLUE_LO   = Color3.fromRGB(30, 108, 236)
-local GOLD      = Color3.fromRGB(255, 214, 92)
-local SUB       = Color3.fromRGB(190, 205, 230)
+local PANEL_HI  = Color3.fromRGB(255, 255, 255)
+local PANEL_LO  = Color3.fromRGB(226, 236, 250)
+local HEAD_HI   = Color3.fromRGB(117, 179, 249)   -- = bandeau « Servers »
+local HEAD_LO   = Color3.fromRGB(70, 140, 235)
+local INK       = Color3.fromRGB(28, 40, 70)      -- texte foncé sur le panneau blanc
+local OUTLINE   = Color3.new(0, 0, 0)
 local COL = {
 	green = { Color3.fromRGB(40, 185, 80), Color3.fromRGB(12, 115, 42), Color3.fromRGB(8, 65, 25) },
 	grey  = { Color3.fromRGB(88, 94, 112), Color3.fromRGB(50, 54, 68), Color3.fromRGB(28, 30, 40) },
@@ -84,9 +85,10 @@ local function button3D(parent, text, col, pos)
 	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
 	local l = new("TextLabel", { Size = UDim2.new(1, -12, 1, 0), Position = UDim2.fromOffset(6, 0), BackgroundTransparency = 1,
 		Text = text, Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 3 }, btn)
-	new("UITextSizeConstraint", { MaxTextSize = 22 }, l)
+	new("UITextSizeConstraint", { MaxTextSize = 24 }, l)
 	new("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8) }, l)
 	outlined(l, 1.6)
+	new("UIStroke", { Color = OUTLINE, Thickness = 1.2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, btn)
 	btn.MouseButton1Down:Connect(function() btn.Position = UDim2.fromOffset(0, 3) end)
 	btn.MouseButton1Up:Connect(function() btn.Position = UDim2.fromOffset(0, 0) end)
 	btn.MouseLeave:Connect(function() btn.Position = UDim2.fromOffset(0, 0) end)
@@ -165,41 +167,36 @@ local function show(best)
 		BackgroundTransparency = 0.55, Text = "", AutoButtonColor = false, Modal = true, Selectable = false }, gui)
 
 	card = new("Frame", { Name = "Card", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(440, 250), BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = 2 }, gui)
-	new("UICorner", { CornerRadius = UDim.new(0, 16) }, card)
-	new("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 2, Transparency = 0.4 }, card)
+		Size = UDim2.fromOffset(400, 210), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 2 }, gui)
+	new("UICorner", { CornerRadius = UDim.new(0, 18) }, card)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(PANEL_HI, PANEL_LO) }, card)
+	new("UIStroke", { Color = OUTLINE, Thickness = 2, Transparency = 0.15 }, card)
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-	local scale = math.clamp(math.min(vp.X / 520, vp.Y / 330), 0.55, 1.25)
+	local scale = math.clamp(math.min(vp.X / 480, vp.Y / 290), 0.55, 1.25)
 	local uiScale = new("UIScale", { Scale = scale * 0.85 }, card)
 
-	-- bandeau bleu brillant (comme le HUD d'arène)
-	local head = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, card)
-	new("UICorner", { CornerRadius = UDim.new(0, 16) }, head)
-	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(BLUE_HI, BLUE_LO) }, head)
-	new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 16),
-		BackgroundColor3 = BLUE_LO, BorderSizePixel = 0, ZIndex = 3 }, head)   -- coins bas carrés
-	local title = new("TextLabel", { Size = UDim2.new(1, -24, 1, -10), Position = UDim2.fromOffset(12, 5), BackgroundTransparency = 1,
-		Text = "⚔️  ARENA IS EMPTY", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
-	new("UITextSizeConstraint", { MaxTextSize = 32 }, title)
-	outlined(title, 2.5)
+	-- bandeau bleu + titre blanc contouré (comme « Servers »)
+	local head = new("Frame", { Size = UDim2.new(1, 0, 0, 56), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, card)
+	new("UICorner", { CornerRadius = UDim.new(0, 18) }, head)
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(HEAD_HI, HEAD_LO) }, head)
+	local flat = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, 18),
+		BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, head)   -- coins bas carrés
+	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(HEAD_LO:Lerp(HEAD_HI, 0.3), HEAD_LO) }, flat)
+	local title = new("TextLabel", { Size = UDim2.new(1, -24, 1, -12), Position = UDim2.fromOffset(12, 6), BackgroundTransparency = 1,
+		Text = "ARENA EMPTY", Font = FONT, TextScaled = true, TextColor3 = WHITE, ZIndex = 4 }, head)
+	new("UITextSizeConstraint", { MaxTextSize = 34 }, title)
+	outlined(title, 2)
 
-	local body = new("TextLabel", { Position = UDim2.fromOffset(20, 74), Size = UDim2.new(1, -40, 0, 50), BackgroundTransparency = 1,
-		Text = "You're the only player in PvP on this server.\nJoin a server with players to fight?", Font = FONT,
-		TextScaled = true, TextColor3 = WHITE, ZIndex = 3 }, card)
-	new("UITextSizeConstraint", { MaxTextSize = 20 }, body)
-	outlined(body, 1.5)
-	local hint = new("TextLabel", { Position = UDim2.fromOffset(20, 128), Size = UDim2.new(1, -40, 0, 26), BackgroundTransparency = 1,
-		Text = string.format("🔥 A server has %d player%s in PvP right now!", best.arena, best.arena > 1 and "s" or ""),
-		Font = FONT, TextScaled = true, TextColor3 = GOLD, ZIndex = 3 }, card)
-	new("UITextSizeConstraint", { MaxTextSize = 18 }, hint)
-	outlined(hint, 1.5)
+	-- UNE ligne : l'essentiel
+	local line = new("TextLabel", { Position = UDim2.fromOffset(20, 72), Size = UDim2.new(1, -40, 0, 34), BackgroundTransparency = 1,
+		Text = string.format("🔥 %d player%s in PvP on another server", best.arena, best.arena > 1 and "s" or ""),
+		Font = FONT, TextScaled = true, TextColor3 = INK, ZIndex = 3 }, card)
+	new("UITextSizeConstraint", { MaxTextSize = 22 }, line)
 
-	local row = new("Frame", { Position = UDim2.new(0, 20, 1, -76), Size = UDim2.new(1, -40, 0, 56), BackgroundTransparency = 1, ZIndex = 3 }, card)
-	local goBtn = button3D(row, "FIND SERVERS", COL.green, UDim2.new(0, 0, 0, 0))
-	local stayBtn = button3D(row, "STAY HERE", COL.grey, UDim2.new(0.5, 10, 0, 0))
-	local countdown = new("TextLabel", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(1, 0, 0, 14),
-		BackgroundTransparency = 1, Text = "", Font = FONT, TextScaled = true, TextColor3 = SUB, ZIndex = 3 }, card)
+	local row = new("Frame", { Position = UDim2.new(0, 20, 1, -78), Size = UDim2.new(1, -40, 0, 56), BackgroundTransparency = 1, ZIndex = 3 }, card)
+	local goBtn = button3D(row, "JOIN", COL.green, UDim2.new(0, 0, 0, 0))
+	local stayBtn = button3D(row, "STAY", COL.grey, UDim2.new(0.5, 10, 0, 0))
 
 	goBtn.Activated:Connect(function() close() ; openServerBrowser() end)
 	stayBtn.Activated:Connect(close)
@@ -207,7 +204,7 @@ local function show(best)
 	-- apparition
 	TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = scale }):Play()
 
-	-- 🎮 manette : A = choisir (FIND SERVERS sélectionné), B = rester
+	-- 🎮 manette : A = choisir (JOIN sélectionné), B = rester
 	if UserInputService:GetLastInputType().Name:sub(1, 7) == "Gamepad" then GuiService.SelectedObject = goBtn end
 	ContextActionService:BindActionAtPriority(PAD_ACTION, function(_, state)
 		if state == Enum.UserInputState.Begin then close() end
@@ -220,7 +217,6 @@ local function show(best)
 		while my == closeToken and gui do
 			local left = CONFIG.AutoClose - (os.clock() - t0)
 			if left <= 0 or othersInArena() > 0 or not inArena(player) or not alive() then close() break end
-			countdown.Text = string.format("closes in %ds", math.ceil(left))
 			task.wait(0.5)
 		end
 	end)

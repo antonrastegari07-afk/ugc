@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v19) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v20) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v18** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v19** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v18).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v19).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v19.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v20.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v19.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v20.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v19… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v20… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v19`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v20`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,19 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v19
+## 🆕 NOUVEAU DANS LA v20
+### ⚔️ Fenêtre « ARENA EMPTY » refaite
+- Elle apparaît **5 secondes** après ton entrée en PvP (au lieu de 7).
+- **Même look que ton panneau des serveurs :** panneau blanc arrondi, bandeau bleu en dégradé, titre blanc contouré de noir.
+- **Peu de texte, juste l'essentiel :** le titre « ARENA EMPTY », une ligne « 🔥 4 players in PvP on another server », et deux boutons **JOIN** / **STAY**.
+- Les boutons sont les **boutons 3D enfonçables de tes Paramètres** : socle sombre dessous, et le bouton s'enfonce quand on appuie.
+
+### 🧱 Panneau des serveurs : boutons 3D enfonçables, comme partout
+- **Join** (sur chaque carte), **X** et **Refresh** ont maintenant un socle sombre, dans la couleur foncée de chaque bouton, et **s'enfoncent** quand on appuie, comme dans tes Paramètres.
+- Sur Join, les avatars et le nombre de joueurs restent immobiles pendant l'appui : seul le bouton descend.
+- L'ancien petit effet « rétrécir » est retiré pour que tout soit cohérent.
+
+## NOUVEAU DANS LA v19
 ### 📱 Mobile : le trio reste centré, les boutons se rapprochent
 - Sur mobile, les icônes Roblox à gauche sont **bien plus larges** que sur PC, et tes boutons How To Play / série sont à droite. En v18, le bloc se décalait alors d'un côté.
 - Maintenant **Current Stage reste TOUJOURS au centre** de l'écran. S'il manque de place :
@@ -173,7 +185,7 @@ Tout le reste a été relu (popups admin, stats, favori, popup de départ, retou
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v19) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v20) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8

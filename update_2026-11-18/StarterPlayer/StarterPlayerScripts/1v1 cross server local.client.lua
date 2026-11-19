@@ -81,6 +81,61 @@ local function fakePlayers(count)
 	end
 	return t
 end
+--========================================================
+-- 🆕 BOUTONS 3D ENFONÇABLES (même style que tes Paramètres : socle sombre dessous, le
+--    bouton s'enfonce dessus quand on appuie). Ajouté sur Join, X et Refresh.
+--========================================================
+local DEPTH3D = 4
+local function socleColor(btn)
+	local g = btn:FindFirstChildOfClass("UIGradient")
+	local c = btn.BackgroundColor3
+	if g and #g.Color.Keypoints > 0 then
+		local k = g.Color.Keypoints[#g.Color.Keypoints].Value
+		c = Color3.new(c.R * k.R, c.G * k.G, c.B * k.B)
+	end
+	return Color3.new(c.R * 0.45, c.G * 0.45, c.B * 0.45)
+end
+-- crée le socle UNE fois (il est copié avec le gabarit des cartes)
+local function add3DSocle(btn)
+	local parent = btn.Parent
+	if not parent or parent:FindFirstChild(btn.Name .. "_Socle3D") then return end
+	local socle = Instance.new("Frame")
+	socle.Name = btn.Name .. "_Socle3D"
+	socle.AnchorPoint = btn.AnchorPoint
+	socle.Position = btn.Position + UDim2.fromOffset(0, DEPTH3D)
+	socle.Size = btn.Size
+	socle.BackgroundColor3 = socleColor(btn)
+	socle.BorderSizePixel = 0
+	socle.ZIndex = btn.ZIndex - 1
+	socle.Visible = btn.Visible
+	for _, c in ipairs(btn:GetChildren()) do
+		if c:IsA("UICorner") or c:IsA("UIAspectRatioConstraint") then c:Clone().Parent = socle end
+	end
+	local st = btn:FindFirstChildOfClass("UIStroke")
+	if st then local s2 = st:Clone() ; s2.Parent = socle end
+	socle.Parent = parent
+end
+-- l'appui : le bouton descend sur son socle (ses éléments « posés à côté », comme les
+-- avatars et le nombre de joueurs du bouton Join, restent à leur place)
+local function press3D(btn, keepStill)
+	local up = btn.Position
+	local function set(down)
+		btn.Position = down and (up + UDim2.fromOffset(0, DEPTH3D)) or up
+		for _, c in ipairs(keepStill or {}) do
+			if c.Parent then
+				local base = c:GetAttribute("Base3DPos")
+				if typeof(base) ~= "UDim2" then base = c.Position ; c:SetAttribute("Base3DPos", base) end
+				c.Position = down and (base - UDim2.fromOffset(0, DEPTH3D)) or base
+			end
+		end
+	end
+	return {
+		btn.MouseButton1Down:Connect(function() set(true) end),
+		btn.MouseButton1Up:Connect(function() set(false) end),
+		btn.MouseLeave:Connect(function() set(false) end),
+	}
+end
+
 local function makeFakeServers()
 	local presets = { 6, 3, 8, 1, 4, 2, 5, 7, 2, 6, 3, 8, 1, 4 }
 	local mapKeys = {}
@@ -342,11 +397,12 @@ local function buildCard(data, order)
 
 	local joinBtn = entry:FindFirstChild("Joinbutton", true)
 	if joinBtn and joinBtn:IsA("GuiButton") then
-		local press = joinBtn:FindFirstChild("PressScale")
-		if not press then press = Instance.new("UIScale"); press.Name = "PressScale"; press.Parent = joinBtn end
-		joinBtn.MouseButton1Down:Connect(function() TweenService:Create(press, TweenInfo.new(0.08), {Scale = 0.93}):Play() end)
-		joinBtn.MouseButton1Up:Connect(function()   TweenService:Create(press, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Scale = 1}):Play() end)
-		joinBtn.MouseLeave:Connect(function()       TweenService:Create(press, TweenInfo.new(0.12), {Scale = 1}):Play() end)
+		-- 🆕 bouton 3D enfonçable (style Paramètres) ; avatars + nombre de joueurs ne bougent pas
+		local still = {}
+		for _, c in ipairs(joinBtn:GetChildren()) do
+			if c:IsA("GuiObject") and c.Name ~= "TextLabel" then table.insert(still, c) end
+		end
+		press3D(joinBtn, still)
 
 		local joining = false
 		local originalText = joinBtn:IsA("TextButton") and joinBtn.Text
@@ -359,11 +415,7 @@ local function buildCard(data, order)
 		table.insert(joinResets, resetJoin)
 		joinBtn.Activated:Connect(function()
 			if joining then return end
-			if data.fake then
-				TweenService:Create(press, TweenInfo.new(0.08), {Scale = 0.9}):Play()
-				task.delay(0.1, function() if press then TweenService:Create(press, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Scale = 1}):Play() end end)
-				return
-			end
+			if data.fake then return end   -- carte de démonstration (le bouton s'enfonce déjà en 3D)
 			joinServerEvent = ReplicatedStorage:FindFirstChild("JoinArenaServer")
 			if not joinServerEvent or not joinServerEvent:IsA("RemoteEvent") then
 				warn("[ServerBrowser] JoinArenaServer indisponible (serveur non installé ?)")
@@ -689,6 +741,8 @@ setupGui = function(gui)
 	template = cloned
 	template.Name = "EntryTemplate"
 	template.Visible = true
+	local tJoin = template:FindFirstChild("Joinbutton", true)
+	if tJoin and tJoin:IsA("GuiButton") then add3DSocle(tJoin) end   -- copié dans chaque carte
 	original.Visible = false -- garder le gabarit pour une réinitialisation ultérieure
 
 	local listLayout = scrolling:FindFirstChildOfClass("UIListLayout")
@@ -731,10 +785,8 @@ setupGui = function(gui)
 
 	local exitBtn = shopFrame:FindFirstChild("Exit", true)
 	if exitBtn and exitBtn:IsA("GuiButton") then
-		local ps = exitBtn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", exitBtn)
-		track(exitBtn.MouseButton1Down:Connect(function() TweenService:Create(ps, TweenInfo.new(0.08), {Scale = 0.9}):Play() end))
-		track(exitBtn.MouseButton1Up:Connect(function()   TweenService:Create(ps, TweenInfo.new(0.12, Enum.EasingStyle.Back), {Scale = 1}):Play() end))
-		track(exitBtn.MouseLeave:Connect(function()       TweenService:Create(ps, TweenInfo.new(0.12), {Scale = 1}):Play() end))
+		add3DSocle(exitBtn)   -- 🆕 bouton 3D enfonçable (style Paramètres)
+		for _, c in ipairs(press3D(exitBtn)) do track(c) end
 		track(exitBtn.Activated:Connect(function() close() end))
 	else
 		warn("[ServerBrowser] Bouton 'Exit' introuvable dans ShopFrame")
@@ -742,6 +794,8 @@ setupGui = function(gui)
 
 	local refreshBtn = shopFrame:FindFirstChild("Refresh", true)
 	if refreshBtn and refreshBtn:IsA("GuiButton") then
+		add3DSocle(refreshBtn)   -- 🆕 bouton 3D enfonçable (style Paramètres)
+		for _, c in ipairs(press3D(refreshBtn)) do track(c) end
 		track(refreshBtn.Activated:Connect(function()
 			refreshBtn.Rotation = 0
 			TweenService:Create(refreshBtn, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {Rotation = 360}):Play()
