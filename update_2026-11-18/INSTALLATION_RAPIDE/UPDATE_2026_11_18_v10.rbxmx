@@ -56655,6 +56655,10 @@ local function buildFilterUI()
 		SelectionBehaviorUp = Enum.SelectionBehavior.Stop, SelectionBehaviorDown = Enum.SelectionBehavior.Stop,
 		SelectionBehaviorLeft = Enum.SelectionBehavior.Stop, SelectionBehaviorRight = Enum.SelectionBehavior.Stop }, ShopFrame)
 	local pScale = mk("UIScale", {}, holder)
+	-- 🛡️ bouclier invisible sous le panneau : un clic sur le panneau ne passe JAMAIS aux cartes /
+	--    boutons du shop qui sont derrière (un simple Frame ne bloque pas les clics, un bouton oui).
+	mk("TextButton", { Name = "ClickBlocker", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1,
+		Text = "", AutoButtonColor = false, Selectable = false, ZIndex = Z }, holder)
 	local OUTLINE = { Color = Color3.new(0, 0, 0), Thickness = 1.5, Transparency = 0.45,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border }
 	local notchX = PW - EDGE - BTN_W / 2
