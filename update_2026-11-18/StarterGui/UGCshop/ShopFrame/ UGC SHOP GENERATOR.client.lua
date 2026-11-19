@@ -2083,7 +2083,7 @@ local function buildFilterUI()
 	local SUB    = Color3.fromRGB(150, 175, 210)   -- titres de section
 	local SELC   = Color3.fromRGB(255, 214, 92)    -- cadre de sélection manette
 	local COL = {   -- dessus, dessous, socle
-		blue   = { Color3.fromRGB(95, 216, 253), Color3.fromRGB(45, 165, 225), Color3.fromRGB(20, 95, 135) },  -- = FILTER (bleu ciel 95,216,253)
+		blue   = { Color3.fromRGB(55, 150, 240), Color3.fromRGB(25, 100, 200), Color3.fromRGB(12, 55, 120) },  -- = FILTER
 		slate  = { Color3.fromRGB(62, 82, 112),  Color3.fromRGB(40, 56, 82),   Color3.fromRGB(22, 32, 50) },   -- pas choisi
 		yellow = { Color3.fromRGB(255, 196, 60), Color3.fromRGB(215, 150, 30), Color3.fromRGB(120, 85, 10) },
 		-- APPLY / RESET : vert et rouge, pour ne jamais les confondre avec les choix (bleu / ardoise)
