@@ -2056,7 +2056,7 @@ task.spawn(function()
 end)
 
 --════════════════════════════════════════════════════════════
--- 🔎 BOUTON FILTER + PANNEAU DE FILTRE / TRI   (NOUVEAU, v6)
+-- 🔎 BOUTON FILTER + PANNEAU DE FILTRE / TRI   (NOUVEAU, v7)
 --   • Bouton FILTER PLAT, bord droit ALIGNÉ sur la carte la plus à droite.
 --   • Le panneau SORT du bouton : une petite pointe le relie au bouton, il se
 --     DÉROULE vers le bas ; un 2e appui sur FILTER le REMBOBINE (pas de X, pas de CANCEL :
@@ -2067,7 +2067,8 @@ end)
 --     Owned / Not owned (un seul), un seul tri. Prendre l'un retire l'autre, les
 --     contraires sont grisés.
 --   • « Most left / Least left » = tri sur le stock RESTANT.
---   • RESET · APPLY sont SOUS le panneau et glissent de derrière lui.
+--   • APPLY (vert, à gauche) · RESET (rouge, à droite) en bas DU panneau, sous un trait,
+--     hors de la partie qui défile. Léger contour noir autour du panneau.
 --   • Tous les appareils : tailles minimales pour le doigt (mobile) et la télé (console).
 --   • 🎮 Manette, dans TOUT le shop : la touche Y est affichée sur FILTER (Y = ouvrir /
 --     fermer), B = refermer le filtre puis le shop, la sélection reste dans le shop,
@@ -2092,6 +2093,9 @@ local function buildFilterUI()
 		slate  = { Color3.fromRGB(62, 82, 112),  Color3.fromRGB(40, 56, 82),   Color3.fromRGB(22, 32, 50) },   -- pas choisi
 		dim    = { Color3.fromRGB(44, 56, 76),   Color3.fromRGB(32, 42, 58),   Color3.fromRGB(20, 26, 38) },   -- contraire
 		yellow = { Color3.fromRGB(255, 196, 60), Color3.fromRGB(215, 150, 30), Color3.fromRGB(120, 85, 10) },
+		-- APPLY / RESET : vert et rouge, pour ne jamais les confondre avec les choix (bleu / ardoise)
+		green  = { Color3.fromRGB(40, 185, 80),  Color3.fromRGB(12, 115, 42),  Color3.fromRGB(8, 65, 25) },
+		red    = { Color3.fromRGB(245, 70, 65),  Color3.fromRGB(180, 25, 35),  Color3.fromRGB(105, 12, 22) },
 	}
 	local BLUE   = COL.blue[1]
 	local YELLOW = Color3.fromRGB(240, 170, 30)
@@ -2288,12 +2292,16 @@ local function buildFilterUI()
 	-- ── le panneau ──────────────────────────────────────────
 	--   holder (coupe ce qui dépasse ; sa hauteur se DÉROULE depuis le bouton)
 	--     ├ notch : petite pointe sous le bouton FILTER (on voit que ça vient de lui)
-	--     ├ bar   : RESET · APPLY (derrière le panneau, glisse dessous)
-	--     └ body  : le panneau (fond opaque, devant la barre) → scroll → sections
+	--     └ body  : le panneau, léger contour noir
+	--         ├ scroll : SHOW · TYPE · SORT BY (défile sur les petits écrans)
+	--         └ foot   : APPLY (vert, à gauche) · RESET (rouge, à droite), DANS le panneau,
+	--                    sous un trait, hors de la partie qui défile
 	local PW, NOTCH, PAD, GAPS = 300, 8, 10, 6
 	local CELL_H, CELL_GAP, TITLE_H = 34, 6, 20
-	local BAR_H, BAR_GAP = 36, 6
-	local bodyH = 200
+	local BAR_H, FOOT_PAD = 36, 8
+	local FOOT_H = BAR_H + FOOT_PAD * 2 + 1
+	local EDGE = 2          -- marge pour que le contour ne soit pas coupé
+	local bodyH = 200       -- partie qui défile (sans le pied)
 	local isOpen = false
 	local holder = mk("Frame", { Name = "FilterPanel", AnchorPoint = Vector2.new(1, 0),
 		Size = UDim2.fromOffset(PW, 0), BackgroundTransparency = 1, ClipsDescendants = true,
@@ -2301,27 +2309,36 @@ local function buildFilterUI()
 		SelectionBehaviorUp = Enum.SelectionBehavior.Stop, SelectionBehaviorDown = Enum.SelectionBehavior.Stop,
 		SelectionBehaviorLeft = Enum.SelectionBehavior.Stop, SelectionBehaviorRight = Enum.SelectionBehavior.Stop }, ShopFrame)
 	local pScale = mk("UIScale", {}, holder)
+	local OUTLINE = { Color = Color3.new(0, 0, 0), Thickness = 1.5, Transparency = 0.45,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border }
+	local notchX = PW - EDGE - BTN_W / 2
 	local notch = mk("Frame", { Name = "Notch", AnchorPoint = Vector2.new(0.5, 0.5), Rotation = 45,
-		Size = UDim2.fromOffset(16, 16), Position = UDim2.fromOffset(PW - BTN_W / 2, NOTCH + 2),
-		BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = Z + 2 }, holder)
+		Size = UDim2.fromOffset(16, 16), Position = UDim2.fromOffset(notchX, NOTCH + 2),
+		BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = Z + 1 }, holder)
 	round(notch, 3)
-	local body = mk("Frame", { Name = "Body", Position = UDim2.fromOffset(0, NOTCH), Size = UDim2.fromOffset(PW, bodyH),
+	mk("UIStroke", OUTLINE, notch)
+	local body = mk("Frame", { Name = "Body", Position = UDim2.fromOffset(EDGE, NOTCH),
+		Size = UDim2.fromOffset(PW - EDGE * 2, bodyH + FOOT_H),
 		BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = Z + 2 }, holder)
 	round(body, 12)
+	mk("UIStroke", OUTLINE, body)
+	-- raccord pointe ↔ panneau : on cache le trait du contour sous la pointe
+	mk("Frame", { Name = "NotchJoin", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(19, 4),
+		Position = UDim2.fromOffset(notchX, NOTCH), BackgroundColor3 = NAVY, BorderSizePixel = 0, ZIndex = Z + 3 }, holder)
 	local scroll = mk("ScrollingFrame", { BackgroundTransparency = 1, BorderSizePixel = 0, Selectable = false,
-		Size = UDim2.fromScale(1, 1), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(),
+		Size = UDim2.new(1, 0, 1, -FOOT_H), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(),
 		ScrollBarThickness = 4, ScrollBarImageColor3 = BLUE, ScrollBarImageTransparency = 0.3, ZIndex = Z + 2 }, body)
 	mk("UIPadding", { PaddingTop = UDim.new(0, PAD), PaddingBottom = UDim.new(0, PAD),
 		PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }, scroll)
 	mk("UIListLayout", { Padding = UDim.new(0, GAPS), SortOrder = Enum.SortOrder.LayoutOrder }, scroll)
-	local bar = mk("Frame", { Name = "Buttons", BackgroundTransparency = 1, ZIndex = Z,
-		Size = UDim2.fromOffset(PW, BAR_H), Position = UDim2.fromOffset(0, NOTCH + bodyH - BAR_H) }, holder)
-	local resetB, _, resetSlot = button3D(bar, "RESET", COL.slate, UDim2.new(0.5, -4, 1, 0), 16, { Position = UDim2.new(0, 0, 0, 0) })
-	local applyB, _, applySlot = button3D(bar, "APPLY", COL.blue, UDim2.new(0.5, -4, 1, 0), 16, { Position = UDim2.new(0.5, 4, 0, 0) })
-	for _, sl in ipairs({ resetSlot, applySlot }) do
-		-- derrière le panneau (body = Z+2) : socle Z-1, bouton Z, texte Z+1
-		for _, d in ipairs(sl:GetDescendants()) do if d:IsA("GuiObject") then d.ZIndex -= 4 end end
-	end
+	local foot = mk("Frame", { Name = "Buttons", BackgroundTransparency = 1, AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1), Size = UDim2.new(1, 0, 0, FOOT_H), ZIndex = Z + 2 }, body)
+	mk("Frame", { Name = "Line", BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.6, BorderSizePixel = 0,
+		Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -24, 0, 1), ZIndex = Z + 3 }, foot)
+	local applyB = button3D(foot, "APPLY", COL.green, UDim2.new(0.5, -16, 0, BAR_H), 16,
+		{ Position = UDim2.new(0, 12, 0, 1 + FOOT_PAD) })
+	local resetB = button3D(foot, "RESET", COL.red, UDim2.new(0.5, -16, 0, BAR_H), 16,
+		{ Position = UDim2.new(0.5, 4, 0, 1 + FOOT_PAD) })
 
 	-- ── contenu ─────────────────────────────────────────────
 	local draft
@@ -2403,10 +2420,10 @@ local function buildFilterUI()
 	end
 
 	-- ── placement : bord droit = bord droit de la carte la plus à droite ──
+	local function fullH() return NOTCH + bodyH + FOOT_H + EDGE end
 	local function layoutPanel()
-		bar.Position = isOpen and UDim2.fromOffset(0, NOTCH + bodyH + BAR_GAP) or bar.Position
-		body.Size = UDim2.fromOffset(PW, bodyH)
-		if isOpen then holder.Size = UDim2.fromOffset(PW, NOTCH + bodyH + BAR_GAP + BAR_H) end
+		body.Size = UDim2.fromOffset(PW - EDGE * 2, bodyH + FOOT_H)
+		if isOpen then holder.Size = UDim2.fromOffset(PW, fullH()) end
 	end
 	local room = 400
 	local function place()
@@ -2423,7 +2440,7 @@ local function buildFilterUI()
 		local top = cy + (BTN_H / 2) * sc
 		holder.Position = UDim2.fromOffset(right, top)
 		-- hauteur dispo dans la fenêtre : au-delà, le panneau défile (petits écrans)
-		room = math.max(CELL_H * 3, (ShopFrame.AbsoluteSize.Y - top - 10) / sc - NOTCH - BAR_GAP - BAR_H)
+		room = math.max(CELL_H * 3, (ShopFrame.AbsoluteSize.Y - top - 10) / sc - NOTCH - FOOT_H - EDGE)
 		bodyH = math.min(contentH, room)
 		layoutPanel()
 	end
@@ -2491,38 +2508,24 @@ local function buildFilterUI()
 	end
 
 	-- ── déroulement / rembobinage ───────────────────────────
-	--   ouvrir : le panneau se déroule depuis le bouton, PUIS RESET / APPLY glissent de dessous
-	--   fermer : RESET / APPLY repartent derrière, PUIS le panneau remonte dans le bouton
-	local ROLL  = TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local SLIDE = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	--   ouvrir : le panneau se DÉROULE depuis le bouton ; refermer : il remonte dedans
+	local ROLL = TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	local token = 0
 	local function roll(open)
 		token += 1
 		local my = token
 		isOpen = open
 		paintButton()
-		local full = NOTCH + bodyH + BAR_GAP + BAR_H
-		local hidden = UDim2.fromOffset(0, NOTCH + bodyH - BAR_H)   -- derrière le panneau
-		local shown  = UDim2.fromOffset(0, NOTCH + bodyH + BAR_GAP)  -- sous le panneau
 		if open then
 			holder.Visible = true
 			holder.Size = UDim2.fromOffset(PW, 0)
-			bar.Position = hidden
 			scroll.CanvasPosition = Vector2.zero
-			TweenService:Create(holder, ROLL, { Size = UDim2.fromOffset(PW, full) }):Play()
-			task.delay(0.14, function()
-				if my ~= token then return end
-				TweenService:Create(bar, SLIDE, { Position = shown }):Play()
-			end)
+			TweenService:Create(holder, ROLL, { Size = UDim2.fromOffset(PW, fullH()) }):Play()
 		else
-			TweenService:Create(bar, SLIDE, { Position = hidden }):Play()
-			task.delay(0.1, function()
-				if my ~= token then return end
-				local t1 = TweenService:Create(holder, ROLL, { Size = UDim2.fromOffset(PW, 0) })
-				t1:Play()
-				t1.Completed:Connect(function(state)
-					if state == Enum.PlaybackState.Completed and my == token and not isOpen then holder.Visible = false end
-				end)
+			local t1 = TweenService:Create(holder, ROLL, { Size = UDim2.fromOffset(PW, 0) })
+			t1:Play()
+			t1.Completed:Connect(function(state)
+				if state == Enum.PlaybackState.Completed and my == token and not isOpen then holder.Visible = false end
 			end)
 		end
 	end

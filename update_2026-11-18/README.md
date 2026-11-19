@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v6) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v7) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v5** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v6** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v5).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v6).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v6.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v7.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v6.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v7.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v6… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v7… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v6`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v7`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -47,7 +47,17 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v6 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v7 (tes derniers retours)
+
+| Ton retour | Ce qui est fait |
+|---|---|
+| Léger contour noir sur le panneau | Contour **noir léger** (1,5 px, semi-transparent) autour du panneau et de sa pointe, raccordés sans trait entre les deux. |
+| APPLY à gauche, RESET à droite, dans le panneau | **APPLY (vert) à gauche, RESET (rouge) à droite**, en bas **du panneau**, sous un fin trait. Ils restent fixes, hors de la partie qui défile. |
+| Ne pas les confondre avec les choix | Les choix sont en **bleu** (choisi) ou en **ardoise** (pas choisi). APPLY est **vert** et RESET **rouge** : impossible de les confondre. |
+
+Le panneau se déroule et se rembobine toujours depuis le bouton FILTER. Il n'y a plus de boutons qui glissent : ils font partie du panneau.
+
+## NOUVEAU DANS LA v6
 
 | Ton retour | Ce qui est fait |
 |---|---|
@@ -183,7 +193,8 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
    - teste aussi au doigt (émulateur mobile) et à la manette si tu peux ;
    - aucune erreur rouge dans l'Output.
 2. **Shop UGC :**
-   - FILTER déroule le panneau depuis le bouton, un 2e appui le rembobine, et RESET / APPLY glissent de dessous ;
+   - FILTER déroule le panneau depuis le bouton (léger contour noir), un 2e appui le rembobine ;
+   - APPLY (vert, à gauche) et RESET (rouge, à droite) sont en bas du panneau ;
    - « Most left / Least left » trie bien sur le stock restant ;
    - **manette** (branche-en une sur PC ; Studio n'en simule pas) : Y, B, A, la sélection et le cadre jaune ;
    - les choix contraires s'excluent ;
