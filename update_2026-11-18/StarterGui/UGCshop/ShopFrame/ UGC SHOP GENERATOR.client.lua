@@ -389,6 +389,28 @@ local function resetToNoSelection()
 	UGCUpdateLabel.Text   = "No Selection"
 end
 
+-- ⭐ MOINS DE FRICTION : à l'ouverture du shop, le 1er UGC de la grille est DÉJÀ choisi
+--    (sa fiche et son bouton Buy sont affichés, sa carte est en vert). Le 1er encore en
+--    vente passe avant un épuisé. Rien n'est changé si le joueur a déjà choisi un UGC.
+local function selectFirstUGC()
+	if currentActiveButton and currentActiveButton.Parent then
+		local fr = currentActiveButton.Parent
+		if fr.Visible then return end   -- son choix est toujours là : on le garde
+	end
+	local best, bestKey
+	for _, ugc in ipairs(UGC_CONFIG.Items) do
+		local fr, btn = buttonFrames[ugc.ButtonName], scrollButtons[ugc.ButtonName]
+		local gb = fr and gridBase[fr]
+		if btn and fr and fr.Parent and fr.Visible and gb then
+			-- clé de tri : en vente d'abord, puis la ligne, puis la colonne de la grille
+			local soldOut = ugcStockState[ugc.ButtonName] == false and 1 or 0
+			local key = soldOut * 1e9 + gb.pos.Y.Offset * 10 + gb.pos.X.Scale
+			if not bestKey or key < bestKey then best, bestKey = { ugc = ugc, btn = btn }, key end
+		end
+	end
+	if best then openFrame(best.ugc.FrameName, best.btn) end
+end
+
 -- ============================================================
 -- NOTIFICATION
 -- ============================================================
@@ -1890,6 +1912,8 @@ ShopFrame:GetPropertyChangedSignal("Visible"):Connect(function()
 				gridApplied = true
 			end
 		end
+		-- ⭐ 1er UGC déjà sélectionné (après la mise en place de la grille)
+		task.delay(0.15, function() if ShopFrame.Visible then selectFirstUGC() end end)
 	else
 		-- 🔓 Shop fermé → retour à la rotation normale
 		if _G.OffersUnlockCategory then

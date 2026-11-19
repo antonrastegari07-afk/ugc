@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v15</string>
+			<string name="Name">UPDATE_2026_11_18_v16</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,14 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v15.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v16.INSTALL)()
 --
---  v15 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v14 (les versions remplacées vont dans sa propre copie de secours).
+--  v16 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v15 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v15 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v16 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -33,8 +33,8 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v15 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v15"
+	print("🚀 Installateur v16 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v16"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -43,15 +43,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v15 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v16 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v15 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v15 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v16 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v16 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v15") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v16") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -163,7 +163,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v15 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v16 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -7780,25 +7780,28 @@ return WeaponServer]]></ProtectedString>
 				<Properties>
 					<string name="Name">HudLayout</string>
 					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
--- 📐 HudLayout — ModuleScript dans ReplicatedStorage   (NOUVEAU)
+-- 📐 HudLayout — ModuleScript dans ReplicatedStorage   (NOUVEAU, v2)
 --
---  Les boutons de l'écran (les 8 à gauche + Skip Obby / Current Stage / Skip Level + la roulette)
---  gardent EXACTEMENT leur disposition, quel que soit le format de l'écran
---  (PC large, 16:9, 16:10, tablette 4:3, téléphone…).
+--  Les boutons de l'écran (les 8 à gauche + Skip Obby / Current Stage / Skip Level +
+--  la roulette) gardent EXACTEMENT ta disposition sur tous les formats d'écran, et le
+--  bloc du haut ne touche jamais les boutons du haut (Roblox, ⚙️, How To Play, série).
 --
---  POURQUOI ILS SE DÉCOLLAIENT : leur position était en % de la LARGEUR de l'écran
---  alors que leur taille (bloquée par UIAspectRatioConstraint) suivait la HAUTEUR.
---  Sur un écran plus large, les écarts grandissaient ; plus étroit, ils se
---  rapprochaient. En plus, chaque animation de survol re-forçait sa propre
---  position (une valeur PC, une autre mobile).
+--  POURQUOI ILS SE DÉCOLLAIENT : position en % de la LARGEUR de l'écran mais taille
+--  (UIAspectRatioConstraint) qui suivait la HAUTEUR, et des animations de survol qui
+--  re-forçaient leur propre position (une valeur PC, une autre mobile).
 --
---  COMMENT : ta disposition actuelle (comme sur un écran 16:9) est relue au
---  démarrage, puis TOUT (tailles ET écarts) est recalculé à partir de la hauteur
---  de l'écran. Le bloc de gauche reste collé au bord gauche, le trio du haut
---  reste centré. Si un bloc ne tient plus en largeur, il rétrécit en entier
---  (jamais de chevauchement). Recalcul seulement quand la taille de l'écran
---  change : aucun coût en jeu. Les animations de survol partent de la bonne place.
+--  v2 — FIABLE :
+--   • ta disposition est écrite ICI (calculée depuis tes valeurs Studio, écran 16:9 de
+--     1920×1080) : le script ne relit plus rien en jeu, donc aucun autre script, aucun
+--     chargement, aucun état caché ne peut fausser le calcul ;
+--   • TOUT (tailles ET écarts) suit la hauteur de l'écran → même disposition partout ;
+--   • le bloc du haut évite les boutons du haut MESURÉS (seulement de vrais boutons,
+--     de taille normale) + les icônes Roblox ; s'il manque de place il se décale, puis
+--     rétrécit (jamais sous 75 %), puis passe juste EN DESSOUS de ces boutons ;
+--   • si un autre script déplace un de ces boutons, il est remis à sa place.
 --
+--  ✏️ Tu déplaces un bouton dans Studio ? Mets sa nouvelle place ici (x, y = coin haut-
+--     gauche, w, h = taille, en pixels d'un écran 1920×1080).
 --  ↩️ REVENIR À AVANT : Enabled = false.
 --════════════════════════════════════════════════════════════════════════════
 local TweenService = game:GetService("TweenService")
@@ -7806,46 +7809,43 @@ local TweenService = game:GetService("TweenService")
 local M = {}
 
 M.Enabled = true
+M.Debug   = false   -- true = écrit dans l'Output la place calculée de chaque bouton
 
--- 🧱 Les blocs. x = position horizontale « PC » de ta disposition (en % d'un écran 16:9).
---    nil = on garde celle de Studio. Tailles et hauteurs : celles de Studio.
+M.REF_W, M.REF_H = 1920, 1080
+
 M.Groups = {
 	left = {
 		anchor = "left",
 		maxWidth = 0.42,   -- jamais plus de 42 % de la largeur de l'écran
 		items = {
-			{ gui = "Bouton hide", frame = "Frame",       x = 0.068 },  -- Hide Gui
-			{ gui = "UGCshop",     frame = "Frame",       x = 0.020 },  -- UGC Shop
-			{ gui = "Shop",        frame = "Frame",       x = 0.025 },
-			{ gui = "PointsShop",  frame = "Frame",       x = 0.095 },
-			{ gui = "Rebirth",     frame = "Frame",       x = 0.025 },
-			{ gui = "Quest",       frame = "Frame",       x = 0.095 },
-			{ gui = "Daily tool",  frame = "open button", x = 0.060 },  -- Rewards
-			{ gui = "invites",     frame = "Frame" },                    -- Invite
+			{ gui = "Bouton hide", frame = "Frame",       x = 131,  y = 193, w = 90,  h = 41  },  -- Hide Gui
+			{ gui = "UGCshop",     frame = "Frame",       x = 38,   y = 260, w = 271, h = 146 },  -- UGC Shop
+			{ gui = "Shop",        frame = "Frame",       x = 48,   y = 419, w = 121, h = 120 },
+			{ gui = "PointsShop",  frame = "Frame",       x = 182,  y = 419, w = 121, h = 120 },
+			{ gui = "Rebirth",     frame = "Frame",       x = 48,   y = 548, w = 121, h = 120 },
+			{ gui = "Quest",       frame = "Frame",       x = 182,  y = 548, w = 121, h = 120 },
+			{ gui = "Daily tool",  frame = "open button", x = 115,  y = 673, w = 120, h = 120 },  -- Rewards
+			{ gui = "invites",     frame = "Frame",       x = 102,  y = 930, w = 152, h = 74  },  -- Invite
 		},
 	},
 	top = {
 		anchor = "center",
 		maxWidth = 0.92,
-		-- 🚧 le bloc du haut ne touche JAMAIS les boutons du haut de l'écran : ceux de Roblox et
-		--    tes boutons How To Play / série de jours (à gauche sur PC, à droite sur mobile).
-		--    Leur place est MESURÉE en direct : il s'écarte ou rétrécit selon l'appareil.
 		avoidTopButtons = true,
+		minScale = 0.75,   -- jamais plus petit ; sinon le bloc passe sous les boutons du haut
 		items = {
-			{ gui = "Skip Obby",  frame = "Frameskiplevel" },
-			{ gui = "# Stage",    frame = "Frame" },    -- Current Stage
-			-- (pas « # Stage ▸ Frame2 » : ArenaHUD la cache hors de l'écran et la remplace)
-			{ gui = "Skip Level", frame = "Frameskiplevel" },
-			{ gui = "dailyspin",  frame = "Frame" },    -- 🎡 la roulette (à droite de Skip Level)
+			{ gui = "Skip Obby",  frame = "Frameskiplevel", x = 659,  y = 54, w = 138, h = 67  },
+			{ gui = "# Stage",    frame = "Frame",          x = 818,  y = 37, w = 276, h = 101 },  -- Current Stage
+			{ gui = "Skip Level", frame = "Frameskiplevel", x = 1110, y = 53, w = 148, h = 71  },
+			{ gui = "dailyspin",  frame = "Frame",          x = 1340, y = 26, w = 168, h = 166 },  -- 🎡 roulette
 		},
+		-- (pas « # Stage ▸ Frame2 » : ArenaHUD la cache hors de l'écran et la remplace)
 	},
 }
 
--- écran de référence de ta disposition
-M.REF_W, M.REF_H = 1920, 1080
-
--- boutons du haut à éviter (en plus de ceux de Roblox) : ScreenGui créés par tes scripts
-M.TopButtonGuis = { "TopBarGui" }   -- How To Play + série de jours
+-- 🚧 boutons du haut à éviter (en plus des icônes Roblox) : ScreenGui créés par tes scripts
+M.TopButtonGuis = { "TopBarGui" }   -- ⚙️ + How To Play + série de jours
+M.RobloxIconsWidth = { pc = 170, touch = 120 }   -- place des icônes Roblox en haut à gauche (px)
 M.TopGap = 10                        -- écart minimum avec eux (px)
 
 -- 🖱️ Animation de survol (la même qu'avant : 90 % au survol, 85 % à l'appui),
@@ -7865,6 +7865,7 @@ function M.Hover(button, frame)
 		local np = UDim2.new(
 			p.X.Scale + s.X.Scale * (1 - k) * (0.5 - a.X), p.X.Offset + s.X.Offset * (1 - k) * (0.5 - a.X),
 			p.Y.Scale + s.Y.Scale * (1 - k) * (0.5 - a.Y), p.Y.Offset + s.Y.Offset * (1 - k) * (0.5 - a.Y))
+		frame:SetAttribute("HudAnimUntil", os.clock() + 0.35)   -- la mise en page laisse l'animation jouer
 		TweenService:Create(frame, HOVER_INFO, { Size = ns, Position = np }):Play()
 	end
 	button.MouseEnter:Connect(function() to(0.9) end)
@@ -55297,6 +55298,28 @@ local function resetToNoSelection()
 	UGCUpdateLabel.Text   = "No Selection"
 end
 
+-- ⭐ MOINS DE FRICTION : à l'ouverture du shop, le 1er UGC de la grille est DÉJÀ choisi
+--    (sa fiche et son bouton Buy sont affichés, sa carte est en vert). Le 1er encore en
+--    vente passe avant un épuisé. Rien n'est changé si le joueur a déjà choisi un UGC.
+local function selectFirstUGC()
+	if currentActiveButton and currentActiveButton.Parent then
+		local fr = currentActiveButton.Parent
+		if fr.Visible then return end   -- son choix est toujours là : on le garde
+	end
+	local best, bestKey
+	for _, ugc in ipairs(UGC_CONFIG.Items) do
+		local fr, btn = buttonFrames[ugc.ButtonName], scrollButtons[ugc.ButtonName]
+		local gb = fr and gridBase[fr]
+		if btn and fr and fr.Parent and fr.Visible and gb then
+			-- clé de tri : en vente d'abord, puis la ligne, puis la colonne de la grille
+			local soldOut = ugcStockState[ugc.ButtonName] == false and 1 or 0
+			local key = soldOut * 1e9 + gb.pos.Y.Offset * 10 + gb.pos.X.Scale
+			if not bestKey or key < bestKey then best, bestKey = { ugc = ugc, btn = btn }, key end
+		end
+	end
+	if best then openFrame(best.ugc.FrameName, best.btn) end
+end
+
 -- ============================================================
 -- NOTIFICATION
 -- ============================================================
@@ -56798,6 +56821,8 @@ ShopFrame:GetPropertyChangedSignal("Visible"):Connect(function()
 				gridApplied = true
 			end
 		end
+		-- ⭐ 1er UGC déjà sélectionné (après la mise en place de la grille)
+		task.delay(0.15, function() if ShopFrame.Visible then selectFirstUGC() end end)
 	else
 		-- 🔓 Shop fermé → retour à la rotation normale
 		if _G.OffersUnlockCategory then
@@ -62117,15 +62142,12 @@ end)
 						<bool name="Disabled">true</bool>
 						<string name="Name">HudLayoutClient</string>
 						<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
--- 📐 HudLayoutClient — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (NOUVEAU)
---  Applique ReplicatedStorage ▸ HudLayout : les boutons de l'écran gardent leurs
---  écarts sur TOUS les formats d'écran, et le bloc du haut évite les boutons du haut
---  (Roblox + How To Play / série de jours), où qu'ils soient selon l'appareil.
---  Réglages et explications dans HudLayout.
+-- 📐 HudLayoutClient — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (NOUVEAU, v2)
+--  Applique ReplicatedStorage ▸ HudLayout. Réglages et explications dans HudLayout.
 --════════════════════════════════════════════════════════════════════════════
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GuiService        = game:GetService("GuiService")
+local UserInputService  = game:GetService("UserInputService")
 
 local HL = require(ReplicatedStorage:WaitForChild("HudLayout"))
 if not HL.Enabled then return end
@@ -62133,57 +62155,36 @@ if not HL.Enabled then return end
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local REF_W, REF_H = HL.REF_W, HL.REF_H
+local IS_TOUCH = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- disposition de Studio relue UNE fois par cadre (un nouveau cadre au respawn = relu)
-local design = setmetatable({}, { __mode = "k" })
+local applied = setmetatable({}, { __mode = "k" })   -- [frame] = { size, pos } posés par nous
 
-local function designOf(frame, xOverride)
-	local d = design[frame]
-	if d then return d end
-	local s, p = frame.Size, frame.Position
-	local w = s.X.Scale * REF_W + s.X.Offset
-	local h = s.Y.Scale * REF_H + s.Y.Offset
-	local ar = frame:FindFirstChildOfClass("UIAspectRatioConstraint")
-	if ar and ar.AspectRatio > 0 and w > 0 and h > 0 then
-		local r = ar.AspectRatio
-		if ar.AspectType == Enum.AspectType.ScaleWithParentSize then
-			if ar.DominantAxis == Enum.DominantAxis.Width then h = w / r else w = h * r end
-		elseif w / h > r then
-			w = h * r
-		else
-			h = w / r
-		end
-	end
-	local x = (xOverride or p.X.Scale) * REF_W + p.X.Offset
-	local y = p.Y.Scale * REF_H + p.Y.Offset
-	local a = frame.AnchorPoint
-	d = { x = x - a.X * w, y = y - a.Y * h, w = w, h = h }   -- coin haut-gauche
-	design[frame] = d
-	return d
+local function viewport()
+	local cam = workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize
+	if vp and vp.X > 1 and vp.Y > 1 then return vp.X, vp.Y end
+	return nil
 end
 
--- 🚧 boutons du haut de l'écran (coordonnées ÉCRAN) : ceux de Roblox + les tiens
-local function topButtonRects()
+-- 🚧 boutons du haut (coordonnées ÉCRAN) : seulement de VRAIS boutons, visibles, de taille normale
+local function topButtonRects(VW, VH)
 	local rects = {}
-	local cam = workspace.CurrentCamera
-	local vw = cam and cam.ViewportSize.X or 0
-	local ok, inset = pcall(function() return GuiService.TopbarInset end)
-	if ok and typeof(inset) == "Rect" and inset.Height > 0 then
-		-- TopbarInset = la place LIBRE entre les boutons Roblox de gauche et ceux de droite
-		if inset.Min.X > 0 then table.insert(rects, { x0 = 0, x1 = inset.Min.X, y0 = 0, y1 = inset.Max.Y }) end
-		if vw > 0 and inset.Max.X < vw then table.insert(rects, { x0 = inset.Max.X, x1 = vw, y0 = 0, y1 = inset.Max.Y }) end
-	else
-		local top = GuiService:GetGuiInset()
-		table.insert(rects, { x0 = 0, x1 = 140, y0 = 0, y1 = math.max(top.Y, 36) })
-	end
+	local coreW = IS_TOUCH and HL.RobloxIconsWidth.touch or HL.RobloxIconsWidth.pc
+	table.insert(rects, { x0 = 0, x1 = coreW, y0 = 0, y1 = 48 })   -- icônes Roblox (haut gauche)
 	for _, name in ipairs(HL.TopButtonGuis or {}) do
 		local g = playerGui:FindFirstChild(name)
 		if g and g:IsA("LayerCollector") and g.Enabled then
 			local gp = g.AbsolutePosition
-			for _, c in ipairs(g:GetChildren()) do
-				if c:IsA("GuiObject") and c.Visible and c.AbsoluteSize.X > 1 then
-					local p = gp + c.AbsolutePosition
-					table.insert(rects, { x0 = p.X, x1 = p.X + c.AbsoluteSize.X, y0 = p.Y, y1 = p.Y + c.AbsoluteSize.Y })
+			for _, c in ipairs(g:GetDescendants()) do
+				if c:IsA("GuiButton") and c.Visible then
+					local s = c.AbsoluteSize
+					-- garde-fou : un « bouton » géant (fond, voile, panneau) n'est pas un bouton du haut
+					if s.X > 2 and s.Y > 2 and s.X < VW * 0.3 and s.Y < VH * 0.2 then
+						local p = gp + c.AbsolutePosition
+						if p.Y < VH * 0.2 then
+							table.insert(rects, { x0 = p.X, x1 = p.X + s.X, y0 = p.Y, y1 = p.Y + s.Y })
+						end
+					end
 				end
 			end
 		end
@@ -62191,72 +62192,79 @@ local function topButtonRects()
 	return rects
 end
 
-local function layoutGroup(g)
+local function apply(fr, gui, sx, sy, w, h)
+	-- (sx, sy) = coin haut-gauche en coordonnées ÉCRAN → coordonnées du ScreenGui
+	local gp = gui.AbsolutePosition
+	local an = fr.AnchorPoint
+	local size = UDim2.fromOffset(w, h)
+	local pos = UDim2.fromOffset(sx - gp.X + an.X * w, sy - gp.Y + an.Y * h)
+	applied[fr] = { size = size, pos = pos }
+	fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
+	fr:SetAttribute("HudBasePos", pos)
+	fr.Size, fr.Position = size, pos
+end
+
+local function layoutGroup(g, VW, VH, report)
 	local live = {}
 	for _, it in ipairs(g.items) do
 		local gui = playerGui:FindFirstChild(it.gui)
 		local fr = gui and gui:FindFirstChild(it.frame)
 		if fr and fr:IsA("GuiObject") and gui:IsA("LayerCollector") then
-			local d = designOf(fr, it.x)
-			-- 🛡️ un cadre qu'un autre script a envoyé HORS de l'écran (pour le cacher) est ignoré :
-			--    sinon le bloc paraissait immense et tout rétrécissait jusqu'à disparaître.
-			local onScreen = d.w > 0 and d.h > 0 and d.x > -REF_W * 0.25 and d.x < REF_W * 1.25
-				and d.y > -REF_H * 0.25 and d.y < REF_H * 1.25
-			if onScreen then table.insert(live, { fr = fr, gui = gui, d = d }) end
+			table.insert(live, { fr = fr, gui = gui, it = it })
 		end
 	end
 	if #live == 0 then return end
-	local gui0 = live[1].gui
-	local GW, GH = gui0.AbsoluteSize.X, gui0.AbsoluteSize.Y
-	if GW <= 1 or GH <= 1 then return end
-	local u = GH / REF_H                         -- tout suit la HAUTEUR de l'écran
+	local u = VH / REF_H                         -- tout suit la HAUTEUR de l'écran
 	local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
 	for _, e in ipairs(live) do
-		minX = math.min(minX, e.d.x) ; maxX = math.max(maxX, e.d.x + e.d.w)
-		minY = math.min(minY, e.d.y) ; maxY = math.max(maxY, e.d.y + e.d.h)
+		minX = math.min(minX, e.it.x) ; maxX = math.max(maxX, e.it.x + e.it.w)
+		minY = math.min(minY, e.it.y) ; maxY = math.max(maxY, e.it.y + e.it.h)
 	end
 
-	local k, cx = 1, nil   -- k = rétrécissement du bloc, cx = centre (bloc centré)
 	if g.anchor == "center" then
-		local eL, eR = (REF_W / 2 - minX) * u, (maxX - REF_W / 2) * u   -- débords gauche / droite du centre
-		local a, b = 0, GW                                              -- place disponible en largeur
-		if g.avoidTopButtons then
-			local top = gui0.AbsolutePosition.Y + minY * u
-			local bottom = gui0.AbsolutePosition.Y + maxY * u
-			for _, r in ipairs(topButtonRects()) do
-				if r.y1 > top - 2 and r.y0 < bottom then   -- même bande de hauteur que le bloc
-					if (r.x0 + r.x1) / 2 < GW / 2 then a = math.max(a, r.x1 + (HL.TopGap or 10))
-					else b = math.min(b, r.x0 - (HL.TopGap or 10)) end
+		local eL, eR = (REF_W / 2 - minX) * u, (maxX - REF_W / 2) * u
+		local margin = VW * (1 - g.maxWidth) / 2
+		local function room(top, bottom)
+			local a, b = margin, VW - margin
+			if g.avoidTopButtons then
+				for _, r in ipairs(topButtonRects(VW, VH)) do
+					if r.y1 > top - 2 and r.y0 < bottom + 2 then
+						if (r.x0 + r.x1) / 2 < VW / 2 then a = math.max(a, r.x1 + HL.TopGap)
+						else b = math.min(b, r.x0 - HL.TopGap) end
+					end
 				end
 			end
+			return a, b
 		end
-		local margin = GW * (1 - g.maxWidth) / 2
-		a, b = math.max(a, margin), math.min(b, GW - margin)
-		if eL + eR > b - a then k = math.max(0.2, (b - a) / (eL + eR)) end
-		-- centré si possible, sinon décalé juste assez pour éviter les boutons
-		cx = math.clamp(GW / 2, a + eL * k, math.max(a + eL * k, b - eR * k))
+		local dy = 0
+		local a, b = room(minY * u, maxY * u)
+		local k = 1
+		if eL + eR > b - a then k = (b - a) / (eL + eR) end
+		if k < (g.minScale or 0.75) then
+			-- pas assez de place à côté des boutons du haut : on passe JUSTE EN DESSOUS
+			local below = 0
+			for _, r in ipairs(topButtonRects(VW, VH)) do below = math.max(below, r.y1) end
+			dy = math.max(0, below + HL.TopGap - minY * u)
+			a, b = room(minY * u + dy, maxY * u + dy)
+			k = math.min(1, (b - a) / (eL + eR))
+			k = math.max(k, 0.5)
+		end
+		local cx = math.clamp(VW / 2, a + eL * k, math.max(a + eL * k, b - eR * k))
+		for _, e in ipairs(live) do
+			local it = e.it
+			apply(e.fr, e.gui, cx + (it.x - REF_W / 2) * u * k, it.y * u * k + dy, it.w * u * k, it.h * u * k)
+		end
+		if report then print(("[HudLayout] haut : écran %dx%d · place %d→%d · échelle %.2f · centre %d · décalage bas %d"):format(VW, VH, a, b, k, cx, dy)) end
 	else
+		local k = 1
 		local right = maxX * u
-		if right > GW * g.maxWidth then k = GW * g.maxWidth / right end
-	end
-
-	for _, e in ipairs(live) do
-		local x, y
-		if g.anchor == "center" then
-			x = cx + (e.d.x - REF_W / 2) * u * k
-			y = e.d.y * u * k
-		else
-			local cy = (minY + maxY) / 2
-			x = e.d.x * u * k
-			y = (cy + (e.d.y - cy) * k) * u
+		if right > VW * g.maxWidth then k = math.max(0.6, VW * g.maxWidth / right) end
+		local cy = (minY + maxY) / 2
+		for _, e in ipairs(live) do
+			local it = e.it
+			apply(e.fr, e.gui, it.x * u * k, (cy + (it.y - cy) * k) * u, it.w * u * k, it.h * u * k)
 		end
-		local w, h = e.d.w * u * k, e.d.h * u * k
-		local an = e.fr.AnchorPoint
-		local size = UDim2.fromOffset(w, h)
-		local pos = UDim2.fromOffset(x + an.X * w, y + an.Y * h)
-		e.fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
-		e.fr:SetAttribute("HudBasePos", pos)
-		e.fr.Size, e.fr.Position = size, pos
+		if report then print(("[HudLayout] gauche : écran %dx%d · échelle %.2f"):format(VW, VH, k)) end
 	end
 end
 
@@ -62266,15 +62274,43 @@ local function relayout()
 	queued = true
 	task.defer(function()
 		queued = false
+		local VW, VH = viewport()
+		if not VW then return end
 		for _, g in pairs(HL.Groups) do
-			local ok, err = pcall(layoutGroup, g)
+			local ok, err = pcall(layoutGroup, g, VW, VH, HL.Debug)
 			if not ok then warn("[HudLayout] " .. tostring(err)) end
 		end
 	end)
 end
 
+-- 🛡️ un autre script déplace un de ces boutons → remis à sa place (sauf pendant
+--    l'animation de survol). S'il insiste (bagarre), on le laisse faire et on le signale.
+local fights = setmetatable({}, { __mode = "k" })
+local function guard(fr)
+	if fights[fr] then return end
+	fights[fr] = { n = 0, t0 = os.clock() }
+	local function check()
+		local a = applied[fr]
+		if not a or fr.Size == a.size and fr.Position == a.pos then return end
+		if (fr:GetAttribute("HudAnimUntil") or 0) > os.clock() then return end
+		local f = fights[fr]
+		if os.clock() - f.t0 > 3 then f.n, f.t0 = 0, os.clock() end
+		f.n += 1
+		if f.n > 10 then
+			if f.n == 11 then warn("[HudLayout] un autre script déplace sans arrêt " .. fr:GetFullName() .. " : je le laisse faire.") end
+			return
+		end
+		task.defer(function()
+			local a2 = applied[fr]
+			if a2 and (fr:GetAttribute("HudAnimUntil") or 0) <= os.clock() then fr.Size, fr.Position = a2.size, a2.pos end
+		end)
+	end
+	fr:GetPropertyChangedSignal("Position"):Connect(check)
+	fr:GetPropertyChangedSignal("Size"):Connect(check)
+end
+
 -- ce qu'il faut surveiller : la taille de l'écran, les ScreenGui (recréés au respawn)
--- et les boutons du haut (ils apparaissent un peu après le chargement)
+-- et les boutons du haut (créés par script un peu après le chargement)
 local watched = setmetatable({}, { __mode = "k" })
 local wanted = {}
 for _, g in pairs(HL.Groups) do for _, it in ipairs(g.items) do wanted[it.gui] = true end end
@@ -62283,8 +62319,17 @@ local function watch(gui)
 	if not wanted[gui.Name] or watched[gui] or not gui:IsA("LayerCollector") then return end
 	watched[gui] = true
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+	gui:GetPropertyChangedSignal("AbsolutePosition"):Connect(relayout)
 	gui:GetPropertyChangedSignal("Enabled"):Connect(relayout)
-	gui.ChildAdded:Connect(relayout)
+	gui.DescendantAdded:Connect(relayout)
+	for _, g in pairs(HL.Groups) do
+		for _, it in ipairs(g.items) do
+			if it.gui == gui.Name then
+				local fr = gui:FindFirstChild(it.frame)
+				if fr and fr:IsA("GuiObject") then guard(fr) end
+			end
+		end
+	end
 	relayout()
 end
 for _, c in ipairs(playerGui:GetChildren()) do watch(c) end
@@ -62295,9 +62340,9 @@ local function watchCam()
 end
 watchCam()
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() watchCam() ; relayout() end)
-pcall(function() GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(relayout) end)
 relayout()
-task.delay(3, relayout)   -- filet : les boutons du haut sont créés par script un peu après
+task.delay(2, relayout)   -- filet : boutons du haut créés par script un peu après
+task.delay(6, relayout)
 ]]></ProtectedString>
 					</Properties>
 				</Item>

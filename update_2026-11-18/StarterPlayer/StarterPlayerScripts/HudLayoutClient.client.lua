@@ -1,13 +1,10 @@
 --════════════════════════════════════════════════════════════════════════════
--- 📐 HudLayoutClient — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (NOUVEAU)
---  Applique ReplicatedStorage ▸ HudLayout : les boutons de l'écran gardent leurs
---  écarts sur TOUS les formats d'écran, et le bloc du haut évite les boutons du haut
---  (Roblox + How To Play / série de jours), où qu'ils soient selon l'appareil.
---  Réglages et explications dans HudLayout.
+-- 📐 HudLayoutClient — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (NOUVEAU, v2)
+--  Applique ReplicatedStorage ▸ HudLayout. Réglages et explications dans HudLayout.
 --════════════════════════════════════════════════════════════════════════════
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GuiService        = game:GetService("GuiService")
+local UserInputService  = game:GetService("UserInputService")
 
 local HL = require(ReplicatedStorage:WaitForChild("HudLayout"))
 if not HL.Enabled then return end
@@ -15,57 +12,36 @@ if not HL.Enabled then return end
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local REF_W, REF_H = HL.REF_W, HL.REF_H
+local IS_TOUCH = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- disposition de Studio relue UNE fois par cadre (un nouveau cadre au respawn = relu)
-local design = setmetatable({}, { __mode = "k" })
+local applied = setmetatable({}, { __mode = "k" })   -- [frame] = { size, pos } posés par nous
 
-local function designOf(frame, xOverride)
-	local d = design[frame]
-	if d then return d end
-	local s, p = frame.Size, frame.Position
-	local w = s.X.Scale * REF_W + s.X.Offset
-	local h = s.Y.Scale * REF_H + s.Y.Offset
-	local ar = frame:FindFirstChildOfClass("UIAspectRatioConstraint")
-	if ar and ar.AspectRatio > 0 and w > 0 and h > 0 then
-		local r = ar.AspectRatio
-		if ar.AspectType == Enum.AspectType.ScaleWithParentSize then
-			if ar.DominantAxis == Enum.DominantAxis.Width then h = w / r else w = h * r end
-		elseif w / h > r then
-			w = h * r
-		else
-			h = w / r
-		end
-	end
-	local x = (xOverride or p.X.Scale) * REF_W + p.X.Offset
-	local y = p.Y.Scale * REF_H + p.Y.Offset
-	local a = frame.AnchorPoint
-	d = { x = x - a.X * w, y = y - a.Y * h, w = w, h = h }   -- coin haut-gauche
-	design[frame] = d
-	return d
+local function viewport()
+	local cam = workspace.CurrentCamera
+	local vp = cam and cam.ViewportSize
+	if vp and vp.X > 1 and vp.Y > 1 then return vp.X, vp.Y end
+	return nil
 end
 
--- 🚧 boutons du haut de l'écran (coordonnées ÉCRAN) : ceux de Roblox + les tiens
-local function topButtonRects()
+-- 🚧 boutons du haut (coordonnées ÉCRAN) : seulement de VRAIS boutons, visibles, de taille normale
+local function topButtonRects(VW, VH)
 	local rects = {}
-	local cam = workspace.CurrentCamera
-	local vw = cam and cam.ViewportSize.X or 0
-	local ok, inset = pcall(function() return GuiService.TopbarInset end)
-	if ok and typeof(inset) == "Rect" and inset.Height > 0 then
-		-- TopbarInset = la place LIBRE entre les boutons Roblox de gauche et ceux de droite
-		if inset.Min.X > 0 then table.insert(rects, { x0 = 0, x1 = inset.Min.X, y0 = 0, y1 = inset.Max.Y }) end
-		if vw > 0 and inset.Max.X < vw then table.insert(rects, { x0 = inset.Max.X, x1 = vw, y0 = 0, y1 = inset.Max.Y }) end
-	else
-		local top = GuiService:GetGuiInset()
-		table.insert(rects, { x0 = 0, x1 = 140, y0 = 0, y1 = math.max(top.Y, 36) })
-	end
+	local coreW = IS_TOUCH and HL.RobloxIconsWidth.touch or HL.RobloxIconsWidth.pc
+	table.insert(rects, { x0 = 0, x1 = coreW, y0 = 0, y1 = 48 })   -- icônes Roblox (haut gauche)
 	for _, name in ipairs(HL.TopButtonGuis or {}) do
 		local g = playerGui:FindFirstChild(name)
 		if g and g:IsA("LayerCollector") and g.Enabled then
 			local gp = g.AbsolutePosition
-			for _, c in ipairs(g:GetChildren()) do
-				if c:IsA("GuiObject") and c.Visible and c.AbsoluteSize.X > 1 then
-					local p = gp + c.AbsolutePosition
-					table.insert(rects, { x0 = p.X, x1 = p.X + c.AbsoluteSize.X, y0 = p.Y, y1 = p.Y + c.AbsoluteSize.Y })
+			for _, c in ipairs(g:GetDescendants()) do
+				if c:IsA("GuiButton") and c.Visible then
+					local s = c.AbsoluteSize
+					-- garde-fou : un « bouton » géant (fond, voile, panneau) n'est pas un bouton du haut
+					if s.X > 2 and s.Y > 2 and s.X < VW * 0.3 and s.Y < VH * 0.2 then
+						local p = gp + c.AbsolutePosition
+						if p.Y < VH * 0.2 then
+							table.insert(rects, { x0 = p.X, x1 = p.X + s.X, y0 = p.Y, y1 = p.Y + s.Y })
+						end
+					end
 				end
 			end
 		end
@@ -73,72 +49,79 @@ local function topButtonRects()
 	return rects
 end
 
-local function layoutGroup(g)
+local function apply(fr, gui, sx, sy, w, h)
+	-- (sx, sy) = coin haut-gauche en coordonnées ÉCRAN → coordonnées du ScreenGui
+	local gp = gui.AbsolutePosition
+	local an = fr.AnchorPoint
+	local size = UDim2.fromOffset(w, h)
+	local pos = UDim2.fromOffset(sx - gp.X + an.X * w, sy - gp.Y + an.Y * h)
+	applied[fr] = { size = size, pos = pos }
+	fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
+	fr:SetAttribute("HudBasePos", pos)
+	fr.Size, fr.Position = size, pos
+end
+
+local function layoutGroup(g, VW, VH, report)
 	local live = {}
 	for _, it in ipairs(g.items) do
 		local gui = playerGui:FindFirstChild(it.gui)
 		local fr = gui and gui:FindFirstChild(it.frame)
 		if fr and fr:IsA("GuiObject") and gui:IsA("LayerCollector") then
-			local d = designOf(fr, it.x)
-			-- 🛡️ un cadre qu'un autre script a envoyé HORS de l'écran (pour le cacher) est ignoré :
-			--    sinon le bloc paraissait immense et tout rétrécissait jusqu'à disparaître.
-			local onScreen = d.w > 0 and d.h > 0 and d.x > -REF_W * 0.25 and d.x < REF_W * 1.25
-				and d.y > -REF_H * 0.25 and d.y < REF_H * 1.25
-			if onScreen then table.insert(live, { fr = fr, gui = gui, d = d }) end
+			table.insert(live, { fr = fr, gui = gui, it = it })
 		end
 	end
 	if #live == 0 then return end
-	local gui0 = live[1].gui
-	local GW, GH = gui0.AbsoluteSize.X, gui0.AbsoluteSize.Y
-	if GW <= 1 or GH <= 1 then return end
-	local u = GH / REF_H                         -- tout suit la HAUTEUR de l'écran
+	local u = VH / REF_H                         -- tout suit la HAUTEUR de l'écran
 	local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
 	for _, e in ipairs(live) do
-		minX = math.min(minX, e.d.x) ; maxX = math.max(maxX, e.d.x + e.d.w)
-		minY = math.min(minY, e.d.y) ; maxY = math.max(maxY, e.d.y + e.d.h)
+		minX = math.min(minX, e.it.x) ; maxX = math.max(maxX, e.it.x + e.it.w)
+		minY = math.min(minY, e.it.y) ; maxY = math.max(maxY, e.it.y + e.it.h)
 	end
 
-	local k, cx = 1, nil   -- k = rétrécissement du bloc, cx = centre (bloc centré)
 	if g.anchor == "center" then
-		local eL, eR = (REF_W / 2 - minX) * u, (maxX - REF_W / 2) * u   -- débords gauche / droite du centre
-		local a, b = 0, GW                                              -- place disponible en largeur
-		if g.avoidTopButtons then
-			local top = gui0.AbsolutePosition.Y + minY * u
-			local bottom = gui0.AbsolutePosition.Y + maxY * u
-			for _, r in ipairs(topButtonRects()) do
-				if r.y1 > top - 2 and r.y0 < bottom then   -- même bande de hauteur que le bloc
-					if (r.x0 + r.x1) / 2 < GW / 2 then a = math.max(a, r.x1 + (HL.TopGap or 10))
-					else b = math.min(b, r.x0 - (HL.TopGap or 10)) end
+		local eL, eR = (REF_W / 2 - minX) * u, (maxX - REF_W / 2) * u
+		local margin = VW * (1 - g.maxWidth) / 2
+		local function room(top, bottom)
+			local a, b = margin, VW - margin
+			if g.avoidTopButtons then
+				for _, r in ipairs(topButtonRects(VW, VH)) do
+					if r.y1 > top - 2 and r.y0 < bottom + 2 then
+						if (r.x0 + r.x1) / 2 < VW / 2 then a = math.max(a, r.x1 + HL.TopGap)
+						else b = math.min(b, r.x0 - HL.TopGap) end
+					end
 				end
 			end
+			return a, b
 		end
-		local margin = GW * (1 - g.maxWidth) / 2
-		a, b = math.max(a, margin), math.min(b, GW - margin)
-		if eL + eR > b - a then k = math.max(0.2, (b - a) / (eL + eR)) end
-		-- centré si possible, sinon décalé juste assez pour éviter les boutons
-		cx = math.clamp(GW / 2, a + eL * k, math.max(a + eL * k, b - eR * k))
+		local dy = 0
+		local a, b = room(minY * u, maxY * u)
+		local k = 1
+		if eL + eR > b - a then k = (b - a) / (eL + eR) end
+		if k < (g.minScale or 0.75) then
+			-- pas assez de place à côté des boutons du haut : on passe JUSTE EN DESSOUS
+			local below = 0
+			for _, r in ipairs(topButtonRects(VW, VH)) do below = math.max(below, r.y1) end
+			dy = math.max(0, below + HL.TopGap - minY * u)
+			a, b = room(minY * u + dy, maxY * u + dy)
+			k = math.min(1, (b - a) / (eL + eR))
+			k = math.max(k, 0.5)
+		end
+		local cx = math.clamp(VW / 2, a + eL * k, math.max(a + eL * k, b - eR * k))
+		for _, e in ipairs(live) do
+			local it = e.it
+			apply(e.fr, e.gui, cx + (it.x - REF_W / 2) * u * k, it.y * u * k + dy, it.w * u * k, it.h * u * k)
+		end
+		if report then print(("[HudLayout] haut : écran %dx%d · place %d→%d · échelle %.2f · centre %d · décalage bas %d"):format(VW, VH, a, b, k, cx, dy)) end
 	else
+		local k = 1
 		local right = maxX * u
-		if right > GW * g.maxWidth then k = GW * g.maxWidth / right end
-	end
-
-	for _, e in ipairs(live) do
-		local x, y
-		if g.anchor == "center" then
-			x = cx + (e.d.x - REF_W / 2) * u * k
-			y = e.d.y * u * k
-		else
-			local cy = (minY + maxY) / 2
-			x = e.d.x * u * k
-			y = (cy + (e.d.y - cy) * k) * u
+		if right > VW * g.maxWidth then k = math.max(0.6, VW * g.maxWidth / right) end
+		local cy = (minY + maxY) / 2
+		for _, e in ipairs(live) do
+			local it = e.it
+			apply(e.fr, e.gui, it.x * u * k, (cy + (it.y - cy) * k) * u, it.w * u * k, it.h * u * k)
 		end
-		local w, h = e.d.w * u * k, e.d.h * u * k
-		local an = e.fr.AnchorPoint
-		local size = UDim2.fromOffset(w, h)
-		local pos = UDim2.fromOffset(x + an.X * w, y + an.Y * h)
-		e.fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
-		e.fr:SetAttribute("HudBasePos", pos)
-		e.fr.Size, e.fr.Position = size, pos
+		if report then print(("[HudLayout] gauche : écran %dx%d · échelle %.2f"):format(VW, VH, k)) end
 	end
 end
 
@@ -148,15 +131,43 @@ local function relayout()
 	queued = true
 	task.defer(function()
 		queued = false
+		local VW, VH = viewport()
+		if not VW then return end
 		for _, g in pairs(HL.Groups) do
-			local ok, err = pcall(layoutGroup, g)
+			local ok, err = pcall(layoutGroup, g, VW, VH, HL.Debug)
 			if not ok then warn("[HudLayout] " .. tostring(err)) end
 		end
 	end)
 end
 
+-- 🛡️ un autre script déplace un de ces boutons → remis à sa place (sauf pendant
+--    l'animation de survol). S'il insiste (bagarre), on le laisse faire et on le signale.
+local fights = setmetatable({}, { __mode = "k" })
+local function guard(fr)
+	if fights[fr] then return end
+	fights[fr] = { n = 0, t0 = os.clock() }
+	local function check()
+		local a = applied[fr]
+		if not a or fr.Size == a.size and fr.Position == a.pos then return end
+		if (fr:GetAttribute("HudAnimUntil") or 0) > os.clock() then return end
+		local f = fights[fr]
+		if os.clock() - f.t0 > 3 then f.n, f.t0 = 0, os.clock() end
+		f.n += 1
+		if f.n > 10 then
+			if f.n == 11 then warn("[HudLayout] un autre script déplace sans arrêt " .. fr:GetFullName() .. " : je le laisse faire.") end
+			return
+		end
+		task.defer(function()
+			local a2 = applied[fr]
+			if a2 and (fr:GetAttribute("HudAnimUntil") or 0) <= os.clock() then fr.Size, fr.Position = a2.size, a2.pos end
+		end)
+	end
+	fr:GetPropertyChangedSignal("Position"):Connect(check)
+	fr:GetPropertyChangedSignal("Size"):Connect(check)
+end
+
 -- ce qu'il faut surveiller : la taille de l'écran, les ScreenGui (recréés au respawn)
--- et les boutons du haut (ils apparaissent un peu après le chargement)
+-- et les boutons du haut (créés par script un peu après le chargement)
 local watched = setmetatable({}, { __mode = "k" })
 local wanted = {}
 for _, g in pairs(HL.Groups) do for _, it in ipairs(g.items) do wanted[it.gui] = true end end
@@ -165,8 +176,17 @@ local function watch(gui)
 	if not wanted[gui.Name] or watched[gui] or not gui:IsA("LayerCollector") then return end
 	watched[gui] = true
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(relayout)
+	gui:GetPropertyChangedSignal("AbsolutePosition"):Connect(relayout)
 	gui:GetPropertyChangedSignal("Enabled"):Connect(relayout)
-	gui.ChildAdded:Connect(relayout)
+	gui.DescendantAdded:Connect(relayout)
+	for _, g in pairs(HL.Groups) do
+		for _, it in ipairs(g.items) do
+			if it.gui == gui.Name then
+				local fr = gui:FindFirstChild(it.frame)
+				if fr and fr:IsA("GuiObject") then guard(fr) end
+			end
+		end
+	end
 	relayout()
 end
 for _, c in ipairs(playerGui:GetChildren()) do watch(c) end
@@ -177,6 +197,6 @@ local function watchCam()
 end
 watchCam()
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function() watchCam() ; relayout() end)
-pcall(function() GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(relayout) end)
 relayout()
-task.delay(3, relayout)   -- filet : les boutons du haut sont créés par script un peu après
+task.delay(2, relayout)   -- filet : boutons du haut créés par script un peu après
+task.delay(6, relayout)

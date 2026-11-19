@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v15) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v16) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v14** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v15** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v14).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v15).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v15.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v16.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v15.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v16.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v15… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v16… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v15`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v16`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,25 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v15 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v16 — placement des boutons FIABLE + 1er UGC déjà choisi
+
+### Ce qui n'allait pas (ta capture)
+- **Le trio du haut et la roulette** étaient réduits au minimum et coincés entre How To Play et la série de jours. Cause : pour éviter les icônes de Roblox, la v15 lisait une zone fournie par Roblox (`GuiService.TopbarInset`) qui ne donne pas ce qui était attendu. Elle « bloquait » presque toute la largeur, et le bloc rétrécissait jusqu'au minimum.
+- **Le bouton Invite** se retrouvait derrière UGC Shop. La v15 relisait la place de chaque bouton en jeu, ce qui la rend dépendante de l'état de l'interface au moment de la lecture.
+
+### Ce qui change (`HudLayout` v2)
+- **Ta disposition est écrite dans le module**, calculée depuis tes valeurs Studio en 16:9. Le script ne relit plus rien en jeu : aucun autre script, aucun chargement, aucun état caché ne peut fausser le calcul. Tu déplaces un bouton dans Studio ? Mets sa nouvelle place dans `HudLayout ▸ Groups`.
+- **Plus de `TopbarInset`.** Seuls les **vrais boutons mesurés** du haut sont évités, plus une marge fixe pour les icônes Roblox : ⚙️, cloche, How To Play, série de jours. Les grands cadres (fonds, voiles, panneaux) sont ignorés.
+- **Jamais plus petit que 75 %.** S'il manque de la place, le bloc du haut passe **juste en dessous** des boutons du haut au lieu de rétrécir.
+- **Garde-fou :** si un autre script déplace un de ces boutons, il est remis à sa place, sauf pendant l'animation de survol. S'il insiste, le module le laisse faire et l'écrit dans l'Output.
+- **`HudLayout ▸ Debug = true`** écrit dans l'Output la place calculée (écran, place disponible, échelle). Utile si tu veux me renvoyer un résultat.
+- Simulé sur **ton écran exact (2000×887)** : le trio et la roulette restent à pleine taille, centrés, sans rien toucher. Le résultat est le même sur PC 1280×720, sur téléphone et sur tablette (boutons du haut à droite).
+
+### ⭐ Shop UGC : le 1er UGC est déjà sélectionné (moins de friction)
+- À l'ouverture du shop, le **1er UGC de la grille** est choisi tout seul : sa fiche et son bouton Buy sont affichés, et sa carte est en **vert**. Le 1er encore en vente passe avant un épuisé.
+- Si le joueur avait déjà choisi un UGC encore visible, son choix est gardé.
+
+## NOUVEAU DANS LA v15 (tes derniers retours)
 
 ### 📐 Haut de l'écran : trio + roulette, sans jamais toucher les boutons du haut
 - La **roulette** fait maintenant partie du bloc du haut (Skip Obby · Current Stage · Skip Level · roulette) : mêmes écarts sur tous les écrans. Son ancien script la déplaçait à 25 % de la largeur sur mobile ; il est remplacé (même animation, sans déplacement).
@@ -127,7 +145,7 @@ Tout le reste a été relu (popups admin, stats, favori, popup de départ, retou
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v15) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v16) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8
