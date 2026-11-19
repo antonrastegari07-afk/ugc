@@ -235,4 +235,4 @@ Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSetti
 4. **Admin :** les onglets et la recherche, puis la fiche d'un joueur (badges dans le coin, rien qui déborde).
 5. **Mobile (émulateur ou téléphone) :** fais défiler les quêtes en posant le doigt sur un bouton : aucune notif ne doit apparaître. Un simple tap doit toujours marcher.
 6. **Boost :** achète ou donne-toi un boost temporaire → arc-en-ciel sur ton billboard.
-6. **Profils :** clique sur un joueur du serveur (🟢 Online), puis ouvre depuis un leaderboard la fiche de quelqu'un qui n'est pas là (🟢 Online sur un autre serveur, ou ⚫ Offline). Le statut d'un autre serveur ne marche que sur un **vrai serveur publié** : MemoryStore n'est pas partagé entre serveurs en Studio.
+7. **Profils :** clique sur un joueur du serveur (🟢 Online), puis ouvre depuis un leaderboard la fiche de quelqu'un qui n'est pas là (🟢 Online sur un autre serveur, ou ⚫ Offline). Le statut d'un autre serveur ne marche que sur un **vrai serveur publié** : MemoryStore n'est pas partagé entre serveurs en Studio.
