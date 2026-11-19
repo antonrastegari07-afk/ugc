@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v16</string>
+			<string name="Name">UPDATE_2026_11_18_v17</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,14 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v16.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v17.INSTALL)()
 --
---  v16 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v15 (les versions remplacées vont dans sa propre copie de secours).
+--  v17 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v16 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v16 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v17 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -33,8 +33,8 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v16 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v16"
+	print("🚀 Installateur v17 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v17"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -43,15 +43,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v16 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v17 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v16 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v16 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v17 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v17 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v16") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v17") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -163,7 +163,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v16 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v17 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -7833,9 +7833,13 @@ M.Groups = {
 		maxWidth = 0.92,
 		avoidTopButtons = true,
 		minScale = 0.75,   -- jamais plus petit ; sinon le bloc passe sous les boutons du haut
+		-- ⬆️ collé TOUT EN HAUT de l'écran, à la même hauteur que How To Play / ⚙️ / série
+		--    (false = la hauteur de ta disposition Studio)
+		stickToTop = true,
 		items = {
 			{ gui = "Skip Obby",  frame = "Frameskiplevel", x = 659,  y = 54, w = 138, h = 67  },
-			{ gui = "# Stage",    frame = "Frame",          x = 818,  y = 37, w = 276, h = 101 },  -- Current Stage
+			-- over = ce qui dépasse AU-DESSUS du cadre (le titre « Current Stage »)
+			{ gui = "# Stage",    frame = "Frame",          x = 818,  y = 37, w = 276, h = 101, over = 24 },
 			{ gui = "Skip Level", frame = "Frameskiplevel", x = 1110, y = 53, w = 148, h = 71  },
 			{ gui = "dailyspin",  frame = "Frame",          x = 1340, y = 26, w = 168, h = 166 },  -- 🎡 roulette
 		},
@@ -62166,6 +62170,19 @@ local function viewport()
 	return nil
 end
 
+-- 📍 où commence un ScreenGui sur l'ÉCRAN. Roblox mesure les positions d'un ScreenGui qui
+--    respecte la barre du haut SOUS cette barre (AbsolutePosition ne la compte pas) :
+--    sans ça, tout ce qu'on voulait « tout en haut » arrivait plus bas de la hauteur de la barre.
+local GuiService = game:GetService("GuiService")
+local function origin(gui, VW)
+	local s = gui.AbsoluteSize
+	local ox = math.max(0, (VW - s.X) / 2)   -- zones sûres gauche / droite (encoche), symétriques
+	local oy = 0
+	local ok, ignore = pcall(function() return gui.IgnoreGuiInset end)
+	if not (ok and ignore) then oy = GuiService:GetGuiInset().Y end
+	return ox, oy
+end
+
 -- 🚧 boutons du haut (coordonnées ÉCRAN) : seulement de VRAIS boutons, visibles, de taille normale
 local function topButtonRects(VW, VH)
 	local rects = {}
@@ -62174,7 +62191,8 @@ local function topButtonRects(VW, VH)
 	for _, name in ipairs(HL.TopButtonGuis or {}) do
 		local g = playerGui:FindFirstChild(name)
 		if g and g:IsA("LayerCollector") and g.Enabled then
-			local gp = g.AbsolutePosition
+			local ox, oy = origin(g, VW)
+			local gp = Vector2.new(ox, oy)
 			for _, c in ipairs(g:GetDescendants()) do
 				if c:IsA("GuiButton") and c.Visible then
 					local s = c.AbsoluteSize
@@ -62192,12 +62210,13 @@ local function topButtonRects(VW, VH)
 	return rects
 end
 
-local function apply(fr, gui, sx, sy, w, h)
-	-- (sx, sy) = coin haut-gauche en coordonnées ÉCRAN → coordonnées du ScreenGui
-	local gp = gui.AbsolutePosition
+-- screen = true : (sx, sy) en coordonnées ÉCRAN (bloc du haut) ; sinon coordonnées du ScreenGui
+local function apply(fr, gui, sx, sy, w, h, screen, VW)
+	local gx, gy = 0, 0
+	if screen then gx, gy = origin(gui, VW) end
 	local an = fr.AnchorPoint
 	local size = UDim2.fromOffset(w, h)
-	local pos = UDim2.fromOffset(sx - gp.X + an.X * w, sy - gp.Y + an.Y * h)
+	local pos = UDim2.fromOffset(sx - gx + an.X * w, sy - gy + an.Y * h)
 	applied[fr] = { size = size, pos = pos }
 	fr:SetAttribute("HudBaseSize", size)   -- lu par les animations de survol
 	fr:SetAttribute("HudBasePos", pos)
@@ -62223,6 +62242,9 @@ local function layoutGroup(g, VW, VH, report)
 
 	if g.anchor == "center" then
 		local eL, eR = (REF_W / 2 - minX) * u, (maxX - REF_W / 2) * u
+		-- haut VISIBLE du bloc (titres qui dépassent compris)
+		local visTop = math.huge
+		for _, e in ipairs(live) do visTop = math.min(visTop, e.it.y - (e.it.over or 0)) end
 		local margin = VW * (1 - g.maxWidth) / 2
 		local function room(top, bottom)
 			local a, b = margin, VW - margin
@@ -62236,15 +62258,25 @@ local function layoutGroup(g, VW, VH, report)
 			end
 			return a, b
 		end
-		local dy = 0
-		local a, b = room(minY * u, maxY * u)
+		-- ⬆️ tout en haut : même hauteur que les boutons du haut (How To Play…), sinon 6 px
+		local function topFor(k)
+			if not g.stickToTop then return 0 end
+			local want = math.huge
+			for _, r in ipairs(topButtonRects(VW, VH)) do
+				if r.x0 > (IS_TOUCH and HL.RobloxIconsWidth.touch or HL.RobloxIconsWidth.pc) - 1 then want = math.min(want, r.y0) end
+			end
+			if want == math.huge then want = 6 end
+			return want - visTop * u * k
+		end
+		local dy = topFor(1)
+		local a, b = room(minY * u + dy, maxY * u + dy)
 		local k = 1
-		if eL + eR > b - a then k = (b - a) / (eL + eR) end
+		if eL + eR > b - a then k = (b - a) / (eL + eR) ; dy = topFor(k) end
 		if k < (g.minScale or 0.75) then
 			-- pas assez de place à côté des boutons du haut : on passe JUSTE EN DESSOUS
 			local below = 0
 			for _, r in ipairs(topButtonRects(VW, VH)) do below = math.max(below, r.y1) end
-			dy = math.max(0, below + HL.TopGap - minY * u)
+			dy = below + HL.TopGap - visTop * u
 			a, b = room(minY * u + dy, maxY * u + dy)
 			k = math.min(1, (b - a) / (eL + eR))
 			k = math.max(k, 0.5)
@@ -62252,7 +62284,7 @@ local function layoutGroup(g, VW, VH, report)
 		local cx = math.clamp(VW / 2, a + eL * k, math.max(a + eL * k, b - eR * k))
 		for _, e in ipairs(live) do
 			local it = e.it
-			apply(e.fr, e.gui, cx + (it.x - REF_W / 2) * u * k, it.y * u * k + dy, it.w * u * k, it.h * u * k)
+			apply(e.fr, e.gui, cx + (it.x - REF_W / 2) * u * k, it.y * u * k + dy, it.w * u * k, it.h * u * k, true, VW)
 		end
 		if report then print(("[HudLayout] haut : écran %dx%d · place %d→%d · échelle %.2f · centre %d · décalage bas %d"):format(VW, VH, a, b, k, cx, dy)) end
 	else

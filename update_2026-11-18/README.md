@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v16) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v17) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v15** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v16** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v15).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v16).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v16.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v17.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v16.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v17.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v16… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v17… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v16`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v17`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,14 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v16 — placement des boutons FIABLE + 1er UGC déjà choisi
+## 🆕 NOUVEAU DANS LA v17 — trio + roulette tout en haut
+- Skip Obby · Current Stage · Skip Level · la roulette sont maintenant **collés tout en haut de l'écran**, à la **même hauteur que ⚙️ / How To Play / série de jours**. Le titre « Current Stage » qui dépasse du cadre est compté, donc il n'est jamais coupé.
+- **Pourquoi ils restaient plus bas :** Roblox mesure les positions de certains ScreenGui **sous** sa barre du haut. Le calcul les plaçait donc trop bas de la hauteur de cette barre. Le bloc du haut convertit maintenant correctement selon chaque ScreenGui.
+- Ils évitent toujours les boutons du haut. Sur PC ils restent centrés. Sur mobile (boutons du haut à droite), ils se décalent juste assez. S'il n'y a vraiment pas la place, ils passent juste en dessous.
+- **Le bloc de gauche ne bouge pas** (même place qu'en v16).
+- Pour revenir à la hauteur de ta disposition Studio : `HudLayout ▸ Groups ▸ top ▸ stickToTop = false`.
+
+## NOUVEAU DANS LA v16 — placement des boutons FIABLE + 1er UGC déjà choisi
 
 ### Ce qui n'allait pas (ta capture)
 - **Le trio du haut et la roulette** étaient réduits au minimum et coincés entre How To Play et la série de jours. Cause : pour éviter les icônes de Roblox, la v15 lisait une zone fournie par Roblox (`GuiService.TopbarInset`) qui ne donne pas ce qui était attendu. Elle « bloquait » presque toute la largeur, et le bloc rétrécissait jusqu'au minimum.
@@ -145,7 +152,7 @@ Tout le reste a été relu (popups admin, stats, favori, popup de départ, retou
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v16) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v17) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8
