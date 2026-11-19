@@ -2177,7 +2177,9 @@ local function buildFilterUI()
 			BackgroundTransparency = 1, Text = text, Font = Enum.Font.FredokaOne, TextScaled = true,
 			TextWrapped = false,   -- toujours sur UNE ligne : le texte rétrécit au lieu de se couper
 			TextColor3 = WHITE, ZIndex = Z + 5 }, btn)
-		mk("UITextSizeConstraint", { MaxTextSize = textSize, MinTextSize = 8 }, lbl)
+		-- MinTextSize = 1 : le mot rétrécit TOUJOURS assez pour tenir en entier (avec 8, Roblox
+		-- le COUPAIT quand la place manquait, ex. « Price: Low » sur mobile)
+		mk("UITextSizeConstraint", { MaxTextSize = textSize, MinTextSize = 1 }, lbl)
 		mk("UIPadding", { PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5) }, lbl)
 		outlined(lbl, 1.2)
 		local function recolor(c, txt)
@@ -2272,10 +2274,18 @@ local function buildFilterUI()
 	local function uiScaleValue()          -- bouton FILTER, message « aucun résultat »
 		return math.clamp(shopRatio(), 0.35, 1.3)
 	end
-	local function panelScaleValue()       -- panneau : jamais plus large que 45 % de la fenêtre
+	-- 📱 panneau : en général ≤ 45 % de la fenêtre, MAIS jamais moins de 250 px de large
+	--    (sinon les mots des boutons deviennent trop petits sur téléphone) ; dans tous les
+	--    cas ≤ 90 % de la fenêtre. Trop haut ? le contenu défile (déjà géré par place()).
+	local PANEL_MIN_ABS_W = 250
+	local function panelScaleValue()
 		local s = math.clamp(shopRatio(), 0.4, 1.3)
-		local maxW = ShopFrame.AbsoluteSize.X * 0.45
-		if maxW > 1 and 300 * s > maxW then s = maxW / 300 end
+		local shopW = ShopFrame.AbsoluteSize.X
+		if shopW <= 1 then return s end
+		local maxW = math.max(shopW * 0.45, PANEL_MIN_ABS_W)
+		if 300 * s > maxW then s = maxW / 300 end
+		if 300 * s < PANEL_MIN_ABS_W then s = PANEL_MIN_ABS_W / 300 end
+		if 300 * s > shopW * 0.9 then s = shopW * 0.9 / 300 end
 		return s
 	end
 	local function padActive()
