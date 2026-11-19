@@ -47,7 +47,12 @@ local function layoutGroup(g)
 		local gui = playerGui:FindFirstChild(it.gui)
 		local fr = gui and gui:FindFirstChild(it.frame)
 		if fr and fr:IsA("GuiObject") and gui:IsA("LayerCollector") then
-			table.insert(live, { fr = fr, gui = gui, d = designOf(fr, it.x) })
+			local d = designOf(fr, it.x)
+			-- 🛡️ un cadre qu'un autre script a envoyé HORS de l'écran (pour le cacher) est ignoré :
+			--    sinon le bloc paraissait immense et tout rétrécissait jusqu'à disparaître.
+			local onScreen = d.w > 0 and d.h > 0 and d.x > -REF_W * 0.25 and d.x < REF_W * 1.25
+				and d.y > -REF_H * 0.25 and d.y < REF_H * 1.25
+			if onScreen then table.insert(live, { fr = fr, gui = gui, d = d }) end
 		end
 	end
 	if #live == 0 then return end

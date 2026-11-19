@@ -48,8 +48,8 @@ M.Groups = {
 		maxWidth = 0.92,
 		items = {
 			{ gui = "Skip Obby",  frame = "Frameskiplevel" },
-			{ gui = "# Stage",    frame = "Frame" },    -- Current Stage (hors PvP)
-			{ gui = "# Stage",    frame = "Frame2" },   -- kills (en PvP)
+			{ gui = "# Stage",    frame = "Frame" },    -- Current Stage
+			-- (pas « # Stage ▸ Frame2 » : ArenaHUD la cache hors de l'écran et la remplace)
 			{ gui = "Skip Level", frame = "Frameskiplevel" },
 		},
 	},
