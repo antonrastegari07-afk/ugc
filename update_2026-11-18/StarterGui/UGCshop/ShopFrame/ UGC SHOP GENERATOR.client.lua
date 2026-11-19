@@ -333,48 +333,57 @@ local function closeAllFrames()
 	currentOpenFrame = nil
 end
 
-local function resetButtonColor(imgBtn)
-	if imgBtn and originalBtnColors[imgBtn] then
+-- 🎨 COULEUR DES CARTES : UNE seule fonction décide, pour TOUTES les cartes.
+--    🩹 Avant, la mise à jour du stock (envoyée par le serveur de temps en temps) remettait la
+--    couleur d'origine même sur la carte SÉLECTIONNÉE → le vert disparaissait tout seul ; et
+--    l'ancienne carte n'était pas toujours remise (épuisée / pas épuisée mal détecté).
+--    Maintenant : sélectionnée = vert, épuisée = gris, sinon couleur d'origine, et chaque
+--    changement repeint toutes les cartes (il y en a peu : rien de coûteux).
+local cardGray = {}   -- [imgBtn] = { stock = épuisé d'après le stock, inactive = désactivée }
+local function paintCard(imgBtn)
+	if not imgBtn then return end
+	local g = cardGray[imgBtn]
+	if imgBtn == currentActiveButton then
+		imgBtn.BackgroundColor3 = Color3.fromRGB(97, 194, 81)
+	elseif g and (g.stock or g.inactive) then
+		imgBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+	elseif originalBtnColors[imgBtn] then
 		imgBtn.BackgroundColor3 = originalBtnColors[imgBtn]
 	end
+end
+local function paintAllCards()
+	for _, b in pairs(scrollButtons) do paintCard(b) end
+end
+local function setCardGray(imgBtn, key, on)
+	if not imgBtn then return end
+	local g = cardGray[imgBtn]
+	if not g then g = {}; cardGray[imgBtn] = g end
+	g[key] = on == true
+	paintCard(imgBtn)
 end
 
 local function openFrame(frameName, imgBtn)
 	closeAllFrames()
-	if currentActiveButton then
-		local wasGray = false
-		for _, ugc in ipairs(UGC_CONFIG.Items) do
-			local btn = scrollButtons[ugc.ButtonName]
-			if btn == currentActiveButton and ugcStockState[ugc.ButtonName] == false then
-				wasGray = true
-				break
-			end
-		end
-		if wasGray then
-			currentActiveButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-		else
-			resetButtonColor(currentActiveButton)
-		end
-	end
 	local frameToOpen = SelectedFrame:FindFirstChild(frameName)
 	if frameToOpen then
 		frameToOpen.Visible     = true
 		currentOpenFrame        = frameToOpen
 		UGCUpdateLabel.Text     = frameName
-		imgBtn.BackgroundColor3 = Color3.fromRGB(97, 194, 81)
 		currentActiveButton     = imgBtn
 	else
 		warn("Frame '" .. frameName .. "' introuvable dans Selected!")
 		NoUGCSelected.Visible = true
 		UGCUpdateLabel.Text   = "No Selection"
+		currentActiveButton   = nil
 	end
+	paintAllCards()   -- l'ancienne carte perd TOUJOURS son vert, la nouvelle le prend
 end
 
 local function resetToNoSelection()
 	closeAllFrames()
 	if currentActiveButton then
-		resetButtonColor(currentActiveButton)
 		currentActiveButton = nil
+		paintAllCards()
 	end
 	NoUGCSelected.Visible = true
 	UGCUpdateLabel.Text   = "No Selection"
@@ -818,6 +827,7 @@ end
 local function setButtonStockState(buttonName, isActive, skipReorganize)
 	local wasActive = ugcStockState[buttonName]
 	ugcStockState[buttonName] = isActive
+	setCardGray(scrollButtons[buttonName], "inactive", isActive == false)
 	local outerFrame = buttonFrames[buttonName]
 	if not outerFrame then return end
 	attachGradient(outerFrame, not isActive)
@@ -1451,12 +1461,7 @@ local function updateStockLabel(assetId, cur, total)
 			})
 		end
 		if stroke then stroke.Color = STOCK_RED_DEEP end
-		if targetButtonName then
-			local imgBtn = scrollButtons[targetButtonName]
-			if imgBtn then
-				imgBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-			end
-		end
+		if targetButtonName then setCardGray(scrollButtons[targetButtonName], "stock", true) end
 	elseif max > 0 and cur <= max * 0.3 then
 		-- FAIBLE : gradient orange
 		if gradient then
@@ -1467,12 +1472,7 @@ local function updateStockLabel(assetId, cur, total)
 			})
 		end
 		if stroke then stroke.Color = STOCK_ORANGE_DEEP end
-		if targetButtonName then
-			local imgBtn = scrollButtons[targetButtonName]
-			if imgBtn and originalBtnColors[imgBtn] then
-				imgBtn.BackgroundColor3 = originalBtnColors[imgBtn]
-			end
-		end
+		if targetButtonName then setCardGray(scrollButtons[targetButtonName], "stock", false) end
 	else
 		-- OK : gradient vert
 		if gradient then
@@ -1483,12 +1483,7 @@ local function updateStockLabel(assetId, cur, total)
 			})
 		end
 		if stroke then stroke.Color = STOCK_GREEN_DEEP end
-		if targetButtonName then
-			local imgBtn = scrollButtons[targetButtonName]
-			if imgBtn and originalBtnColors[imgBtn] then
-				imgBtn.BackgroundColor3 = originalBtnColors[imgBtn]
-			end
-		end
+		if targetButtonName then setCardGray(scrollButtons[targetButtonName], "stock", false) end
 	end
 end
 

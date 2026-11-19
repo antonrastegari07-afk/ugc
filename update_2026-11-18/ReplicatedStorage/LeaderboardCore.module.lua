@@ -1284,17 +1284,18 @@ local function buildBoardUI(cfg, sg)
 		glass.Name = "Loupe"
 		glass.AnchorPoint = Vector2.new(0.5, 0)
 		glass.Position = UDim2.new(0.5, 0, 0, 0)
-		glass.Size = UDim2.new(0, 0, 0.7, 0)
+		-- 🩹 largeur PLEINE : la contrainte (FitWithinMaxSize) fait un carré QUI TIENT dans cette boîte.
+		--    Avec une largeur 0, le carré faisait 0 → seule la légende « FIND ME » restait visible.
+		glass.Size = UDim2.new(1, 0, 0.7, 0)
 		glass.BackgroundColor3 = dark
 		glass.BackgroundTransparency = 0.2
 		glass.Text = "🔍"
 		glass.TextScaled = true
 		glass.TextColor3 = Color3.new(1, 1, 1)
 		glass.Parent = find
-		-- 🩹 carré calé sur la HAUTEUR (une contrainte sur la largeur donnait un bouton invisible)
 		local far = Instance.new("UIAspectRatioConstraint", glass)
 		far.AspectRatio = 1
-		far.DominantAxis = Enum.DominantAxis.Height
+		far.AspectType = Enum.AspectType.FitWithinMaxSize
 		Instance.new("UICorner", glass).CornerRadius = UDim.new(1, 0)
 		local fs = Instance.new("UIStroke") ; fs.Color = accent ; fs.Thickness = 1.5 ; fs.Transparency = 0.5 ; fs.Parent = glass
 		local fp = Instance.new("UIPadding", glass) ; fp.PaddingTop = UDim.new(0.12, 0) ; fp.PaddingBottom = UDim.new(0.12, 0)

@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v7) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v8) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v6** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v7** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v6).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v7).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v7.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v8.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v7.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v8.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v7… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v8… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v7`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v8`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -47,7 +47,15 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v7 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v8 (tes derniers retours)
+
+| Ton retour | La cause | Ce qui est fait |
+|---|---|---|
+| Le vert de la carte UGC sélectionnée part tout seul après un moment | À chaque mise à jour du stock envoyée par le serveur, le script remettait la couleur d'origine sur la carte, **même si elle était sélectionnée**. | **Une seule fonction** décide la couleur de toutes les cartes : **sélectionnée = vert**, épuisée = gris, sinon la couleur d'origine. La mise à jour du stock ne peut plus enlever le vert. |
+| Le vert ne se remet pas toujours sur l'ancienne carte | L'ancienne carte était remise selon un test d'épuisement qui ne correspondait pas toujours à ce qui était affiché. | À chaque nouvelle sélection, **toutes les cartes sont repeintes** : l'ancienne perd toujours son vert. Il y a peu de cartes, donc ça ne coûte rien. |
+| On ne voit plus la loupe, juste « FIND ME » | Je lui avais donné une **largeur 0**. La contrainte de proportion la faisait tenir dans une boîte de largeur 0, donc un carré de 0 px. | La loupe prend toute la largeur disponible, et la contrainte en fait un **rond bien visible** au-dessus de « FIND ME ». |
+
+## NOUVEAU DANS LA v7
 
 | Ton retour | Ce qui est fait |
 |---|---|
