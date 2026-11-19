@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v18) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v19) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v17** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v18** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v17).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v18).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v18.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v19.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v18.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v19.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v18… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v19… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v18`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v19`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,22 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v18 — correctif : le bloc du haut ne dépasse plus
+## 🆕 NOUVEAU DANS LA v19
+### 📱 Mobile : le trio reste centré, les boutons se rapprochent
+- Sur mobile, les icônes Roblox à gauche sont **bien plus larges** que sur PC, et tes boutons How To Play / série sont à droite. En v18, le bloc se décalait alors d'un côté.
+- Maintenant **Current Stage reste TOUJOURS au centre** de l'écran. S'il manque de place :
+  1. la roulette passe du côté où il reste de la place, souvent **à gauche** du trio sur mobile, comme ton ancien script mobile ;
+  2. les boutons se **rapprochent entre eux** (espaces réduits) ;
+  3. en dernier recours, ils rétrécissent un peu (jamais sous 75 %, sinon ils passent juste sous les boutons du haut).
+- La largeur réelle des icônes Roblox est lue quand elle est cohérente, avec une valeur sûre sinon.
+- Simulé sur ta capture mobile : trio centré, roulette à gauche, taille **100 %**, rien ne se touche.
+- **PC : rien ne change** (centré, écarts d'origine, roulette à droite).
+
+### 🧪 La fenêtre « ARENA IS EMPTY » s'affiche en test Studio
+- Studio n'a pas de vrais serveurs, donc la fenêtre n'avait jamais de serveur à proposer.
+- `StudioTest = true` est maintenant activé par défaut : **en Studio seulement**, un faux serveur à 4 joueurs est utilisé. Entre en PvP seul et attends 7 s. Dans le vrai jeu, ce réglage ne fait rien.
+
+## NOUVEAU DANS LA v18 — correctif : le bloc du haut ne dépasse plus
 - En v17, le trio et la roulette **sortaient par le haut de l'écran**.
 - **La cause :** Roblox donne **toutes** les positions (`AbsolutePosition`) à partir du **dessous** de sa barre du haut, même pour une interface qui couvre cette barre. La v17 mesurait les boutons How To Play / ⚙️ environ 58 px trop haut et alignait le bloc dessus.
 - **La correction :** une seule règle, valable partout : position à l'écran = `AbsolutePosition` + `GetGuiInset()`. Les deux erreurs vues sur tes captures (v16 trop bas, v17 trop haut) viennent toutes les deux de ce point. Elles sont corrigées ensemble.
@@ -107,7 +122,7 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
   - La souris est libérée même avec une arme en main.
   - À la manette, FIND SERVERS est sélectionné et B ferme.
 - `1v1 cross server local` reçoit un petit ajout : un `BindableEvent` « Open » pour ouvrir le panneau depuis un autre script. Rien d'autre ne change.
-- **Tester dans Studio :** il n'y a pas de vrais serveurs en Studio. Mets `StudioTest = true` en haut de `EmptyArenaPrompt` pour voir la fenêtre, puis remets `false` avant de publier.
+- **Tester dans Studio :** `StudioTest = true` (par défaut depuis la v19) affiche la fenêtre en Studio avec un faux serveur. Dans le vrai jeu, ce réglage n'a aucun effet.
 
 ## NOUVEAU DANS LA v14 — correctif
 - **Les 3 boutons du haut (Skip Obby · Current Stage · Skip Level) avaient disparu en v13.**
@@ -158,7 +173,7 @@ Tout le reste a été relu (popups admin, stats, favori, popup de départ, retou
 |---|---|
 | Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
 | Couleur du bouton FILTER | *(Le bleu ciel 95, 216, 253 était trop clair : on est revenu au bleu d'avant, 55, 150, 240.)* |
-| (v18) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
+| (v19) On pouvait cliquer sur ce qui est derrière le panneau | Un **bouclier invisible** couvre le panneau quand il est ouvert : un clic dessus ne touche plus jamais les cartes ou boutons du shop derrière. |
 | La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
 
 ## NOUVEAU DANS LA v8

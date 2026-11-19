@@ -52,15 +52,19 @@ M.Groups = {
 		maxWidth = 0.92,
 		avoidTopButtons = true,
 		minScale = 0.75,   -- jamais plus petit ; sinon le bloc passe sous les boutons du haut
+		-- ⭐ Current Stage reste au centre ; s'il manque de place, les boutons se RAPPROCHENT
+		--    (espaces réduits), la roulette peut passer à gauche, puis ils rétrécissent un peu.
 		-- ⬆️ collé TOUT EN HAUT de l'écran, à la même hauteur que How To Play / ⚙️ / série
 		--    (false = la hauteur de ta disposition Studio)
 		stickToTop = true,
 		items = {
 			{ gui = "Skip Obby",  frame = "Frameskiplevel", x = 659,  y = 54, w = 138, h = 67  },
 			-- over = ce qui dépasse AU-DESSUS du cadre (le titre « Current Stage »)
-			{ gui = "# Stage",    frame = "Frame",          x = 818,  y = 37, w = 276, h = 101, over = 24 },
+			-- anchor = reste au CENTRE de l'écran ; over = ce qui dépasse au-dessus (titre)
+			{ gui = "# Stage",    frame = "Frame",          x = 818,  y = 37, w = 276, h = 101, over = 24, anchor = true },
 			{ gui = "Skip Level", frame = "Frameskiplevel", x = 1110, y = 53, w = 148, h = 71  },
-			{ gui = "dailyspin",  frame = "Frame",          x = 1340, y = 26, w = 168, h = 166 },  -- 🎡 roulette
+			-- flex = peut passer à GAUCHE du trio s'il n'y a plus de place à droite (mobile)
+			{ gui = "dailyspin",  frame = "Frame",          x = 1340, y = 26, w = 168, h = 166, flex = true },  -- 🎡 roulette
 		},
 		-- (pas « # Stage ▸ Frame2 » : ArenaHUD la cache hors de l'écran et la remplace)
 	},

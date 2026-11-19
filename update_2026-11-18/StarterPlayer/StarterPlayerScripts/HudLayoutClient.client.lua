@@ -41,8 +41,16 @@ end
 -- 🚧 boutons du haut (coordonnées ÉCRAN) : seulement de VRAIS boutons, visibles, de taille normale
 local function topButtonRects(VW, VH)
 	local rects = {}
+	-- icônes Roblox en haut à gauche : leur largeur réelle (TopbarInset.Min.X) si elle est
+	-- raisonnable (sur mobile elles sont bien plus larges que sur PC), sinon une valeur sûre
 	local coreW = IS_TOUCH and HL.RobloxIconsWidth.touch or HL.RobloxIconsWidth.pc
-	table.insert(rects, { x0 = 0, x1 = coreW, y0 = 0, y1 = 48 })   -- icônes Roblox (haut gauche)
+	local coreH = 48
+	local okI, ti = pcall(function() return GuiService.TopbarInset end)
+	if okI and typeof(ti) == "Rect" and ti.Min.X > 20 and ti.Min.X < VW * 0.45 then
+		coreW = math.max(coreW, ti.Min.X)
+		if ti.Max.Y > 20 and ti.Max.Y < VH * 0.25 then coreH = math.max(coreH, ti.Max.Y) end
+	end
+	table.insert(rects, { x0 = 0, x1 = coreW, y0 = 0, y1 = coreH })
 	for _, name in ipairs(HL.TopButtonGuis or {}) do
 		local g = playerGui:FindFirstChild(name)
 		if g and g:IsA("LayerCollector") and g.Enabled then
@@ -96,10 +104,82 @@ local function layoutGroup(g, VW, VH, report)
 	end
 
 	if g.anchor == "center" then
-		local eL, eR = (REF_W / 2 - minX) * u, (maxX - REF_W / 2) * u
-		-- haut VISIBLE du bloc (titres qui dépassent compris)
+		-- ⭐ Current Stage (anchor) reste TOUJOURS au centre de l'écran. S'il manque de place,
+		--    les boutons se RAPPROCHENT entre eux (espaces réduits), puis rétrécissent un peu ;
+		--    la roulette (flex) peut passer du côté où il reste de la place.
+		local anchorE, others, flexE = nil, {}, nil
+		for _, e in ipairs(live) do
+			if e.it.anchor then anchorE = e elseif e.it.flex then flexE = e else table.insert(others, e) end
+		end
+		anchorE = anchorE or live[1]
+		local A = anchorE.it
+		local acx = A.x + A.w / 2
 		local visTop = math.huge
 		for _, e in ipairs(live) do visTop = math.min(visTop, e.it.y - (e.it.over or 0)) end
+		local GMIN = 0.15
+
+		-- une disposition = liste gauche + liste droite (du plus proche au plus loin), avec les écarts
+		local function chain(list, side)
+			table.sort(list, function(p, q)
+				local dp, dq = math.abs(p.it.x + p.it.w / 2 - acx), math.abs(q.it.x + q.it.w / 2 - acx)
+				return dp < dq
+			end)
+			local out, prevEdge = {}, (side < 0) and A.x or (A.x + A.w)
+			for _, e in ipairs(list) do
+				local gap = (side < 0) and (prevEdge - (e.it.x + e.it.w)) or (e.it.x - prevEdge)
+				table.insert(out, { e = e, gap = math.max(0, gap) })
+				prevEdge = (side < 0) and e.it.x or (e.it.x + e.it.w)
+			end
+			return out
+		end
+		local baseL, baseR = {}, {}
+		for _, e in ipairs(others) do
+			if e.it.x + e.it.w / 2 < acx then table.insert(baseL, e) else table.insert(baseR, e) end
+		end
+		local configs = {}
+		local function addConfig(flexSide)
+			local L, R = table.clone(baseL), table.clone(baseR)
+			local cl, cr = chain(L, -1), chain(R, 1)
+			if flexE then
+				local ownGap = flexE.it.x - (function()   -- écart d'origine avec son voisin
+					local far = A.x + A.w
+					for _, e in ipairs(baseR) do far = math.max(far, e.it.x + e.it.w) end
+					return far
+				end)()
+				ownGap = math.max(0, ownGap)
+				table.insert(flexSide < 0 and cl or cr, { e = flexE, gap = ownGap })
+			end
+			table.insert(configs, { L = cl, R = cr, design = flexSide > 0 })
+		end
+		addConfig(1)
+		if flexE then addConfig(-1) end
+
+		local function extent(list)   -- largeur fixe (boutons) et largeur des écarts, en px design
+			local w, gp = A.w / 2, 0
+			for _, c in ipairs(list) do w += c.e.it.w ; gp += c.gap end
+			return w, gp
+		end
+		local function solve(cfg, a, b)
+			local availL, availR = (VW / 2 - a) / u, (b - VW / 2) / u
+			local wL, gL = extent(cfg.L)
+			local wR, gR = extent(cfg.R)
+			local gsc = 1
+			if gL > 0 and wL + gL > availL then gsc = math.min(gsc, (availL - wL) / gL) end
+			if gR > 0 and wR + gR > availR then gsc = math.min(gsc, (availR - wR) / gR) end
+			gsc = math.clamp(gsc, GMIN, 1)
+			local k = math.min(1, availL / (wL + gL * gsc), availR / (wR + gR * gsc))
+			return math.max(k, 0.05), gsc
+		end
+		local function topFor(k)
+			if not g.stickToTop then return 0 end
+			local want = math.huge
+			local coreW = IS_TOUCH and HL.RobloxIconsWidth.touch or HL.RobloxIconsWidth.pc
+			for _, r in ipairs(topButtonRects(VW, VH)) do
+				if r.x0 > coreW - 1 then want = math.min(want, r.y0) end
+			end
+			if want == math.huge then want = 6 end
+			return want - visTop * u * k
+		end
 		local margin = VW * (1 - g.maxWidth) / 2
 		local function room(top, bottom)
 			local a, b = margin, VW - margin
@@ -111,37 +191,53 @@ local function layoutGroup(g, VW, VH, report)
 					end
 				end
 			end
-			return a, b
+			return math.min(a, VW / 2 - 1), math.max(b, VW / 2 + 1)
 		end
-		-- ⬆️ tout en haut : même hauteur que les boutons du haut (How To Play…), sinon 6 px
-		local function topFor(k)
-			if not g.stickToTop then return 0 end
-			local want = math.huge
-			for _, r in ipairs(topButtonRects(VW, VH)) do
-				if r.x0 > (IS_TOUCH and HL.RobloxIconsWidth.touch or HL.RobloxIconsWidth.pc) - 1 then want = math.min(want, r.y0) end
+		local function best(dy)
+			local a, b = room(minY * u + dy, maxY * u + dy)
+			local pick, pk, pg
+			for _, cfg in ipairs(configs) do
+				local k, gsc = solve(cfg, a, b)
+				-- on garde la disposition d'origine (roulette à droite) tant qu'elle tient aussi bien
+				if not pick or k > pk + 0.01 or (math.abs(k - pk) <= 0.01 and gsc > pg + 0.05) then pick, pk, pg = cfg, k, gsc end
 			end
-			if want == math.huge then want = 6 end
-			return want - visTop * u * k
+			return pick, pk, pg, a, b
 		end
 		local dy = topFor(1)
-		local a, b = room(minY * u + dy, maxY * u + dy)
-		local k = 1
-		if eL + eR > b - a then k = (b - a) / (eL + eR) ; dy = topFor(k) end
+		local cfg, k, gsc, a, b = best(dy)
+		dy = topFor(k)
 		if k < (g.minScale or 0.75) then
-			-- pas assez de place à côté des boutons du haut : on passe JUSTE EN DESSOUS
+			-- vraiment pas la place à côté des boutons du haut : on passe JUSTE EN DESSOUS
 			local below = 0
 			for _, r in ipairs(topButtonRects(VW, VH)) do below = math.max(below, r.y1) end
 			dy = below + HL.TopGap - visTop * u
-			a, b = room(minY * u + dy, maxY * u + dy)
-			k = math.min(1, (b - a) / (eL + eR))
+			cfg, k, gsc, a, b = best(dy)
 			k = math.max(k, 0.5)
+			dy = below + HL.TopGap - visTop * u * k
 		end
-		local cx = math.clamp(VW / 2, a + eL * k, math.max(a + eL * k, b - eR * k))
-		for _, e in ipairs(live) do
+
+		-- placement : ancre au centre, puis chaque côté vers l'extérieur
+		local function place(e, sx)
 			local it = e.it
-			apply(e.fr, e.gui, cx + (it.x - REF_W / 2) * u * k, it.y * u * k + dy, it.w * u * k, it.h * u * k, true, VW)
+			apply(e.fr, e.gui, sx, it.y * u * k + dy, it.w * u * k, it.h * u * k, true, VW)
 		end
-		if report then print(("[HudLayout] haut : écran %dx%d · place %d→%d · échelle %.2f · centre %d · décalage bas %d"):format(VW, VH, a, b, k, cx, dy)) end
+		local ax = VW / 2 - A.w * u * k / 2
+		place(anchorE, ax)
+		local cur = ax
+		for _, c in ipairs(cfg.L) do
+			cur -= c.gap * gsc * u * k + c.e.it.w * u * k
+			place(c.e, cur)
+		end
+		cur = ax + A.w * u * k
+		for _, c in ipairs(cfg.R) do
+			cur += c.gap * gsc * u * k
+			place(c.e, cur)
+			cur += c.e.it.w * u * k
+		end
+		if report then
+			print(("[HudLayout] haut : écran %dx%d · place %d→%d · échelle %.2f · écarts %.0f%% · roulette %s · haut %d")
+				:format(VW, VH, a, b, k, gsc * 100, cfg.design and "à droite" or "à gauche", dy))
+		end
 	else
 		local k = 1
 		local right = maxX * u

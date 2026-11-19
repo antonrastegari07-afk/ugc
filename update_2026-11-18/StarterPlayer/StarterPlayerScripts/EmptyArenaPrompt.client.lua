@@ -26,9 +26,10 @@ local CONFIG = {
 	Cooldown         = 150,   -- s minimum entre deux fenêtres
 	AfterTeleport    = 90,    -- s sans fenêtre après être arrivé par le panneau des serveurs
 	AutoClose        = 25,    -- s : la fenêtre se ferme toute seule
-	-- 🧪 Studio : la liste des serveurs est toujours vide (pas de vrais serveurs). Mets true
-	--    pour VOIR la fenêtre en Studio (un faux serveur à 4 joueurs est utilisé).
-	StudioTest       = false,
+	-- 🧪 Studio : il n'y a pas de vrais serveurs, donc la fenêtre ne pourrait jamais s'afficher.
+	--    true = en STUDIO SEULEMENT, un faux serveur à 4 joueurs est utilisé pour que tu la voies
+	--    (entre en PvP seul, attends DELAY secondes). Dans le vrai jeu, ce réglage ne fait RIEN.
+	StudioTest       = true,
 }
 if not CONFIG.Enabled then return end
 
