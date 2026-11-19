@@ -1093,7 +1093,7 @@ function ListView:render(list)
 	if not self.scroll or not self.scroll.Parent then return end
 	self.lastList = list
 	local cfg = self.cfg
-	local n   = math.min(#list, cfg.topSize)
+	local n   = math.min(#list, cfg.topSize + (tonumber(list.extra) or 0))   -- extra : ta ligne « -- » (FIND ME)
 
 	if n == 0 then
 		self:showEmpty(cfg.emptyText)
@@ -1274,7 +1274,7 @@ local function buildBoardUI(cfg, sg)
 		find.Name = "FindMe"
 		find.AnchorPoint = Vector2.new(1, 0.5)
 		find.Position = UDim2.new(0.988, 0, 0.5, 0)
-		find.Size = UDim2.new(0.06, 0, 0.6, 0)
+		find.Size = UDim2.new(0.09, 0, 0.84, 0)   -- plus grosse (avant : 0,6 de la hauteur)
 		find.BackgroundColor3 = dark
 		find.BackgroundTransparency = 0.2
 		find.AutoButtonColor = true
@@ -1288,7 +1288,7 @@ local function buildBoardUI(cfg, sg)
 		far.DominantAxis = Enum.DominantAxis.Height
 		Instance.new("UICorner", find).CornerRadius = UDim.new(1, 0)
 		local fs = Instance.new("UIStroke") ; fs.Color = accent ; fs.Thickness = 1.5 ; fs.Transparency = 0.5 ; fs.Parent = find
-		local fp = Instance.new("UIPadding", find) ; fp.PaddingTop = UDim.new(0.2, 0) ; fp.PaddingBottom = UDim.new(0.2, 0)
+		local fp = Instance.new("UIPadding", find) ; fp.PaddingTop = UDim.new(0.1, 0) ; fp.PaddingBottom = UDim.new(0.1, 0)
 
 		tabs = {
 			all = allB, friends = frB, findMe = find, frL = frB, friendsText = "FRIENDS",
@@ -1832,7 +1832,22 @@ function Core.mount(cfg)
 				b.view:render(out)
 			end
 		else
-			b.view:render(ctx.data)
+			-- 🔍 FIND ME alors que tu n'es pas dans le top : ta ligne « -- » sous le dernier
+			local me = LocalPlayer and LocalPlayer.UserId
+			local inList = false
+			if b.meExtra and me then
+				for _, e in ipairs(ctx.data) do if e.userId == me then inList = true break end end
+			end
+			if b.meExtra and me and not inList then
+				local out = table.clone(ctx.data)
+				local v = friendVals[me]
+				table.insert(out, { userId = me, name = LocalPlayer.DisplayName, [cfg.valueKey] = v or 0,
+					noRank = true, pending = (v == nil) and BOARD_KEY ~= nil, _ord = 1, rank = 9999 })
+				out.extra = 1
+				b.view:render(out)
+			else
+				b.view:render(ctx.data)
+			end
 		end
 		updateYou(b)
 	end
@@ -1846,15 +1861,71 @@ function Core.mount(cfg)
 		end
 	end
 
-	-- 🔍 FIND ME : fait défiler jusqu'à ta ligne et la fait clignoter
+	-- 🔍 FIND ME : fait défiler jusqu'à ta ligne et la fait clignoter.
+	--    Pas dans le top ? Un message le dit, ta ligne « -- » est ajoutée SOUS le dernier avec ton
+	--    score (lu dans le même classement), et on descend jusqu'à elle : tu vois l'écart avec le dernier.
 	local FIND_GLOW = { base = {0.45, 0.62, 0.78}, amp = {0.35, 0.25, 0.15}, speed = 7 }
-	local function findMe(b)
+	local myValAt, myValBusy = -1e9, false
+	local function fetchMine(done)
+		local me = LocalPlayer and LocalPlayer.UserId
+		if not BOARD_KEY or not me then return end
+		if friendVals[me] ~= nil and os.clock() - myValAt < 60 then return end
+		if myValBusy then return end
+		local fn = ReplicatedStorage:FindFirstChild("GetFriendsBoardValues")
+		if not fn then return end
+		myValBusy = true
+		task.spawn(function()
+			for _ = 1, 2 do
+				local ok, r = pcall(function() return fn:InvokeServer(BOARD_KEY, { me }) end)
+				if ok and type(r) == "table" and not r.throttled then
+					local v = r[tostring(me)]
+					if type(v) == "number" then friendVals[me] = v ; myValAt = os.clock() end
+					break
+				end
+				task.wait(3.2)
+			end
+			myValBusy = false
+			done()
+		end)
+	end
+	local function toast(b, text)
+		local host = b.content or b.main
+		if not (host and host.Parent) then return end
+		local old = host:FindFirstChild("FindMeToast")
+		if old then old:Destroy() end
+		local t = Instance.new("TextLabel")
+		t.Name = "FindMeToast"
+		t.AnchorPoint = Vector2.new(0.5, 0)
+		t.Position = UDim2.new(0.5, 0, 0.02, 0)
+		t.Size = UDim2.new(0.9, 0, 0.075, 0)
+		t.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+		t.BackgroundTransparency = 0.15
+		t.BorderSizePixel = 0
+		t.Font = Enum.Font.FredokaOne
+		t.TextScaled = true
+		t.TextColor3 = Color3.new(1, 1, 1)
+		t.Text = text
+		t.ZIndex = 50
+		t.Parent = host
+		Instance.new("UICorner", t).CornerRadius = UDim.new(1, 0)
+		local c = Instance.new("UITextSizeConstraint", t) ; c.MaxTextSize = 30
+		local pd = Instance.new("UIPadding", t) ; pd.PaddingTop = UDim.new(0.18, 0) ; pd.PaddingBottom = UDim.new(0.18, 0)
+		local st = Instance.new("UIStroke") ; st.Color = ME_COLOR ; st.Thickness = 2 ; st.Transparency = 0.2 ; st.Parent = t
+		task.delay(3.2, function()
+			if not t.Parent then return end
+			TweenService:Create(t, TweenInfo.new(0.4), { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
+			TweenService:Create(st, TweenInfo.new(0.4), { Transparency = 1 }):Play()
+			task.delay(0.45, function() if t.Parent then t:Destroy() end end)
+		end)
+	end
+	local function scrollToMe(b)
 		local me = LocalPlayer and LocalPlayer.UserId
 		for _, E in ipairs(b.view.entries) do
 			if E.data and E.data.userId == me and E.holder.Parent then
 				local sc = b.scroll
 				local y = E.holder.AbsolutePosition.Y - sc.AbsolutePosition.Y + sc.CanvasPosition.Y
-				local target = math.max(0, y - (sc.AbsoluteWindowSize.Y - E.holder.AbsoluteSize.Y) / 2)
+				local maxY = math.max(0, sc.AbsoluteCanvasSize.Y - sc.AbsoluteWindowSize.Y)
+				local target = math.clamp(y - (sc.AbsoluteWindowSize.Y - E.holder.AbsoluteSize.Y) / 2, 0, maxY)
 				TweenService:Create(sc, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
 					{ CanvasPosition = Vector2.new(0, target) }):Play()
 				E.glowState.preset, E.glowState.color = FIND_GLOW, ME_COLOR
@@ -1863,8 +1934,27 @@ function Core.mount(cfg)
 						E.glowState.preset, E.glowState.color = SELF_GLOW, SELF_BLUE
 					end
 				end)
-				return
+				return true
 			end
+		end
+		return false
+	end
+	local function findMe(b)
+		if scrollToMe(b) then return end
+		if b.filter == "all" and TABS and ctx.data and LocalPlayer then
+			toast(b, string.format("You're not in the top %d yet — your score is at the bottom",
+				math.min(#ctx.data, cfg.topSize)))
+			b.meExtra = true
+			renderBoard(b)
+			fetchMine(function()
+				if b.meExtra and b.filter == "all" and b.scroll.Parent then renderBoard(b) end
+			end)
+			task.spawn(function()
+				-- deux images : le temps que la nouvelle ligne soit placée par le UIListLayout
+				RunService.Heartbeat:Wait() ; RunService.Heartbeat:Wait()
+				if b.scroll.Parent then scrollToMe(b) end
+			end)
+			return
 		end
 		-- pas dans la liste : ta ligne en bas clignote (elle dit où tu en es)
 		if b.youRow and b.youRow.Parent then
@@ -2069,13 +2159,13 @@ function Core.mount(cfg)
 			end
 			t.all.Activated:Connect(function()
 				if b.filter == "all" then return end
-				b.filter = "all" ; paint()
+				b.filter = "all" ; b.meExtra = nil ; paint()
 				b.scroll.CanvasPosition = Vector2.zero
 				renderBoard(b)
 			end)
 			t.friends.Activated:Connect(function()
 				if b.filter == "friends" then return end
-				b.filter = "friends" ; paint()
+				b.filter = "friends" ; b.meExtra = nil ; paint()
 				b.scroll.CanvasPosition = Vector2.zero
 				t.frL.Text = "…"
 				withFriends(function()

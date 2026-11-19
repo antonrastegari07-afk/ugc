@@ -5406,8 +5406,8 @@ function WeaponController.Setup(tool, userConfig)
 	end
 	local function fireRocketVolley()
 		ConsecutiveShots += 1
-		Receiver:FireServer("PlaySound", cfg.Sounds.Fire)
-		Receiver:FireServer("Flash", true, ConsecutiveShots)   -- gros flash de bouche (autres joueurs)
+		-- ⚡ son du tir + flash en UN seul envoi (le serveur joue le son en recevant le flash)
+		Receiver:FireServer("Flash", true, ConsecutiveShots, cfg.Sounds.Fire)   -- gros flash de bouche (autres joueurs)
 		AddRecoilKick()
 		Extra.recordVisualShot()
 		if Aiming and not Extra.freezeAim() then
@@ -5487,8 +5487,7 @@ function WeaponController.Setup(tool, userConfig)
 			Spread = math.min(cfg.MaxSpread, Spread + cfg.AimInaccuracyStepAmount); UpdateCrosshair(Spread)
 		end
 		DecreasedAimLastShot = not DecreasedAimLastShot
-		Receiver:FireServer("PlaySound", cfg.Sounds.Fire)
-		Receiver:FireServer("Flash", true, ConsecutiveShots)
+		Receiver:FireServer("Flash", true, ConsecutiveShots, cfg.Sounds.Fire)   -- ⚡ son + flash en un envoi
 		AddRecoilKick()
 		Extra.recordVisualShot()
 		if Aiming and not Extra.freezeAim() then

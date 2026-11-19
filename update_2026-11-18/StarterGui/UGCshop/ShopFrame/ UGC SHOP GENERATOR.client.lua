@@ -677,7 +677,7 @@ end
 -- ============================================================
 local SF = {
 	f = { avail = false, sold = false, low = false, owned = false, notOwned = false, new = false, types = {} },
-	sort = "default",   -- default · price_desc · price_asc · stock_desc · stock_asc
+	sort = "default",   -- default · price_desc · price_asc · left_desc · left_asc (stock RESTANT)
 	cur = {},           -- [assetId] = stock restant (rempli par la logique de stock)
 	total = {},         -- [assetId] = stock total
 	ownedMap = {},      -- [assetId] = true/false (lu une fois sur Roblox)
@@ -711,8 +711,10 @@ function SF.pass(ugc)
 	if f.new and not SF.isNew(ugc) then return false end
 	return true
 end
-local function totalStockOf(ugc)
-	return SF.total[ugc.AssetId] or ugc.InitialStock or 0
+-- stock RESTANT (ce qu'on peut encore acheter) ; épuisé = 0 ; inconnu = nil (rangé à la fin)
+local function leftStockOf(ugc)
+	if ugcStockState[ugc.ButtonName] == false then return 0 end
+	return SF.cur[ugc.AssetId]
 end
 -- Filtre + tri de la liste prête à afficher (les UGC filtrés sont cachés)
 function SF.apply(list)
@@ -731,9 +733,13 @@ function SF.apply(list)
 		table.sort(out, function(a, b)
 			local ka, kb
 			if s == "price_desc" or s == "price_asc" then ka, kb = a.Price or 0, b.Price or 0
-			else ka, kb = totalStockOf(a), totalStockOf(b) end
+			else ka, kb = leftStockOf(a), leftStockOf(b) end
+			if ka == nil or kb == nil then   -- stock pas encore connu : à la fin, dans l'ordre du shop
+				if (ka == nil) ~= (kb == nil) then return kb == nil end
+				return rank[a] < rank[b]
+			end
 			if ka ~= kb then
-				if s == "price_desc" or s == "stock_desc" then return ka > kb end
+				if s == "price_desc" or s == "left_desc" then return ka > kb end
 				return ka < kb
 			end
 			return rank[a] < rank[b]   -- à égalité : l'ordre du shop
@@ -2050,31 +2056,35 @@ task.spawn(function()
 end)
 
 --════════════════════════════════════════════════════════════
--- 🔎 BOUTON FILTER + LISTE DÉROULANTE DE FILTRE / TRI   (NOUVEAU, v3)
---   • Bouton PLAT (même style que les boutons de cette fenêtre : pas de socle,
---     pas d'effet d'enfoncement). Son bord droit est ALIGNÉ sur le bord droit de
---     la carte la plus à droite (recalculé si l'écran change).
---   • Un clic DÉROULE une liste sous le bouton ; un 2e clic la REMBOBINE.
---     La liste défile ; CANCEL / RESET / APPLY sont tout en bas. Pas de contour.
---   • Choix contraires impossibles ensemble : un seul parmi Available / Low stock /
---     Sold out, un seul parmi Owned / Not owned, un seul tri. Re-cliquer un choix
---     déjà pris le retire.
---   • Filtres actifs : bouton en JAUNE « FILTER (2) » + pastilles au-dessus de la
---     grille (X = retirer, RESET ALL = tout effacer). Tout est en anglais.
+-- 🔎 BOUTON FILTER + LISTE DÉROULANTE DE FILTRE / TRI   (NOUVEAU, v4)
+--   • Bouton PLAT, bord droit ALIGNÉ sur la carte la plus à droite.
+--   • UNE seule liste : chaque choix est une rangée pleine largeur, les plus
+--     utiles en premier. On n'en voit qu'une partie : le reste en faisant défiler.
+--   • « Type » déroule SA sous-liste juste en dessous de lui (re-clic = la rembobine),
+--     et la liste défile toute seule pour la montrer.
+--   • Choix contraires impossibles ensemble : Available / Low stock / Sold out
+--     (un seul), Owned / Not owned (un seul), un seul tri. Prendre l'un retire
+--     l'autre, et les choix contraires sont grisés.
+--   • Tri « Stock left » = stock RESTANT (pas le stock total).
+--   • CANCEL · RESET · APPLY sont SOUS la liste : ils glissent de derrière elle quand
+--     elle se déroule et repartent derrière quand elle se rembobine.
+--   • Couleurs : le bleu du bouton, en sobre (fond bleu nuit, accents bleus).
 --   Aucun appel au serveur du jeu, aucun DataStore.
 --════════════════════════════════════════════════════════════
 do
 	local WHITE  = Color3.new(1, 1, 1)
-	local BLUE   = Color3.fromRGB(35, 140, 235)
-	local YELLOW = Color3.fromRGB(240, 170, 30)
-	local DARK   = Color3.fromRGB(14, 16, 24)
-	local OFF    = Color3.fromRGB(44, 48, 64)
-	local SUB    = Color3.fromRGB(165, 175, 192)
-	local GREEN  = Color3.fromRGB(40, 185, 80)
-	local RED    = Color3.fromRGB(225, 60, 60)
-	local GREY   = Color3.fromRGB(88, 94, 112)
+	local BLUE   = Color3.fromRGB(35, 140, 235)    -- = le bouton FILTER
+	local YELLOW = Color3.fromRGB(240, 170, 30)    -- bouton quand des filtres sont actifs
+	local NAVY   = Color3.fromRGB(16, 30, 52)      -- fond de la liste (bleu nuit)
+	local NAVY2  = Color3.fromRGB(24, 44, 74)      -- rangée survolée / sous-liste
+	local LINE   = Color3.fromRGB(60, 92, 135)     -- séparateurs, cases vides
+	local TXT    = Color3.fromRGB(206, 222, 242)   -- texte d'une rangée non choisie
+	local DIM    = Color3.fromRGB(110, 130, 160)   -- choix contraire (grisé)
+	local BTN2   = Color3.fromRGB(30, 56, 92)      -- CANCEL / RESET (sobres)
+	local OFF    = Color3.fromRGB(44, 62, 92)      -- pastilles
+	local RED    = Color3.fromRGB(205, 70, 70)
 	local Z = 40
-	local SYM = Enum.Font.SourceSansBold   -- FredokaOne n'a pas ▼ (comme pour le ♥)
+	local SYM = Enum.Font.SourceSansBold   -- FredokaOne n'a pas ▼ ▸
 
 	local function mk(class, props, parent)
 		local o = Instance.new(class)
@@ -2084,12 +2094,10 @@ do
 		return o
 	end
 	local function round(o, r) mk("UICorner", { CornerRadius = UDim.new(0, r or 10) }, o) end
-	-- texte blanc avec contour sombre (comme « ??? pts » et les autres textes de la fenêtre)
 	local function outlined(lbl, t)
 		mk("UIStroke", { Color = Color3.fromRGB(20, 20, 30), Thickness = t or 1.5,
 			ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual }, lbl)
 	end
-	-- bouton plat
 	local function flatButton(parent, text, color, size, textSize, props)
 		local b = mk("TextButton", { Size = size, BackgroundColor3 = color, AutoButtonColor = true,
 			BorderSizePixel = 0, Text = text, Font = Enum.Font.FredokaOne, TextSize = textSize,
@@ -2109,17 +2117,28 @@ do
 		[70] = "Shoes", [71] = "Shoes", [76] = "Face", [77] = "Face",
 	}
 	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
-	-- groupes EXCLUSIFS (un seul choix) : les options contraires ne peuvent pas aller ensemble
-	local STOCK_GROUP = { { "avail", "Available" }, { "low", "Low stock" }, { "sold", "Sold out" } }
-	local OWN_GROUP   = { { "owned", "Owned" }, { "notOwned", "Not owned" } }
+	-- groupes EXCLUSIFS
+	local GROUP_OF = { avail = "stock", low = "stock", sold = "stock", owned = "own", notOwned = "own" }
+	local GROUPS = { stock = { "avail", "low", "sold" }, own = { "owned", "notOwned" } }
 	local FLAG_LABEL = { avail = "Available", low = "Low stock", sold = "Sold out",
 		owned = "Owned", notOwned = "Not owned", new = "New" }
-	local SORTS = {
-		{ id = "default",    label = "Default" },
-		{ id = "price_desc", label = "Price: High" },
-		{ id = "price_asc",  label = "Price: Low" },
-		{ id = "stock_desc", label = "Stock: Most" },
-		{ id = "stock_asc",  label = "Stock: Least" },
+	local SORT_LABEL = {
+		price_desc = "Price: High to Low", price_asc = "Price: Low to High",
+		left_asc = "Stock left: Least", left_desc = "Stock left: Most",
+	}
+	-- 📋 ordre de la liste : les plus utiles en premier
+	local ROWS = {
+		{ kind = "flag", id = "avail" },
+		{ kind = "flag", id = "notOwned" },
+		{ kind = "flag", id = "new" },
+		{ kind = "sort", id = "price_asc" },
+		{ kind = "sort", id = "price_desc" },
+		{ kind = "sort", id = "left_asc" },
+		{ kind = "sort", id = "left_desc" },
+		{ kind = "type" },
+		{ kind = "flag", id = "low" },
+		{ kind = "flag", id = "sold" },
+		{ kind = "flag", id = "owned" },
 	}
 
 	-- lectures Roblox (une seule fois, 4 à la fois max)
@@ -2208,22 +2227,37 @@ do
 		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 40) })
 	local emptyScale = mk("UIScale", {}, empty)
 
-	-- ── liste déroulante (sans contour) ─────────────────────
-	local LIST_W = 300
-	local drop = mk("Frame", { Name = "FilterDropdown", AnchorPoint = Vector2.new(1, 0),
-		Size = UDim2.fromOffset(LIST_W, 0), BackgroundColor3 = DARK, BackgroundTransparency = 0.08,
+	-- ── la liste déroulante ─────────────────────────────────
+	--   holder (coupe ce qui dépasse, sa hauteur se déroule)
+	--     ├ bar   : CANCEL · RESET · APPLY (derrière la liste, glisse dessous)
+	--     └ box   : la liste elle-même (fond opaque, devant la barre)
+	local LIST_W, ROW_H, SUB_H = 260, 34, 30
+	local VISIBLE_ROWS = 5.5            -- on n'en voit qu'une partie : le reste en défilant
+	local BAR_H, GAP = 34, 6
+	local listH = ROW_H * VISIBLE_ROWS + 8
+	local isOpen = false
+	local holder = mk("Frame", { Name = "FilterDropdown", AnchorPoint = Vector2.new(1, 0),
+		Size = UDim2.fromOffset(LIST_W, 0), BackgroundTransparency = 1,
 		ClipsDescendants = true, Visible = false, Active = true }, ShopFrame)
-	round(drop, 12)
-	local dScale = mk("UIScale", {}, drop)
+	local dScale = mk("UIScale", {}, holder)
+	local box = mk("Frame", { Name = "List", Size = UDim2.fromOffset(LIST_W, listH), BackgroundColor3 = NAVY,
+		BorderSizePixel = 0, ZIndex = Z + 2 }, holder)
+	round(box, 12)
 	local list = mk("ScrollingFrame", { BackgroundTransparency = 1, BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 1), AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(),
-		ScrollBarThickness = 4, ScrollBarImageColor3 = Color3.fromRGB(120, 130, 150) }, drop)
-	mk("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 12),
-		PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 14) }, list)
-	mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+		ScrollBarThickness = 4, ScrollBarImageColor3 = BLUE, ScrollBarImageTransparency = 0.3,
+		ZIndex = Z + 2 }, box)
+	mk("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4),
+		PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 10) }, list)
+	mk("UIListLayout", { Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+
+	local bar = mk("Frame", { Name = "Buttons", BackgroundTransparency = 1, ZIndex = Z,
+		Size = UDim2.fromOffset(LIST_W, BAR_H), Position = UDim2.fromOffset(0, listH - BAR_H) }, holder)
+	local cancelB = flatButton(bar, "CANCEL", BTN2, UDim2.new(1 / 3, -4, 1, 0), 15, { Position = UDim2.new(0, 0, 0, 0) })
+	local resetB  = flatButton(bar, "RESET", BTN2, UDim2.new(1 / 3, -4, 1, 0), 15, { Position = UDim2.new(1 / 3, 2, 0, 0) })
+	local applyB  = flatButton(bar, "APPLY", BLUE, UDim2.new(1 / 3, -4, 1, 0), 15, { Position = UDim2.new(2 / 3, 4, 0, 0) })
 
 	-- ── placement : bord droit = bord droit de la carte la plus à droite ──
-	local listH = 300
 	local function place()
 		local sc = uiScaleValue()
 		fScale.Scale, dScale.Scale, emptyScale.Scale = sc, sc, sc
@@ -2231,22 +2265,27 @@ do
 		local w = ScrollingFrame.AbsoluteWindowSize.X
 		if w <= 1 or ShopFrame.AbsoluteSize.X <= 1 then return end
 		local right = ScrollingFrame.AbsolutePosition.X - shopAbs.X + w * (1 - GAP_SCALE)
-		-- centré verticalement sur la ligne de « NEW FREE UGC Weekly! »
 		local restocked = ShopFrame:FindFirstChild("restocked")
 		local cy = restocked and (restocked.AbsolutePosition.Y - shopAbs.Y + restocked.AbsoluteSize.Y / 2)
 			or (ShopFrame.AbsoluteSize.Y * 0.045)
 		fbtn.Position = UDim2.fromOffset(right, cy)
 		local top = cy + (BTN_H / 2 + 6) * sc
-		drop.Position = UDim2.fromOffset(right, top)
-		-- la liste descend jusqu'en bas de la fenêtre (elle défile si elle est plus longue)
-		listH = math.max(120, (ShopFrame.AbsoluteSize.Y - top - 12) / sc)
+		holder.Position = UDim2.fromOffset(right, top)
+		-- petit écran : la partie visible de la liste rétrécit pour que les boutons restent dans la fenêtre
+		local room = (ShopFrame.AbsoluteSize.Y - top - 10) / sc - GAP - BAR_H
+		listH = math.clamp(room, ROW_H * 2.5, ROW_H * VISIBLE_ROWS + 8)
+		box.Size = UDim2.fromOffset(LIST_W, listH)
+		if isOpen then   -- fenêtre redimensionnée pendant que la liste est ouverte
+			holder.Size = UDim2.fromOffset(LIST_W, listH + GAP + BAR_H)
+			bar.Position = UDim2.fromOffset(0, listH + GAP)
+		end
 	end
 	for _, sig in ipairs({ ShopFrame:GetPropertyChangedSignal("AbsoluteSize"), ShopFrame:GetPropertyChangedSignal("AbsolutePosition"),
 		ScrollingFrame:GetPropertyChangedSignal("AbsoluteWindowSize") }) do
 		sig:Connect(place)
 	end
 
-	-- ── contenu de la liste ─────────────────────────────────
+	-- ── rangées ─────────────────────────────────────────────
 	local draft
 	local function copyState()
 		local t = {}
@@ -2254,89 +2293,182 @@ do
 		t.types = table.clone(SF.f.types)
 		return { f = t, sort = SF.sort }
 	end
-	local P = {}   -- actions (remplies plus bas : close / commit / resetAll)
-	local order = 0
-	local function nextO() order += 1 return order end
-	local function title(text)
-		mk("TextLabel", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.FredokaOne,
-			Text = text, TextColor3 = SUB, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left,
-			LayoutOrder = nextO() }, list)
-	end
-	-- grille de choix plats : bleu = choisi, gris = pas choisi
-	local function pillGrid(items, isOn, onClick)
-		local g = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextO() }, list)
-		mk("UIGridLayout", { CellSize = UDim2.new(1 / 3, -6, 0, 30), CellPadding = UDim2.fromOffset(8, 6),
-			SortOrder = Enum.SortOrder.LayoutOrder }, g)
-		for k, it in ipairs(items) do
-			local on = isOn(it.id)
-			local b = flatButton(g, it.label, on and BLUE or OFF, UDim2.fromOffset(0, 30), 14, { LayoutOrder = k })
-			b.TextColor3 = on and WHITE or Color3.fromRGB(205, 212, 228)
-			b.MouseButton1Click:Connect(function() onClick(it.id) end)
+	local painters = {}       -- fonctions qui repeignent chaque rangée selon « draft »
+	local function repaint() for _, fn in ipairs(painters) do fn() end end
+
+	-- case à droite : rond = un seul choix possible (groupe / tri), carré = oui/non
+	local function indicator(parent, roundShape)
+		local o = mk("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -4, 0.5, 0),
+			Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1, ZIndex = Z + 3 }, parent)
+		round(o, roundShape and 999 or 4)
+		local st = mk("UIStroke", { Color = LINE, Thickness = 2 }, o)
+		local dot = mk("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(8, 8), BackgroundColor3 = WHITE, BorderSizePixel = 0, Visible = false, ZIndex = Z + 4 }, o)
+		round(dot, roundShape and 999 or 2)
+		return function(on)
+			st.Color = on and BLUE or LINE
+			o.BackgroundTransparency = on and 0 or 1
+			o.BackgroundColor3 = BLUE
+			dot.Visible = on
 		end
 	end
-	local function asItems(group)
-		local t = {}
-		for _, x in ipairs(group) do table.insert(t, { id = x[1], label = x[2] }) end
-		return t
+	local function row(parent, text, height, order, roundShape, indent)
+		local b = mk("TextButton", { Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = NAVY2,
+			BackgroundTransparency = 1, AutoButtonColor = false, Text = "", LayoutOrder = order, ZIndex = Z + 3 }, parent)
+		local lbl = mk("TextLabel", { BackgroundTransparency = 1, Position = UDim2.fromOffset(10 + (indent or 0), 0),
+			Size = UDim2.new(1, -40 - (indent or 0), 1, 0), Font = Enum.Font.FredokaOne, Text = text,
+			TextSize = 15, TextColor3 = TXT, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = Z + 3 }, b)
+		mk("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8 + (indent or 0), 1, 0),
+			Size = UDim2.new(1, -16 - (indent or 0), 0, 1), BackgroundColor3 = LINE, BackgroundTransparency = 0.6,
+			BorderSizePixel = 0, ZIndex = Z + 3 }, b)
+		b.MouseEnter:Connect(function() b.BackgroundTransparency = 0.35 end)
+		b.MouseLeave:Connect(function() b.BackgroundTransparency = 1 end)
+		round(b, 6)
+		return b, lbl, (roundShape ~= nil) and indicator(b, roundShape) or nil
 	end
-	local fill
-	fill = function()
-		for _, c in ipairs(list:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
-		order = 0
-		local f = draft.f
-		-- un seul choix par groupe : prendre l'un retire les autres, re-cliquer le retire
-		local function pickOne(group, id)
-			local was = f[id] == true
-			for _, x in ipairs(group) do f[x[1]] = false end
-			f[id] = not was
-			fill()
+
+	-- sous-liste « Type » (accordéon, juste sous sa rangée)
+	local typeRow, typeLbl, typeArrow, subFrame
+	local typeOpen = false
+	local SUB_ROLL = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local function typeItems()
+		local present, items = {}, {}
+		for _, ugc in ipairs(UGC_CONFIG.Items) do present[SF.typeOf[ugc.AssetId] or "Other"] = true end
+		for _, t in ipairs(TYPE_ORDER) do if present[t] then table.insert(items, t) end end
+		return items
+	end
+	local subBuilt = false
+	local function buildSub()
+		if subBuilt then return end   -- les types ne changent plus une fois lus
+		subBuilt = true
+		local items = typeItems()
+		for i, t in ipairs(items) do
+			local b, lbl, paint = row(subFrame, t, SUB_H, i, false, 14)
+			lbl.TextSize = 14
+			local function p()
+				local on = draft ~= nil and draft.f.types[t] == true
+				paint(on)
+				lbl.TextColor3 = on and WHITE or TXT
+			end
+			table.insert(painters, p) ; p()
+			b.MouseButton1Click:Connect(function()
+				if not draft then return end
+				draft.f.types[t] = (not draft.f.types[t]) or nil
+				repaint()
+			end)
 		end
+		return #items
+	end
+	local function setTypeOpen(open)
+		typeOpen = open
+		if typeArrow then
+			TweenService:Create(typeArrow, SUB_ROLL, { Rotation = open and 0 or -90 }):Play()
+		end
+		local n = (open and typesState == "done") and #typeItems() or 0
+		TweenService:Create(subFrame, SUB_ROLL, { Size = UDim2.new(1, 0, 0, n * SUB_H) }):Play()
+		if open and n > 0 then
+			-- la liste défile pour montrer la sous-liste juste sous « Type » (sans cacher « Type »)
+			local before = 0
+			for _, r in ipairs(ROWS) do
+				if r.kind == "type" then break end
+				before += 1
+			end
+			local y = 4 + before * ROW_H                     -- haut de la rangée « Type » dans la liste
+			local need = y + ROW_H + n * SUB_H - listH + 4    -- défilement pour voir le bas de la sous-liste
+			local target = math.clamp(math.max(list.CanvasPosition.Y, need), 0, y)
+			TweenService:Create(list, SUB_ROLL, { CanvasPosition = Vector2.new(0, target) }):Play()
+		end
+	end
 
-		title("AVAILABILITY")
-		pillGrid(asItems(STOCK_GROUP), function(id) return f[id] == true end, function(id) pickOne(STOCK_GROUP, id) end)
-		title("OWNERSHIP")
-		pillGrid(asItems(OWN_GROUP), function(id) return f[id] == true end, function(id) pickOne(OWN_GROUP, id) end)
-		title("OTHER")
-		pillGrid({ { id = "new", label = "New" } }, function() return f.new == true end, function() f.new = not f.new ; fill() end)
-
-		-- TYPE : seulement si le shop contient au moins 2 types (plusieurs choix possibles : Hat OU Hair…)
-		if typesState == "done" then
-			local present, items = {}, {}
-			for _, ugc in ipairs(UGC_CONFIG.Items) do present[SF.typeOf[ugc.AssetId] or "Other"] = true end
-			for _, t in ipairs(TYPE_ORDER) do if present[t] then table.insert(items, { id = t, label = t }) end end
-			if #items >= 2 then
-				title("TYPE")
-				pillGrid(items, function(id) return f.types[id] == true end,
-					function(id) f.types[id] = (not f.types[id]) or nil ; fill() end)
+	local built = false
+	local function build()
+		if built then return end
+		built = true
+		for i, r in ipairs(ROWS) do
+			if r.kind == "flag" then
+				local id = r.id
+				local b, lbl, paint = row(list, FLAG_LABEL[id], ROW_H, i * 10, GROUP_OF[id] ~= nil)
+				local function p()
+					if not draft then return end
+					local on = draft.f[id] == true
+					-- grisé si un choix CONTRAIRE est pris (cliquer quand même = échanger)
+					local blocked = false
+					local g = GROUP_OF[id]
+					if g and not on then
+						for _, other in ipairs(GROUPS[g]) do if draft.f[other] then blocked = true end end
+					end
+					paint(on)
+					lbl.TextColor3 = on and WHITE or (blocked and DIM or TXT)
+				end
+				table.insert(painters, p)
+				b.MouseButton1Click:Connect(function()
+					if not draft then return end
+					local f = draft.f
+					local was = f[id] == true
+					local g = GROUP_OF[id]
+					if g then for _, other in ipairs(GROUPS[g]) do f[other] = false end end
+					f[id] = not was
+					repaint()
+				end)
+			elseif r.kind == "sort" then
+				local id = r.id
+				local b, lbl, paint = row(list, SORT_LABEL[id], ROW_H, i * 10, true)
+				local function p()
+					if not draft then return end
+					local on = draft.sort == id
+					local blocked = draft.sort ~= "default" and not on
+					paint(on)
+					lbl.TextColor3 = on and WHITE or (blocked and DIM or TXT)
+				end
+				table.insert(painters, p)
+				b.MouseButton1Click:Connect(function()
+					if not draft then return end
+					draft.sort = (draft.sort == id) and "default" or id   -- re-clic = retire le tri
+					repaint()
+				end)
+			else   -- type
+				local b, lbl = row(list, "Type", ROW_H, i * 10, nil)
+				typeRow, typeLbl = b, lbl
+				typeArrow = mk("TextLabel", { BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(1, -4, 0.5, 0), Size = UDim2.fromOffset(16, 16), Font = SYM, Text = "▼",
+					TextSize = 14, TextColor3 = BLUE, Rotation = -90, ZIndex = Z + 3 }, b)   -- ▶ fermé, ▼ ouvert
+				subFrame = mk("Frame", { Name = "TypeList", BackgroundColor3 = NAVY2, BackgroundTransparency = 0.4,
+					BorderSizePixel = 0, ClipsDescendants = true, Size = UDim2.new(1, 0, 0, 0),
+					LayoutOrder = i * 10 + 1, ZIndex = Z + 3 }, list)
+				round(subFrame, 6)
+				mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, subFrame)
+				local function p()
+					if not draft then return end
+					local n = 0
+					for _ in pairs(draft.f.types) do n += 1 end
+					typeLbl.Text = (typesState ~= "done") and "Type  …" or (n > 0 and ("Type (" .. n .. ")") or "Type")
+					typeLbl.TextColor3 = n > 0 and WHITE or TXT
+				end
+				table.insert(painters, p)
+				b.MouseButton1Click:Connect(function()
+					if typesState ~= "done" then return end   -- encore en lecture (« … »)
+					setTypeOpen(not typeOpen)
+				end)
 			end
 		end
-
-		title("SORT BY")
-		pillGrid(SORTS, function(id) return draft.sort == id end, function(id) draft.sort = id ; fill() end)
-
-		-- CANCEL · RESET · APPLY : tout en bas de la liste
-		local bar = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 36), LayoutOrder = nextO() }, list)
-		local cancelB = flatButton(bar, "CANCEL", GREY, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(0, 0, 0, 0) })
-		local resetB  = flatButton(bar, "RESET", RED, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(1 / 3, 3, 0, 0) })
-		local applyB  = flatButton(bar, "APPLY", GREEN, UDim2.new(1 / 3, -6, 1, 0), 15, { Position = UDim2.new(2 / 3, 6, 0, 0) })
-		cancelB.MouseButton1Click:Connect(function() P.close() end)
-		resetB.MouseButton1Click:Connect(function() P.close() ; P.resetAll() end)
-		applyB.MouseButton1Click:Connect(function()
-			SF.f, SF.sort = draft.f, draft.sort
-			P.close()
-			P.commit()
-		end)
 	end
-	onTypesLoaded = function() if drop.Visible and draft then fill() end end
+	local function refreshTypeRow()
+		if not typeRow then return end
+		-- « Type » n'a de sens que s'il y a au moins 2 types dans le shop
+		local show = typesState ~= "done" or #typeItems() >= 2
+		typeRow.Visible = show
+		subFrame.Visible = show
+		if typesState == "done" and show then buildSub() end
+		repaint()
+	end
+	onTypesLoaded = function() refreshTypeRow() end
 
 	-- ── état actif visible : bouton + pastilles + grille décalée ──
 	local renderChips
-	local isOpen = false
 	local function paintButton()
 		local n = SF.count()
 		flbl.Text = n > 0 and ("FILTER (" .. n .. ")") or "FILTER"
-		fbtn.BackgroundColor3 = n > 0 and YELLOW or BLUE   -- filtres actifs : bouton jaune
+		fbtn.BackgroundColor3 = n > 0 and YELLOW or BLUE
 		farrow.Text = isOpen and "▲" or "▼"
 	end
 	local function commit()
@@ -2378,10 +2510,8 @@ do
 		for _, t in ipairs(TYPE_ORDER) do
 			if SF.f.types[t] then chip(t .. "  X", OFF, function() SF.f.types[t] = nil ; commit() end, nx()) end
 		end
-		for _, so in ipairs(SORTS) do
-			if so.id ~= "default" and SF.sort == so.id then
-				chip(so.label .. "  X", BLUE, function() SF.sort = "default" ; commit() end, nx())
-			end
+		if SORT_LABEL[SF.sort] then
+			chip(SORT_LABEL[SF.sort] .. "  X", BLUE, function() SF.sort = "default" ; commit() end, nx())
 		end
 	end
 	SF.onRender = function(shown)
@@ -2390,39 +2520,66 @@ do
 	end
 
 	-- ── déroulement / rembobinage ───────────────────────────
-	local ROLL = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	local rollTween
+	--   ouvrir : la liste se déroule, PUIS les boutons glissent de derrière elle
+	--   fermer : les boutons repartent derrière la liste, PUIS elle se rembobine
+	local ROLL  = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local SLIDE = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local token = 0
 	local function roll(open)
-		if rollTween then rollTween:Cancel() end
+		token += 1
+		local my = token
 		isOpen = open
 		paintButton()
+		local full = listH + GAP + BAR_H
+		local hidden = UDim2.fromOffset(0, listH - BAR_H)      -- derrière la liste
+		local shown  = UDim2.fromOffset(0, listH + GAP)        -- sous la liste
 		if open then
-			drop.Visible = true
-			drop.Size = UDim2.fromOffset(LIST_W, 0)
+			holder.Visible = true
+			holder.Size = UDim2.fromOffset(LIST_W, 0)
+			bar.Position = hidden
 			list.CanvasPosition = Vector2.zero
-		end
-		rollTween = TweenService:Create(drop, ROLL, { Size = UDim2.fromOffset(LIST_W, open and listH or 0) })
-		rollTween:Play()
-		if not open then
-			local t = rollTween
-			t.Completed:Connect(function(state)
-				if state == Enum.PlaybackState.Completed and not isOpen then drop.Visible = false end
+			local t1 = TweenService:Create(holder, ROLL, { Size = UDim2.fromOffset(LIST_W, full) })
+			t1:Play()
+			task.delay(0.12, function()
+				if my ~= token then return end
+				TweenService:Create(bar, SLIDE, { Position = shown }):Play()
+			end)
+		else
+			local t0 = TweenService:Create(bar, SLIDE, { Position = hidden })
+			t0:Play()
+			task.delay(0.1, function()
+				if my ~= token then return end
+				local t1 = TweenService:Create(holder, ROLL, { Size = UDim2.fromOffset(LIST_W, 0) })
+				t1:Play()
+				t1.Completed:Connect(function(state)
+					if state == Enum.PlaybackState.Completed and my == token and not isOpen then holder.Visible = false end
+				end)
 			end)
 		end
 	end
 	local function openList()
 		draft = copyState()
+		build()
 		loadTypes()
 		place()
-		fill()
+		refreshTypeRow()
+		if typeOpen then setTypeOpen(false) end
+		repaint()
 		roll(true)
 	end
 	local function closeList()   -- = CANCEL : rien n'est appliqué
 		draft = nil
 		roll(false)
 	end
-	P.close, P.commit, P.resetAll = closeList, commit, resetAll
 
+	cancelB.MouseButton1Click:Connect(closeList)
+	resetB.MouseButton1Click:Connect(function() closeList() ; resetAll() end)
+	applyB.MouseButton1Click:Connect(function()
+		if not draft then return end
+		SF.f, SF.sort = draft.f, draft.sort
+		closeList()
+		commit()
+	end)
 	fbtn.MouseButton1Click:Connect(function()
 		if isOpen then closeList() else openList() end
 	end)
@@ -2431,7 +2588,8 @@ do
 		if ShopFrame.Visible then
 			task.defer(place)
 		elseif isOpen then
-			draft = nil ; isOpen = false ; drop.Visible = false ; drop.Size = UDim2.fromOffset(LIST_W, 0)
+			token += 1
+			draft = nil ; isOpen = false ; holder.Visible = false ; holder.Size = UDim2.fromOffset(LIST_W, 0)
 			paintButton()
 		end
 	end)

@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════════
--- 🎯 ArenaViewKeeper — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (v2)
+-- 🎯 ArenaViewKeeper — LocalScript dans StarterPlayer ▸ StarterPlayerScripts   (v3)
 --
 --  En arène PvP, SANS arme en main, tout est EXACTEMENT comme avec une arme,
 --  sauf que le curseur (viseur) disparaît :
@@ -17,6 +17,9 @@
 --     affiché au même endroit : Shift Sprint · C Slide · B Views · H Hide Controls.
 --     « Hide Controls » est retenu partout (toutes les armes + sans arme).
 --   Hors de l'arène : rien ne change et le script ne fait rien.
+--
+--  v3 : la « garde souris » de DeathCam reconnaît maintenant cette vue (attribut ArenaViewKept) :
+--       plus de curseur qui réapparaît ni de rotation qui saccade quand on tourne vite.
 --
 --  ↩️ REVENIR À AVANT : mets ENABLED = false ci-dessous (ou supprime ce script).
 -- ════════════════════════════════════════════════════════════════════════
@@ -72,6 +75,7 @@ local yaw, pitch = 0, 0
 local saved = {}               -- ce qu'on a changé, pour le remettre exactement
 local hiddenParts = {}         -- 1re personne : parts cachées localement
 local dragInput, dragLast = nil, nil
+local lastSentYaw, YAW_THRESH = nil, math.rad(0.5)
 local padStick = nil
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -167,6 +171,7 @@ local function step(dt)
 		saved.mouseDelta = UserInputService.MouseDeltaSensitivity
 		UserInputService.MouseDeltaSensitivity = 1   -- comme les armes en vue lock
 		owning = true
+		lastSentYaw = nil
 		player:SetAttribute("ArenaViewKept", true)
 	end
 	Shared.ClaimCamera(TOKEN, root)
@@ -211,12 +216,15 @@ local function step(dt)
 		camera.CFrame = CFrame.new(camPos, lookAt) * roll
 	end
 	-- le perso regarde où regarde la caméra (pas pendant la tyrolienne : elle pilote le perso)
+	--  (même règle que les armes : on suit le moindre mouvement de la vue, 0,5°, et on corrige
+	--   aussi si la physique a fait tourner le perso de plus de 2°)
 	if not char:GetAttribute("Ziplining") then
 		local rlv = root.CFrame.LookVector
 		local d = (yaw - math.atan2(-rlv.X, -rlv.Z) + math.pi) % (2 * math.pi) - math.pi
-		if math.abs(d) > math.rad(2) then
+		if lastSentYaw == nil or math.abs(yaw - lastSentYaw) > YAW_THRESH or math.abs(d) > math.rad(2) then
 			root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, yaw, 0)
 			root.AssemblyAngularVelocity = Vector3.zero
+			lastSentYaw = yaw
 		end
 		if hum.AutoRotate then hum.AutoRotate = false end
 	end

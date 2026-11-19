@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v4) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v5) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 ou la v3** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2, v3 ou v4** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1, v2 ou v3).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v4).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v4.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v5.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v4.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v5.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v4… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v5… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v4`** (donc tes versions v2/v3).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v5`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -35,11 +35,11 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 - StarterPlayerScripts : `ArenaViewKeeper` (LocalScript)
 
 **Remplacer :**
-- **ServerScriptService :** `checkpoints system` · `anti fly/tp server` · `PLAYER UGC STATS` · `new donation board server` · `notif chat ` · `DAILY TOOLs` · `10 died = offer 2500 points` · `time` · `STATS` · `ask favorite game` · `datastore alr ask favorite game` · `leave popup` · `server referal friend invite`
+- **ServerScriptService :** `CombatSystem ▸ CombatServer` · `checkpoints system` · `anti fly/tp server` · `PLAYER UGC STATS` · `new donation board server` · `notif chat ` · `DAILY TOOLs` · `10 died = offer 2500 points` · `time` · `STATS` · `ask favorite game` · `datastore alr ask favorite game` · `leave popup` · `server referal friend invite`
 - **ServerStorage ▸ AdminClientScripts. :** `Admin client`
-- **ReplicatedStorage :** `LeaderboardCore` · `WeaponSystem ▸ WeaponController`
+- **ReplicatedStorage :** `LeaderboardCore` · `WeaponSystem ▸ WeaponController` · `WeaponSystem ▸ WeaponServer` · `WeaponSystem ▸ CombatSettings`
 - **StarterGui :** `ShiftLockButton ▸ ImageButton ▸ ShiftGUI` · `VIP offer ▸ make pop th add` · `UGCshop ▸ ShopFrame ▸  UGC SHOP GENERATOR`
-- **StarterPlayerScripts :** `PlayerProfileHover` · `offers on screen` · `script proposer achat skip obby` · `EngageTrack` · `rebirth offer notify event` · `fenetre dachat gravity coil` · `Fenetre dachat fusion coil` · `Fenetre achat speedcoil` · `achat x2coin` · ` ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD`
+- **StarterPlayerScripts :** `DeathCam` · `PlayerProfileHover` · `offers on screen` · `script proposer achat skip obby` · `EngageTrack` · `rebirth offer notify event` · `fenetre dachat gravity coil` · `Fenetre dachat fusion coil` · `Fenetre achat speedcoil` · `achat x2coin` · ` ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD`
 - **StarterCharacterScripts :** `ask favorite game`
 
 **Supprimer :** StarterPlayerScripts ▸ `daily notification`
@@ -47,7 +47,49 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v4 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v5 (tes derniers retours)
+
+### ⚡ Le lag en PvP : la cause
+
+C'est la **vue du tueur** (la caméra que voit la victime après sa mort).
+1. Quand tu tues quelqu'un en arène, **ton** jeu envoie ce que tu vois pendant environ 6,5 secondes, pendant que tu continues à te battre.
+2. Avant la v5, il envoyait :
+   - ta caméra et ton arme **30 fois par seconde** ;
+   - **chaque effet en entier**, jusqu'à 60 fois par seconde, sur le canal « fiable » (celui qui attend que tout arrive dans l'ordre). Un effet, c'est un flash, une traçante avec tout son style (une vingtaine de réglages et de couleurs), une douille, un son, un hitmarker avec sa config complète ;
+   - la liste complète des pièces de ton arme (jusqu'à 250) **à chaque kill**.
+3. Résultat : la connexion **du joueur qui fait des kills** est saturée, surtout sur mobile.
+   - Les positions de son perso partent en retard et par paquets : **chez les autres, il « se TP »**.
+   - Ses tirs et ses dégâts arrivent plus tard : **plus de délai**.
+   - Plus un joueur tue, plus il envoie : ce sont les meilleurs joueurs qui laggent le plus, et **seulement en PvP**.
+
+En plus, chaque balle partait en 2 messages (le son, puis le flash).
+
+### ✅ Ce qui est corrigé
+| Avant | Maintenant |
+|---|---|
+| 30 images/s pendant la vue du tueur | **20 images/s** (10 si ton ping dépasse 180 ms). La victime voit toujours une vue fluide : elle glisse entre deux images (tampon 0,15 s). |
+| Effets envoyés à chaque image, jusqu'à 60 envois/s | **Regroupés : 15 envois/s.** |
+| Styles et configs recopiés en entier à chaque balle | Envoyés **une fois**, puis un simple numéro (rappel toutes les 3 s). La victime voit exactement les mêmes effets. |
+| Toutes les douilles envoyées | 2 au maximum par envoi (effet purement visuel). |
+| Liste des pièces de l'arme renvoyée à chaque kill | Envoyée **une fois par arme**. Le serveur la garde et la donne lui-même aux victimes suivantes. |
+| 2 messages par balle (son + flash) | **1 seul.** Le serveur joue le son en recevant le flash. Les anciennes armes qui envoient encore le son à part marchent toujours. |
+
+**Rien ne change dans le gameplay :** mêmes dégâts, même validation des tirs, mêmes effets chez la victime.
+Tous les réglages sont dans `ReplicatedStorage ▸ WeaponSystem ▸ CombatSettings ▸ Death` : `StreamRate`, `StreamRateHighPing`, `HighPing`, `EventRate`, `MaxShellsPerPacket`.
+
+### Tes autres retours
+| Ton retour | Ce qui est fait |
+|---|---|
+| Vue PvP sans arme : rotation moins fluide, curseur qui réapparaît en tournant vite | **Trouvé :** la « garde souris » de `DeathCam` libérait la souris à chaque image, parce que tu n'avais pas d'outil en main. Elle reconnaît maintenant la vue sans arme. Le perso tourne aussi avec la même règle que les armes (0,5° au lieu de 2°). |
+| Loupe trop petite | **Plus grosse** (84 % de la hauteur de l'en-tête au lieu de 60 %). |
+| Loupe quand tu n'es pas dans le top | Un message s'affiche : « You're not in the top 100 yet — your score is at the bottom ». **Ta ligne « -- » est ajoutée sous le dernier**, avec ton score lu dans le même classement, et la liste descend jusqu'à elle. Tu vois l'écart avec le dernier. La ligne reste jusqu'à ce que tu changes d'onglet. |
+| Filtre : une seule liste | **Une seule liste de rangées pleine largeur**, les plus utiles en premier : Available · Not owned · New · Price ↑ / ↓ · Stock left ↑ / ↓ · Type · Low stock · Sold out · Owned. On n'en voit qu'une partie (5 rangées et demie), le reste en faisant défiler. |
+| Type : une autre liste qui se déroule au bon endroit | Clic sur **Type ▶** : sa sous-liste se déroule **juste en dessous**, et la liste défile toute seule pour la montrer. Re-clic : elle se rembobine. Plusieurs types possibles. |
+| Trier par stock restant (Least / Most) | **« Stock left: Least » et « Stock left: Most »** trient sur le stock **restant**. Épuisé = 0. Le stock total n'est plus utilisé. |
+| Boutons sous la liste, qui glissent derrière | CANCEL · RESET · APPLY sont **sous** la liste. Ils **glissent de derrière elle** quand elle se déroule et repartent derrière quand elle se rembobine. |
+| Couleurs | **Le bleu du bouton, en sobre :** fond bleu nuit, cases et accents bleus, APPLY bleu, CANCEL / RESET bleu foncé. Les choix contraires sont **grisés**, et en prendre un retire l'autre. |
+
+## NOUVEAU DANS LA v4
 
 | Ton retour | Ce qui est fait |
 |---|---|
@@ -74,7 +116,8 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 - **Leaderboards :**
   - `ReplicatedStorage ▸ LeaderboardStyle` : `Tabs = false` → boards exactement d'origine ;
   - `Style = "modern"` → le look moderne de la v2.
-- **Vue PvP sans arme :** `ArenaViewKeeper`, mets `ENABLED = false` (ligne 23).
+- **Vue PvP sans arme :** `ArenaViewKeeper`, mets `ENABLED = false` (ligne 26).
+- **Vue du tueur :** `CombatSettings ▸ Death`, remets `StreamRate = 30` et `EventRate = 60` si tu veux l'ancien rythme (déconseillé).
 - **Arc-en-ciel :** dans ` ADMIN ABUSE — DÉGRADÉ…`, mets `ANY_TEMP_BOOST = false` → seulement pendant l'Admin Abuse, comme avant.
 
 ---
@@ -95,36 +138,45 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
    - une faille DataStore bloquée ;
    - les morts de la 1re vie sont maintenant comptées.
 8. **Leaderboards :** look d'avant + ALL / FRIENDS / 🔍 (voir plus haut).
-9. **Shop UGC :** bouton FILTER plat + liste déroulante, choix contraires exclusifs (voir plus haut).
+9. **Shop UGC :** bouton FILTER plat + liste unique déroulante, sous-liste Type, tri par stock restant (voir plus haut).
 10. **Parrainage :** paie seulement si l'invité découvre le jeu. Ça ferme la faille des amis qui s'invitent entre eux et celle des joueurs qui jouaient déjà.
 11. **Arène sans arme :** même vue qu'avec une arme, B change la vue, panneau des contrôles (voir plus haut).
 12. **Admin :** accueil en onglets + recherche (voir plus haut).
 13. **Arc-en-ciel du boost :** pour tout boost temporaire.
 14. **Profils :** 🟢 Online / ⚫ Offline, même sur un autre serveur.
+15. **Lag PvP :** vue du tueur beaucoup plus légère, 1 message par balle au lieu de 2 (voir plus haut).
 
 ---
 
 ## ✅ Vérifié de mon côté (sans pouvoir lancer le jeu)
-- Les 38 fichiers (37 scripts + l'installateur) passent l'analyseur de syntaxe Luau. Ce même analyseur valide les 669 scripts d'origine sans erreur.
+- Les 42 fichiers (41 scripts + l'installateur) passent l'analyseur de syntaxe Luau. Ce même analyseur valide les 669 scripts d'origine sans erreur.
 - **Nouveau contrôle :** « utilisé avant d'être créé » (l'erreur de `ArenaViewKeeper`) sur tous les scripts → **0**. J'ai vérifié qu'il détecte bien l'erreur d'origine.
 - Aucune fonction ni variable de niveau principal perdue (comparaison avec les originaux).
 - `time` reste à 199 variables locales (limite 200). Le panel admin n'a aucune variable locale en plus (162).
 - Le modèle `.rbxmx` contient exactement le même code que les fichiers (vérifié octet par octet).
 
 ## 🧪 À tester dans Studio avant de publier
+0. **Lag PvP (à 2 joueurs minimum, idéalement sur un vrai serveur) :**
+   - tue l'autre joueur : sa vue du tueur doit être fluide, avec tes traçantes, flashs, hitmarkers et sons ;
+   - enchaîne 2 kills avec la même arme : la 2e victime voit aussi ton arme ;
+   - le son de tir s'entend chez l'autre joueur ;
+   - *(Studio : onglet Test ▸ « Clients et serveurs », 2 joueurs, puis Démarrer)*.
 1. **Arène :**
+   - sans arme, tourne la caméra très vite : **aucun curseur** ne doit apparaître ;
    - range et ressors ton arme plusieurs fois : la vue doit rester **identique**, sans saut ni relais ;
    - sans arme : pas de viseur, panneau Shift / C / B / H, B change la vue, H cache le panneau ;
    - teste aussi au doigt (émulateur mobile) et à la manette si tu peux ;
    - aucune erreur rouge dans l'Output.
 2. **Shop UGC :**
-   - FILTER se déroule et se rembobine ;
-   - la liste défile jusqu'aux boutons du bas ;
+   - FILTER se déroule et se rembobine, et les boutons glissent de derrière la liste ;
+   - Type déroule sa sous-liste au bon endroit ;
+   - « Stock left » trie bien sur le stock restant ;
    - les choix contraires s'excluent ;
    - APPLY, pastilles, RESET fonctionnent ;
    - teste aussi en mobile (émulateur).
 3. **Leaderboards :**
    - ALL / FRIENDS / 🔍 ;
+   - 🔍 sur un board où tu n'es pas : message, puis ta ligne « -- » en bas avec ton score (vrai serveur publié) ;
    - en FRIENDS : un ami hors top affiche « -- ». Son score met environ une seconde à apparaître ; il est lu sur le serveur, donc à vérifier sur un **vrai serveur publié**.
 4. **Admin :** les onglets et la recherche, puis la fiche d'un joueur (badges dans le coin, rien qui déborde).
 5. **Boost :** achète ou donne-toi un boost temporaire → arc-en-ciel sur ton billboard.
