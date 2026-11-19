@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v8) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v9) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v7** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v8** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v7).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v8).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v8.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v9.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v8.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v9.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v8… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v9… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v8`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v9`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -47,7 +47,15 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v8 (tes derniers retours)
+## 🆕 NOUVEAU DANS LA v9 (tes derniers retours)
+
+| Ton retour | Ce qui est fait |
+|---|---|
+| Pas de boutons gris pour les choix contraires | Les choix gardent leur **couleur normale**. Prendre l'un retire toujours l'autre (Available / Low stock / Sold out, Owned / Not owned, un seul tri), mais rien n'est grisé. |
+| Couleur du bouton FILTER | **Bleu ciel 95, 216, 253**, la couleur de ton image. Les choix sélectionnés du panneau prennent le même bleu. Le bouton reste jaune quand des filtres sont actifs. |
+| La notification du leaderboard est horrible, et le contour du texte pire | Refaite : une **petite bande sombre, discrète**, au texte blanc **sans aucun contour**. Elle apparaît et s'efface en fondu après 3 secondes. Le texte est plus court : « Not in the top 100 yet · your score is below ». |
+
+## NOUVEAU DANS LA v8
 
 | Ton retour | La cause | Ce qui est fait |
 |---|---|---|
@@ -72,7 +80,7 @@ Le panneau se déroule et se rembobine toujours depuis le bouton FILTER. Il n'y 
 | Pas besoin de CANCEL, FILTER sert à refermer | **CANCEL est retiré.** Un 2e appui sur FILTER rembobine le panneau sans rien changer. Il reste **RESET** et **APPLY**, qui glissent de dessous le panneau. |
 | La disposition d'avant, avec des boutons qui ne s'enfoncent pas | Retour de **SHOW · TYPE · SORT BY**, en boutons 3D (dégradé + socle) **fixes** : plus aucun effet d'enfoncement. Couleurs dans le bleu du bouton : bleu = choisi, ardoise = pas choisi, grisé = contraire. |
 | Pas de X rouge, on doit voir que ça vient du bouton | **Pas de X.** Le panneau **sort du bouton FILTER** : une petite pointe le relie au bouton, il se déroule vers le bas et remonte dedans quand on referme. La flèche du bouton passe ▼ / ▲. |
-| Contraires impossibles ensemble | 1re ligne de SHOW : Available / Low stock / Sold out (un seul). 2e ligne : New + Owned / Not owned (un seul des deux). Un seul tri. Les contraires sont grisés. |
+| Contraires impossibles ensemble | 1re ligne de SHOW : Available / Low stock / Sold out (un seul). 2e ligne : New + Owned / Not owned (un seul des deux). Un seul tri. *(v9 : plus de grisé.)* |
 | Least / Most | **Most left / Least left** = tri sur le stock **restant**. |
 | Tous les appareils | Le panneau suit la taille de la fenêtre, avec un minimum pour le doigt (mobile) et pour la télé (console). Sur un petit écran, il défile au lieu de dépasser. |
 | Console, dans tout le shop | <ul><li>La **touche Y** (icône officielle Xbox / PlayStation) est affichée à côté de FILTER.</li><li>**Y** ouvre et ferme le filtre.</li><li>**B** ferme le filtre, puis le shop.</li><li>**A** choisit.</li><li>À l'ouverture du shop, la **1re carte est sélectionnée**. La sélection ne sort pas du shop, ni du filtre quand il est ouvert. La grille défile toute seule.</li><li>Un **cadre jaune** montre le bouton sélectionné.</li></ul> |

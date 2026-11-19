@@ -1912,34 +1912,44 @@ function Core.mount(cfg)
 			done()
 		end)
 	end
+	-- message discret : petite bande sombre arrondie, texte blanc SANS contour, apparaît / s'efface en fondu
 	local function toast(b, text)
 		local host = b.content or b.main
 		if not (host and host.Parent) then return end
 		local old = host:FindFirstChild("FindMeToast")
 		if old then old:Destroy() end
-		local t = Instance.new("TextLabel")
+		local t = Instance.new("Frame")
 		t.Name = "FindMeToast"
 		t.AnchorPoint = Vector2.new(0.5, 0)
-		t.Position = UDim2.new(0.5, 0, 0.02, 0)
-		t.Size = UDim2.new(0.9, 0, 0.075, 0)
-		t.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-		t.BackgroundTransparency = 0.15
+		t.Position = UDim2.new(0.5, 0, 0.015, 0)
+		t.Size = UDim2.new(0.72, 0, 0.055, 0)
+		t.BackgroundColor3 = Color3.new(0, 0, 0)
+		t.BackgroundTransparency = 1
 		t.BorderSizePixel = 0
-		t.Font = Enum.Font.FredokaOne
-		t.TextScaled = true
-		t.TextColor3 = Color3.new(1, 1, 1)
-		t.Text = text
 		t.ZIndex = 50
 		t.Parent = host
-		Instance.new("UICorner", t).CornerRadius = UDim.new(1, 0)
-		local c = Instance.new("UITextSizeConstraint", t) ; c.MaxTextSize = 30
-		local pd = Instance.new("UIPadding", t) ; pd.PaddingTop = UDim.new(0.18, 0) ; pd.PaddingBottom = UDim.new(0.18, 0)
-		local st = Instance.new("UIStroke") ; st.Color = ME_COLOR ; st.Thickness = 2 ; st.Transparency = 0.2 ; st.Parent = t
-		task.delay(3.2, function()
+		Instance.new("UICorner", t).CornerRadius = UDim.new(0.3, 0)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.AnchorPoint = Vector2.new(0.5, 0.5)
+		l.Position = UDim2.fromScale(0.5, 0.5)
+		l.Size = UDim2.fromScale(0.92, 0.62)
+		l.Font = Enum.Font.GothamMedium
+		l.TextScaled = true
+		l.TextColor3 = Color3.fromRGB(235, 235, 240)
+		l.TextTransparency = 1
+		l.Text = text
+		l.ZIndex = 51
+		l.Parent = t
+		local c = Instance.new("UITextSizeConstraint", l) ; c.MaxTextSize = 24
+		local fade = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(t, fade, { BackgroundTransparency = 0.35 }):Play()
+		TweenService:Create(l, fade, { TextTransparency = 0 }):Play()
+		task.delay(3, function()
 			if not t.Parent then return end
-			TweenService:Create(t, TweenInfo.new(0.4), { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
-			TweenService:Create(st, TweenInfo.new(0.4), { Transparency = 1 }):Play()
-			task.delay(0.45, function() if t.Parent then t:Destroy() end end)
+			TweenService:Create(t, fade, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(l, fade, { TextTransparency = 1 }):Play()
+			task.delay(0.3, function() if t.Parent then t:Destroy() end end)
 		end)
 	end
 	local function scrollToMe(b)
@@ -1966,8 +1976,7 @@ function Core.mount(cfg)
 	local function findMe(b)
 		if scrollToMe(b) then return end
 		if b.filter == "all" and TABS and ctx.data and LocalPlayer then
-			toast(b, string.format("You're not in the top %d yet — your score is at the bottom",
-				math.min(#ctx.data, cfg.topSize)))
+			toast(b, string.format("Not in the top %d yet · your score is below", math.min(#ctx.data, cfg.topSize)))
 			b.meExtra = true
 			renderBoard(b)
 			fetchMine(function()

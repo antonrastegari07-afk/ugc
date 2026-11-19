@@ -2059,8 +2059,8 @@ end)
 --   • Disposition d'avant : SHOW · TYPE (si le shop a plusieurs types) · SORT BY, en
 --     boutons 3D (face en dégradé + socle) qui NE s'enfoncent PAS.
 --   • Choix contraires impossibles ensemble : Available / Low stock / Sold out (un seul),
---     Owned / Not owned (un seul), un seul tri. Prendre l'un retire l'autre, les
---     contraires sont grisés.
+--     Owned / Not owned (un seul), un seul tri. Prendre l'un retire l'autre (les
+--     boutons gardent leur couleur normale).
 --   • « Most left / Least left » = tri sur le stock RESTANT.
 --   • APPLY (vert, à gauche) · RESET (rouge, à droite) en bas DU panneau, sous un trait,
 --     hors de la partie qui défile. Léger contour noir autour du panneau.
@@ -2081,12 +2081,10 @@ local function buildFilterUI()
 	local WHITE  = Color3.new(1, 1, 1)
 	local NAVY   = Color3.fromRGB(16, 30, 52)      -- fond du panneau (bleu nuit, le thème du bouton)
 	local SUB    = Color3.fromRGB(150, 175, 210)   -- titres de section
-	local DIMTXT = Color3.fromRGB(120, 138, 165)   -- choix contraire (grisé)
 	local SELC   = Color3.fromRGB(255, 214, 92)    -- cadre de sélection manette
 	local COL = {   -- dessus, dessous, socle
-		blue   = { Color3.fromRGB(55, 150, 240), Color3.fromRGB(25, 100, 200), Color3.fromRGB(12, 55, 120) },  -- = FILTER
+		blue   = { Color3.fromRGB(95, 216, 253), Color3.fromRGB(45, 165, 225), Color3.fromRGB(20, 95, 135) },  -- = FILTER (bleu ciel 95,216,253)
 		slate  = { Color3.fromRGB(62, 82, 112),  Color3.fromRGB(40, 56, 82),   Color3.fromRGB(22, 32, 50) },   -- pas choisi
-		dim    = { Color3.fromRGB(44, 56, 76),   Color3.fromRGB(32, 42, 58),   Color3.fromRGB(20, 26, 38) },   -- contraire
 		yellow = { Color3.fromRGB(255, 196, 60), Color3.fromRGB(215, 150, 30), Color3.fromRGB(120, 85, 10) },
 		-- APPLY / RESET : vert et rouge, pour ne jamais les confondre avec les choix (bleu / ardoise)
 		green  = { Color3.fromRGB(40, 185, 80),  Color3.fromRGB(12, 115, 42),  Color3.fromRGB(8, 65, 25) },
@@ -2354,7 +2352,8 @@ local function buildFilterUI()
 			LayoutOrder = nextO(), ZIndex = Z + 3 }, scroll)
 		addH(TITLE_H)
 	end
-	-- grille de boutons 3D fixes (3 par ligne) ; state(id) → "on" | "off" | "dim"
+	-- grille de boutons 3D fixes (3 par ligne) ; state(id) → "on" | "off"
+	--   (les choix contraires gardent leur couleur normale : en prendre un retire simplement l'autre)
 	local function grid(items, state, onClick)
 		local g = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextO(), ZIndex = Z + 3 }, scroll)
@@ -2368,7 +2367,7 @@ local function buildFilterUI()
 			local function p()
 				if not draft then return end
 				local st = state(it.id)
-				recolor(st == "on" and COL.blue or (st == "dim" and COL.dim or COL.slate), st == "dim" and DIMTXT or WHITE)
+				recolor(st == "on" and COL.blue or COL.slate, WHITE)
 			end
 			table.insert(painters, p) ; p()
 			b.Activated:Connect(function() if draft then onClick(it.id) ; repaint() end end)
@@ -2376,10 +2375,7 @@ local function buildFilterUI()
 	end
 	local function flagState(id)
 		local f = draft.f
-		if f[id] then return "on" end
-		local g = GROUP_OF[id]
-		if g then for _, o in ipairs(GROUPS[g]) do if f[o] then return "dim" end end end
-		return "off"
+		return f[id] and "on" or "off"
 	end
 	local function build()
 		for _, c in ipairs(scroll:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
@@ -2408,8 +2404,7 @@ local function buildFilterUI()
 		end
 		title("SORT BY")
 		grid(SORTS, function(id)
-			if draft.sort == id then return "on" end
-			return (draft.sort ~= "default" and id ~= "default") and "dim" or "off"
+			return draft.sort == id and "on" or "off"
 		end, function(id) draft.sort = (draft.sort == id and id ~= "default") and "default" or id end)
 		contentH += PAD * 2
 	end

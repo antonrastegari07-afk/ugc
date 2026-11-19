@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v8</string>
+			<string name="Name">UPDATE_2026_11_18_v9</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,14 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v8.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v9.INSTALL)()
 --
---  v8 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v7 (les versions remplacées vont dans sa propre copie de secours).
+--  v9 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v8 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v8 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v9 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -31,8 +31,8 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v8 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v8"
+	print("🚀 Installateur v9 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v9"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -41,15 +41,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v8 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v9 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v8 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v8 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v9 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v9 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v8") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v9") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -140,7 +140,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v8 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v9 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -9670,34 +9670,44 @@ function Core.mount(cfg)
 			done()
 		end)
 	end
+	-- message discret : petite bande sombre arrondie, texte blanc SANS contour, apparaît / s'efface en fondu
 	local function toast(b, text)
 		local host = b.content or b.main
 		if not (host and host.Parent) then return end
 		local old = host:FindFirstChild("FindMeToast")
 		if old then old:Destroy() end
-		local t = Instance.new("TextLabel")
+		local t = Instance.new("Frame")
 		t.Name = "FindMeToast"
 		t.AnchorPoint = Vector2.new(0.5, 0)
-		t.Position = UDim2.new(0.5, 0, 0.02, 0)
-		t.Size = UDim2.new(0.9, 0, 0.075, 0)
-		t.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-		t.BackgroundTransparency = 0.15
+		t.Position = UDim2.new(0.5, 0, 0.015, 0)
+		t.Size = UDim2.new(0.72, 0, 0.055, 0)
+		t.BackgroundColor3 = Color3.new(0, 0, 0)
+		t.BackgroundTransparency = 1
 		t.BorderSizePixel = 0
-		t.Font = Enum.Font.FredokaOne
-		t.TextScaled = true
-		t.TextColor3 = Color3.new(1, 1, 1)
-		t.Text = text
 		t.ZIndex = 50
 		t.Parent = host
-		Instance.new("UICorner", t).CornerRadius = UDim.new(1, 0)
-		local c = Instance.new("UITextSizeConstraint", t) ; c.MaxTextSize = 30
-		local pd = Instance.new("UIPadding", t) ; pd.PaddingTop = UDim.new(0.18, 0) ; pd.PaddingBottom = UDim.new(0.18, 0)
-		local st = Instance.new("UIStroke") ; st.Color = ME_COLOR ; st.Thickness = 2 ; st.Transparency = 0.2 ; st.Parent = t
-		task.delay(3.2, function()
+		Instance.new("UICorner", t).CornerRadius = UDim.new(0.3, 0)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.AnchorPoint = Vector2.new(0.5, 0.5)
+		l.Position = UDim2.fromScale(0.5, 0.5)
+		l.Size = UDim2.fromScale(0.92, 0.62)
+		l.Font = Enum.Font.GothamMedium
+		l.TextScaled = true
+		l.TextColor3 = Color3.fromRGB(235, 235, 240)
+		l.TextTransparency = 1
+		l.Text = text
+		l.ZIndex = 51
+		l.Parent = t
+		local c = Instance.new("UITextSizeConstraint", l) ; c.MaxTextSize = 24
+		local fade = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(t, fade, { BackgroundTransparency = 0.35 }):Play()
+		TweenService:Create(l, fade, { TextTransparency = 0 }):Play()
+		task.delay(3, function()
 			if not t.Parent then return end
-			TweenService:Create(t, TweenInfo.new(0.4), { BackgroundTransparency = 1, TextTransparency = 1 }):Play()
-			TweenService:Create(st, TweenInfo.new(0.4), { Transparency = 1 }):Play()
-			task.delay(0.45, function() if t.Parent then t:Destroy() end end)
+			TweenService:Create(t, fade, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(l, fade, { TextTransparency = 1 }):Play()
+			task.delay(0.3, function() if t.Parent then t:Destroy() end end)
 		end)
 	end
 	local function scrollToMe(b)
@@ -9724,8 +9734,7 @@ function Core.mount(cfg)
 	local function findMe(b)
 		if scrollToMe(b) then return end
 		if b.filter == "all" and TABS and ctx.data and LocalPlayer then
-			toast(b, string.format("You're not in the top %d yet — your score is at the bottom",
-				math.min(#ctx.data, cfg.topSize)))
+			toast(b, string.format("Not in the top %d yet · your score is below", math.min(#ctx.data, cfg.topSize)))
 			b.meExtra = true
 			renderBoard(b)
 			fetchMine(function()
@@ -56403,8 +56412,8 @@ end)
 --   • Disposition d'avant : SHOW · TYPE (si le shop a plusieurs types) · SORT BY, en
 --     boutons 3D (face en dégradé + socle) qui NE s'enfoncent PAS.
 --   • Choix contraires impossibles ensemble : Available / Low stock / Sold out (un seul),
---     Owned / Not owned (un seul), un seul tri. Prendre l'un retire l'autre, les
---     contraires sont grisés.
+--     Owned / Not owned (un seul), un seul tri. Prendre l'un retire l'autre (les
+--     boutons gardent leur couleur normale).
 --   • « Most left / Least left » = tri sur le stock RESTANT.
 --   • APPLY (vert, à gauche) · RESET (rouge, à droite) en bas DU panneau, sous un trait,
 --     hors de la partie qui défile. Léger contour noir autour du panneau.
@@ -56425,12 +56434,10 @@ local function buildFilterUI()
 	local WHITE  = Color3.new(1, 1, 1)
 	local NAVY   = Color3.fromRGB(16, 30, 52)      -- fond du panneau (bleu nuit, le thème du bouton)
 	local SUB    = Color3.fromRGB(150, 175, 210)   -- titres de section
-	local DIMTXT = Color3.fromRGB(120, 138, 165)   -- choix contraire (grisé)
 	local SELC   = Color3.fromRGB(255, 214, 92)    -- cadre de sélection manette
 	local COL = {   -- dessus, dessous, socle
-		blue   = { Color3.fromRGB(55, 150, 240), Color3.fromRGB(25, 100, 200), Color3.fromRGB(12, 55, 120) },  -- = FILTER
+		blue   = { Color3.fromRGB(95, 216, 253), Color3.fromRGB(45, 165, 225), Color3.fromRGB(20, 95, 135) },  -- = FILTER (bleu ciel 95,216,253)
 		slate  = { Color3.fromRGB(62, 82, 112),  Color3.fromRGB(40, 56, 82),   Color3.fromRGB(22, 32, 50) },   -- pas choisi
-		dim    = { Color3.fromRGB(44, 56, 76),   Color3.fromRGB(32, 42, 58),   Color3.fromRGB(20, 26, 38) },   -- contraire
 		yellow = { Color3.fromRGB(255, 196, 60), Color3.fromRGB(215, 150, 30), Color3.fromRGB(120, 85, 10) },
 		-- APPLY / RESET : vert et rouge, pour ne jamais les confondre avec les choix (bleu / ardoise)
 		green  = { Color3.fromRGB(40, 185, 80),  Color3.fromRGB(12, 115, 42),  Color3.fromRGB(8, 65, 25) },
@@ -56698,7 +56705,8 @@ local function buildFilterUI()
 			LayoutOrder = nextO(), ZIndex = Z + 3 }, scroll)
 		addH(TITLE_H)
 	end
-	-- grille de boutons 3D fixes (3 par ligne) ; state(id) → "on" | "off" | "dim"
+	-- grille de boutons 3D fixes (3 par ligne) ; state(id) → "on" | "off"
+	--   (les choix contraires gardent leur couleur normale : en prendre un retire simplement l'autre)
 	local function grid(items, state, onClick)
 		local g = mk("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextO(), ZIndex = Z + 3 }, scroll)
@@ -56712,7 +56720,7 @@ local function buildFilterUI()
 			local function p()
 				if not draft then return end
 				local st = state(it.id)
-				recolor(st == "on" and COL.blue or (st == "dim" and COL.dim or COL.slate), st == "dim" and DIMTXT or WHITE)
+				recolor(st == "on" and COL.blue or COL.slate, WHITE)
 			end
 			table.insert(painters, p) ; p()
 			b.Activated:Connect(function() if draft then onClick(it.id) ; repaint() end end)
@@ -56720,10 +56728,7 @@ local function buildFilterUI()
 	end
 	local function flagState(id)
 		local f = draft.f
-		if f[id] then return "on" end
-		local g = GROUP_OF[id]
-		if g then for _, o in ipairs(GROUPS[g]) do if f[o] then return "dim" end end end
-		return "off"
+		return f[id] and "on" or "off"
 	end
 	local function build()
 		for _, c in ipairs(scroll:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
@@ -56752,8 +56757,7 @@ local function buildFilterUI()
 		end
 		title("SORT BY")
 		grid(SORTS, function(id)
-			if draft.sort == id then return "on" end
-			return (draft.sort ~= "default" and id ~= "default") and "dim" or "off"
+			return draft.sort == id and "on" or "off"
 		end, function(id) draft.sort = (draft.sort == id and id ~= "default") and "default" or id end)
 		contentH += PAD * 2
 	end
