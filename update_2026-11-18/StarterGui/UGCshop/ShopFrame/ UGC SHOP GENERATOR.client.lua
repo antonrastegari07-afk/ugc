@@ -2173,7 +2173,7 @@ local function buildFilterUI()
 			SelectionImageObject = selTemplate }, slot)
 		round(btn, 8)
 		local grad = mk("UIGradient", { Rotation = 90, Color = ColorSequence.new(col[1], col[2]) }, btn)
-		local lbl = mk("TextLabel", { Size = UDim2.new(1, -8, 1, 0), Position = UDim2.fromOffset(4, 0),
+		local lbl = mk("TextLabel", { Size = UDim2.new(1, -4, 1, 0), Position = UDim2.fromOffset(2, 0),
 			BackgroundTransparency = 1, Text = text, Font = Enum.Font.FredokaOne, TextScaled = true,
 			TextWrapped = false,   -- toujours sur UNE ligne : le texte rétrécit au lieu de se couper
 			TextColor3 = WHITE, ZIndex = Z + 5 }, btn)
@@ -2274,18 +2274,10 @@ local function buildFilterUI()
 	local function uiScaleValue()          -- bouton FILTER, message « aucun résultat »
 		return math.clamp(shopRatio(), 0.35, 1.3)
 	end
-	-- 📱 panneau : en général ≤ 45 % de la fenêtre, MAIS jamais moins de 250 px de large
-	--    (sinon les mots des boutons deviennent trop petits sur téléphone) ; dans tous les
-	--    cas ≤ 90 % de la fenêtre. Trop haut ? le contenu défile (déjà géré par place()).
-	local PANEL_MIN_ABS_W = 250
-	local function panelScaleValue()
+	local function panelScaleValue()       -- panneau : jamais plus large que 45 % de la fenêtre
 		local s = math.clamp(shopRatio(), 0.4, 1.3)
-		local shopW = ShopFrame.AbsoluteSize.X
-		if shopW <= 1 then return s end
-		local maxW = math.max(shopW * 0.45, PANEL_MIN_ABS_W)
-		if 300 * s > maxW then s = maxW / 300 end
-		if 300 * s < PANEL_MIN_ABS_W then s = PANEL_MIN_ABS_W / 300 end
-		if 300 * s > shopW * 0.9 then s = shopW * 0.9 / 300 end
+		local maxW = ShopFrame.AbsoluteSize.X * 0.45
+		if maxW > 1 and 300 * s > maxW then s = maxW / 300 end
 		return s
 	end
 	local function padActive()
