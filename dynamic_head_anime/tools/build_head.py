@@ -945,7 +945,32 @@ for k in list(P):
         P['Right' + k[4:]] = mirror(P[k])
 P['JawDrop'] = {'Jaw': T(0, 0.012, -0.095)}
 P['ChinRaiser'] = {'Jaw': T(0, -0.010, 0.006), 'LeftLowerLip': T(0, -0.004, 0.0), 'RightLowerLip': T(0, -0.004, 0.0)}
-P['ChinRaiserUpperLip'] = {'LeftUpperLip': T(0, -0.005, 0.006), 'RightUpperLip': T(0, -0.005, 0.006), 'Jaw': T(0, -0.004, 0.003)}
+# chin raiser pushing the upper lip up too (mouth shrug): clearly visible, Studio flags tiny poses as "identical to Neutral"
+P['ChinRaiserUpperLip'] = {'LeftUpperLip': T(0, -0.010, 0.016), 'RightUpperLip': T(0, -0.010, 0.016),
+                           'LeftLowerLip': T(0, -0.010, 0.012), 'RightLowerLip': T(0, -0.010, 0.012),
+                           'LeftLipCorner': T(0, -0.004, 0.008), 'RightLipCorner': T(0, -0.004, 0.008),
+                           'Jaw': T(0, -0.012, 0.012)}
+# extra Roblox base poses (no tongue, the eyes never move): more expressions available in Studio / with face tracking
+P['JawLeft'] = {'Jaw': T(0.022, 0, 0)}
+P['JawRight'] = {'Jaw': T(-0.022, 0, 0)}
+_lips = ('LeftUpperLip', 'RightUpperLip', 'LeftLowerLip', 'RightLowerLip', 'LeftLipCorner', 'RightLipCorner')
+P['MouthLeft'] = {b: T(0.020, 0, 0.002 if 'Corner' in b and b.startswith('Left') else 0) for b in _lips}
+P['MouthRight'] = {b: T(-0.020, 0, 0.002 if 'Corner' in b and b.startswith('Right') else 0) for b in _lips}
+P['Funneler'] = {'LeftUpperLip': T(-0.004, -0.012, 0.008), 'RightUpperLip': T(0.004, -0.012, 0.008),
+                 'LeftLowerLip': T(-0.004, -0.012, -0.008), 'RightLowerLip': T(0.004, -0.012, -0.008),
+                 'LeftLipCorner': T(-0.014, -0.008, 0), 'RightLipCorner': T(0.014, -0.008, 0)}
+P['LipPresser'] = {'LeftUpperLip': T(0, 0.005, -0.002), 'RightUpperLip': T(0, 0.005, -0.002),
+                   'LeftLowerLip': T(0, 0.005, 0.004), 'RightLowerLip': T(0, 0.005, 0.004),
+                   'LeftLipCorner': T(0, 0.003, 0), 'RightLipCorner': T(0, 0.003, 0)}
+P['LowerLipSuck'] = {'LeftLowerLip': T(0, 0.008, 0.006), 'RightLowerLip': T(0, 0.008, 0.006)}
+P['UpperLipSuck'] = {'LeftUpperLip': T(0, 0.008, -0.004), 'RightUpperLip': T(0, 0.008, -0.004)}
+for s_, sg in (('Left', 1), ('Right', -1)):
+    o_ = 'Right' if s_ == 'Left' else 'Left'
+    P[s_ + 'CheekPuff'] = {s_ + 'Cheek': T(0.004 * sg, -0.016, -0.002), s_ + 'UnderEye': T(0, -0.004, 0),
+                           s_ + 'LipCorner': T(0.004 * sg, -0.004, 0)}
+    P[s_ + 'Dimpler'] = {s_ + 'LipCorner': T(0.010 * sg, 0.006, 0.002)}
+    P[s_ + 'NoseWrinkler'] = {s_ + 'UpperLip': T(0, -0.002, 0.012), s_ + 'Cheek': T(0, -0.002, 0.008),
+                              s_ + 'UnderEye': T(0, -0.002, 0.006), s_ + 'InnerBrow': T(-0.004 * sg, 0, -0.010)}
 P['LipsTogether'] = {'LeftLowerLip': T(0, -0.002, 0.004), 'RightLowerLip': T(0, -0.002, 0.004),
                      'LeftUpperLip': T(0, -0.002, -0.002), 'RightUpperLip': T(0, -0.002, -0.002)}
 P['Pucker'] = {'LeftLipCorner': T(-0.022, -0.012, 0.002), 'RightLipCorner': T(0.022, -0.012, 0.002),

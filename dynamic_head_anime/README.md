@@ -10,7 +10,7 @@
 >
 > | Version | Contenu |
 > |---|---|
-> | **v1.1** | Eyeliner raccourci : la partie qui dépasse de l'œil (aile et coin intérieur) est réduite de moitié, en 3D **et** dans le dessin (le bas de l'aile et les petits traits suivent) ; deux variantes : **A** yeux 3D (comme v1.0), **B** yeux plats au fond du trou blanc |
+> | **v1.1** | 43 poses (au lieu de 29), ChinRaiserUpperLip corrigée ; eyeliner raccourci : la partie qui dépasse de l'œil (aile et coin intérieur) est réduite de moitié, en 3D **et** dans le dessin (le bas de l'aile et les petits traits suivent) ; deux variantes : **A** yeux 3D (comme v1.0), **B** yeux plats au fond du trou blanc |
 > | v1.0 | Œil 3D : sphère-iris inversée avec ton iris dessiné + pupille boule noire au centre, œil fixe, iris/pupille sans reflet ; clignement par paupière glissante ; sourcils en weight painting ; vidéos 6 angles (paysage + téléphone) et planche 18 vues |
 
 Ton visage (`in/face_ref.webp`) monté en **dynamic head Roblox animée**, posée sur le **corps Blocky officiel de
@@ -40,17 +40,21 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
 3. MeshPart : `Material` = **Plastic**, `Transparency` = 0, `VertexColor` = 1,1,1 (exigences Marketplace).
 4. Test : **Avatar → Animation Editor → Face Editor**, ou fais varier les curseurs de `Head → FaceControls`.
 
-## Ce qui est animé (34 frames : Neutral + 29 poses + 4 correctifs)
+## Ce qui est animé (48 frames : Neutral + 43 poses + 4 correctifs)
 
 - **Les 17 poses obligatoires Roblox** : LeftEyeClosed, RightEyeClosed, EyesLookDown, JawDrop, Pucker,
   Left/RightLipCornerPuller, ChinRaiser, ChinRaiserUpperLip, Left/RightCheekRaiser, Left/RightInnerBrowRaiser,
   Left/RightLipCornerDown, Left/RightLowerLipDepressor.
 - En plus : EyesLookUp, LipsTogether, Left/RightLipStretcher, Left/RightUpperLipRaiser,
   Left/RightBrowLowerer, Left/RightOuterBrowRaiser, Left/RightEyeUpperLidRaiser.
+- Depuis la v1.1, toutes les autres poses Roblox que ce visage peut faire : JawLeft/Right, MouthLeft/Right, Funneler,
+  LipPresser, LowerLipSuck, UpperLipSuck, Left/RightCheekPuff, Left/RightDimpler, Left/RightNoseWrinkler (pas de
+  langue, et pas de regard gauche / droite puisque l'œil ne bouge pas). `ChinRaiserUpperLip` est bien marquée (moue) :
+  Studio ne la signale plus comme « identique au neutre ».
 - Correctifs (même nommage que la tête Blocky officielle) : `LeftEyeClosed_EyesLookDown`, `RightEyeClosed_EyesLookDown`,
   `LeftEyeClosed_EyesLookUp`, `RightEyeClosed_EyesLookUp` : l'œil fermé reste exactement fermé quand le regard bouge
   (la paupière suit un peu le regard vers le bas / le haut).
-- Mapping fait comme dans la doc Roblox : propriétés `RootFaceJoint = DynamicHead` et `Frame0 … Frame33` sur `Head_Geo`,
+- Mapping fait comme dans la doc Roblox : propriétés `RootFaceJoint = DynamicHead` et `Frame0 … Frame47` sur `Head_Geo`,
   `Frame0 = Neutral`, os du visage sous `Head → DynamicHead`, clés uniquement sur les os du visage.
 
 ### Les yeux
@@ -115,7 +119,7 @@ sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
 - aucun triangle de peau qui se plie (> 35°) ;
 - pas de double couche de peau, pas de trou, aucune face qui prend une texture d'œil ou de bouche hors de sa place
   (ni à l'arrière de la tête), et l'arrière de la tête n'est piloté par aucun os du visage.
-**Résultat : 0 problème sur 141 cas + 8 tests globaux.** Mesh 100 % triangles (3788 / 4000 max), 4 influences d'os max,
+**Résultat : 0 problème sur 197 cas + 8 tests globaux.** Mesh 100 % triangles (3788 / 4000 max), 4 influences d'os max,
 aucun sommet sans poids, FBX aux mêmes axes / unités que le Blocky officiel de Roblox.
 
 ## Limites honnêtes
