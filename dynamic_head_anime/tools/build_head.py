@@ -28,10 +28,10 @@ CUP_STEP = 0.04
 SOCKET_EXTRA = 0.15       # cutter goes this much deeper than the deepest cup point
 EYE_DC = float(os.environ.get('EYE_DC', 0.16))   # depth of the eyeball centre behind the face (at the iris centre)
 EYE_RE = float(os.environ.get('EYE_RE', 0.21))   # radius of the white eyeball sphere (seen from the inside: inverted)
-CAVE_DOWN = 0.0           # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
+CAVE_DOWN = 0.06          # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
 CAVE_H = 0.105            # the socket widens UPWARDS inside the head (a cave larger than its entrance): seen from
                           # below, the whole round iris and the white around it are visible (no flat white ceiling)
-CAVE_D0, CAVE_D1 = 0.004, 0.05   # depth where the widening starts / is complete (the rim keeps the opening's shape)
+CAVE_D0, CAVE_D1 = 0.004, 0.065  # depth where the widening starts / is complete (the rim keeps the opening's shape)
 LOOK_X, LOOK_Z = 0.028, 0.017
 MOUTH_HALF_GAP = 0.0026
 MOUTH_DEPTH = 0.10
@@ -164,11 +164,14 @@ for s in 'LR':
     # loft: straight through the skin, then widening upwards behind it
     rings = [[(x, -1.5, z) for x, z in EYES[s]]]
     def ring_pt(x, z, d):
-        z2 = z + cave_raise(s, x, z) * cave_frac(d)
+        cr = cave_raise(s, x, z)
+        # up: widens from CAVE_D0; down: only from 3 cm deep (straight under the lower rim first: the cheek is close)
+        fr = cave_frac(d) if cr >= 0 else max(0.0, min(1.0, (d - 0.03) / (CAVE_D1 - 0.03)))
+        z2 = z + cr * fr
         # behind the skin both at the rim AND where the widened outline lands (the cheek recedes under the eye)
         y = max(surf_y(x, z) + d, (surf_y(x, z2) or -9) + max(d, 0.03) if d > CAVE_D0 else -9)
         return (x, y, z2)
-    for d in (CAVE_D0, CAVE_D1):
+    for d in (CAVE_D0, 0.03, CAVE_D1):
         rings.append([ring_pt(x, z, d) for x, z in EYES[s]])
     rings.append([(x, max(yb, rings[-1][i][1] + 0.05), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
     vr = [[bc.verts.new(p) for p in r] for r in rings]
@@ -204,8 +207,15 @@ def socket_of(p):
         return None
     for s in 'LR':
         q = (p.x, p.z)
-        if pip(q, EYES[s]) or poly_dist(q, EYES[s]) < 0.002 or pip(q, CAVE_POLY[s]) or poly_dist(q, CAVE_POLY[s]) < 0.002:
+        if pip(q, EYES[s]) or poly_dist(q, EYES[s]) < 0.002:
             return s
+        if pip(q, CAVE_POLY[s]) or poly_dist(q, CAVE_POLY[s]) < 0.002:
+            # the widened part of the socket: above the eye it starts right behind the rim; below the eye only from
+            # 3 cm deep (shallower points there are cheek skin, a little behind the ideal surface)
+            sp = vertical_span(EYES[s], min(max(p.x, min(e[0] for e in EYES[s]) + 1e-4), max(e[0] for e in EYES[s]) - 1e-4))
+            below = sp is not None and p.z < sp[1]
+            if not below or p.y > sy + 0.025:
+                return s
     q = (p.x, p.z)
     if pip(q, MOUTH_POLY) or poly_dist(q, MOUTH_POLY) < 0.002:
         return 'M'
@@ -360,12 +370,13 @@ for s in 'LR':
     WHITE_UV = px2uv(rx_ + rw_ / 2, ry_ + rh_ / 2)
     # --- white sphere, seen from the inside (normals point to its centre)
     TH = [0.0, 45.0, 85.0, 122.0]
+    WSEG = 16
     pole = bm.verts.new(C + sph_dir(0, 0) * EYE_RE); cup_verts[s].append(pole)
     rows = []
     for th in TH[1:]:
         row = []
-        for k in range(IRIS_SEG):
-            p_ = C + sph_dir(math.radians(th), 2 * math.pi * k / IRIS_SEG) * EYE_RE
+        for k in range(WSEG):
+            p_ = C + sph_dir(math.radians(th), 2 * math.pi * k / WSEG) * EYE_RE
             sy = surf_y(p_.x, p_.z)
             if sy is not None and p_.y < sy + 0.012: p_.y = sy + 0.012    # never in front of the skin
             v = bm.verts.new(p_); row.append(v); cup_verts[s].append(v)
@@ -376,13 +387,13 @@ for s in 'LR':
         cen_ = sum((v.co for v in vs), Vector()) / len(vs)
         if f.normal.dot(C - cen_) < 0: f.normal_flip()                # inverted: faces the inside
         for l in f.loops: l[uvl].uv = WHITE_UV
-    for k in range(IRIS_SEG):
-        k2 = (k + 1) % IRIS_SEG
+    for k in range(WSEG):
+        k2 = (k + 1) % WSEG
         wface((pole, rows[0][k], rows[0][k2]))
         for j in range(len(rows) - 1):
             wface((rows[j][k], rows[j + 1][k], rows[j + 1][k2], rows[j][k2]))
     # --- iris ball (normal, convex), front pole towards the viewer
-    AL_ = [0.0, 24.0, 48.0, 72.0, 96.0, 124.0]
+    AL_ = [0.0, 30.0, 60.0, 90.0, 120.0, 150.0]                  # + the back pole: a complete closed ball
     def ball_uv(p_, al):
         dx, dz = (p_.x - xi) / r0, (p_.z - zi) / r0
         if al > 90:                                                    # behind the equator: the iris' outer edge colour
@@ -404,11 +415,13 @@ for s in 'LR':
         if f.normal.dot(cen_ - C) < 0: f.normal_flip()                # convex: faces outwards
         for l, (v, al) in zip(f.loops, vs_al):
             l[uvl].uv = ball_uv(v.co, al)
+    bpole = bm.verts.new(C + sph_dir(0, 0, back=True) * r0); iris_verts[s].append(bpole)
     for k in range(IRIS_SEG):
         k2 = (k + 1) % IRIS_SEG
         bface(((fpole, 0.0), brows[0][k], brows[0][k2]))
         for j in range(len(brows) - 1):
             bface((brows[j][k], brows[j + 1][k], brows[j + 1][k2], brows[j][k2]))
+        bface((brows[-1][k], (bpole, 180.0), brows[-1][k2]))
     print('eye', s, 'ball radius %.3f, centre %.3f behind the face, white sphere radius %.3f' % (r0, EYE_DC, EYE_RE))
 bm.normal_update()
 
@@ -429,7 +442,7 @@ def skin_y(x, z):
     if loc is None or loc.y - sy > 0.008: return sy   # no skin right here (opening): the base surface
     return max(loc.y, sy)                # the deeper of the two (chords of the shell lie behind the base surface)
 LID_DOME = 0.004
-LID_COLS, LID_ROWS = 14, 7     # columns: one tucked beyond each corner, one right at the outline, 12 across
+LID_COLS, LID_ROWS = 12, 7     # columns: one tucked beyond each corner, one right at the outline, 12 across
 LASH_T = 0.011            # eyeliner thickness in front of the face
 LASH_OVER = 0.0055        # eyeliner overhang below the opening's top rim
 def smoothstep(a, b, x):
@@ -588,7 +601,7 @@ def resample(chain, n):
         u = (t - L[i - 1]) / max(L[i] - L[i - 1], 1e-9)
         out.append((chain[i - 1][0] + (chain[i][0] - chain[i - 1][0]) * u, chain[i - 1][1] + (chain[i][1] - chain[i - 1][1]) * u))
     return out
-LASH_COLS = 26
+LASH_COLS = 22
 for s in 'LR':
     poly = lash_poly_studs(s)
     i0 = min(range(len(poly)), key=lambda i: poly[i][0]); i1 = max(range(len(poly)), key=lambda i: poly[i][0])

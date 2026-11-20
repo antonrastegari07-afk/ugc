@@ -45,7 +45,7 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   **vraie boule 3D** (mesh normal, convexe) de la taille de ton iris, placée **exactement au centre de cette sphère**,
   avec ton dessin d'iris projeté de face. Une boule reste ronde sous tous les angles, et posée au fond du globe creux
   elle semble se tourner vers celui qui regarde : les yeux suivent la caméra de face, de côté et de dessous.
-- **Creux évasé vers le haut** (comme une grotte plus grande que son entrée) : vu de dessous, on voit **l'iris rond
+- **Creux évasé vers le haut et vers le bas** (comme une grotte plus grande que son entrée) : on voit **la boule ronde
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
 - **Regard** (EyesLook*) : la boule de l'iris tourne sur elle-même autour du centre de la sphère (comme un vrai œil) ;
