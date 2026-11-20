@@ -1,0 +1,82 @@
+# Tête dynamique anime (yeux creusés, recoloriable)
+
+Ton visage (`in/face_ref.webp`) monté en **dynamic head Roblox animée**, posée sur le **corps Blocky officiel de
+Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face mask*, à la taille standard d'une tête
+(1,18 × 1,18 × 1,20 stud).
+
+## Fichiers à utiliser
+
+| Fichier | Rôle |
+|---|---|
+| `AnimeDynamicHead_Blocky.fbx` | Le personnage complet à importer dans Studio (tête dynamique + corps Blocky R15 + cages + attachments) |
+| `HeadTexture.png` | Texture couleur de la tête. **La peau est transparente** : c'est elle qui rend la tête recoloriable |
+| `HeadTexture_Emissive.png` | Masque émissif : l'intérieur des yeux (blanc, parois du creux, iris) est un « blanc profond », plat, qui ne prend pas l'ombre |
+| `HeadTexture_Roughness.png` | Rugosité : 1 (aucun reflet) sur les yeux, les cils et l'encre ; 0,6 sur la peau |
+| `HeadTexture_Metalness.png`, `HeadTexture_Normal.png` | Métal 0 et normale plate (à brancher pour un SurfaceAppearance complet) |
+
+## Import dans Studio
+
+1. **Avatar → Import 3D** (ou File → Import 3D), choisis `AnimeDynamicHead_Blocky.fbx`.
+   Rig General → **Rig Type : R15**. Laisse l'importeur reconnaître les attachments (`*_Att`) et les cages (`*_OuterCage`).
+2. Sur la MeshPart **Head**, ajoute un **SurfaceAppearance** :
+   - `ColorMap` = `HeadTexture.png`, **`AlphaMode` = `Overlay`** → la peau prend la couleur de la tête (Body Colors / teint)
+   - `RoughnessMap` = `HeadTexture_Roughness.png`, `MetalnessMap` = `HeadTexture_Metalness.png`, `NormalMap` = `HeadTexture_Normal.png`
+   - `EmissiveMaskContent` = `HeadTexture_Emissive.png`, `EmissiveTint` = blanc, `EmissiveStrength` ≈ 1,5 à 2
+     (c'est ce qui donne le blanc pur, sans ombrage, au fond des yeux)
+   - Version simple sans SurfaceAppearance : `TextureID` = `HeadTexture.png` (toujours recoloriable, mais sans le blanc émissif)
+3. MeshPart : `Material` = **Plastic**, `Transparency` = 0, `VertexColor` = 1,1,1 (exigences Marketplace).
+4. Test : **Avatar → Animation Editor → Face Editor**, ou fais varier les curseurs de `Head → FaceControls`.
+
+## Ce qui est animé (34 frames : Neutral + 31 poses + 2 correctifs)
+
+- **Les 17 poses obligatoires Roblox** : LeftEyeClosed, RightEyeClosed, EyesLookDown, JawDrop, Pucker,
+  Left/RightLipCornerPuller, ChinRaiser, ChinRaiserUpperLip, Left/RightCheekRaiser, Left/RightInnerBrowRaiser,
+  Left/RightLipCornerDown, Left/RightLowerLipDepressor.
+- En plus : EyesLookLeft/Right/Up, LipsTogether, Left/RightLipStretcher, Left/RightUpperLipRaiser,
+  Left/RightBrowLowerer, Left/RightOuterBrowRaiser, Left/RightEyeUpperLidRaiser.
+- Correctifs : `LeftCheekRaiser_LeftEyeClosed`, `RightCheekRaiser_RightEyeClosed` (fermer + plisser sans que la paupière
+  dépasse).
+- Mapping fait comme dans la doc Roblox : propriétés `RootFaceJoint = DynamicHead` et `Frame0 … Frame33` sur `Head_Geo`,
+  `Frame0 = Neutral`, os du visage sous `Head → DynamicHead`, clés uniquement sur les os du visage.
+
+### Les yeux
+- **Creusés** : l'ouverture est un vrai trou. Au fond, une coupelle **concave** blanche, et l'**iris rond est lui-même un
+  petit bol creusé** posé sur une collerette blanche. Comme tout est concave, l'iris semble **suivre la caméra**.
+- **Regard** (EyesLook*) : l'iris glisse sur la coupelle en tournant autour de son centre de courbure ; le blanc et son
+  ombre de paupière restent fixes.
+- **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou, comme sur les têtes de
+  référence.
+- **Clignement naturel** : la paupière du haut (2/3) et celle du bas (1/3) sont de la vraie peau bombée qui **pivote**
+  autour du bord de l'œil, et le trait de cils 3D descend avec elles. Œil fermé = un arc de cils. Roblox interpole la
+  rotation, donc un demi-clignement est une vraie paupière à moitié fermée.
+
+### Recoloriable
+Tout ce qui est peau (tête, paupières) est transparent dans la texture → couleur de la tête. Les yeux, les cils, les
+sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
+
+## Vérifications faites
+- `tools/check_mesh.py` déforme la tête pour chaque pose et pour les 5 tests de validation Roblox (clignement
+  gauche/droit + regard en bas, bouche ouverte, joie, tristesse) et cherche : morceaux qui traversent la peau, triangles
+  retournés, étirements. **Résultat : 0 problème sur 43 cas.**
+- Mesh 100 % triangles (3579 / 4000 max pour une DynamicHead), 4 influences d'os max, aucun sommet sans poids.
+- FBX vérifié contre le Blocky officiel de Roblox : mêmes axes (Y-up, face +Z), mêmes unités (studs, UnitScale 100),
+  pas de rotation/échelle de nœud.
+
+## Limites honnêtes
+- **Pas pu tester dans Studio d'ici** (pas d'accès à Roblox depuis cet environnement). Si l'import ou la validation
+  râle, envoie-moi le message exact.
+- **Cage** : c'est la cage officielle de la tête Blocky (même topologie/UV donc mêmes repères yeux/bouche), recalée sur
+  ce visage. Si la validation Marketplace refuse les repères de la cage, l'outil **Avatar Setup** de Studio peut
+  régénérer la cage seule.
+- Pas de dents ni de langue (style anime, bouche en trait). La doc Roblox les recommande mais la validation ne les exige
+  pas.
+
+## Reconstruire
+```bash
+VENV=<python avec bpy, numpy, pillow, opencv-python-headless, scipy>
+$VENV tools/extract_face.py in/face_ref.webp build    # texture + données du visage
+cp build/HeadTexture*.png .
+$VENV tools/build_head.py .                           # géométrie, rig, poses, corps Blocky, export FBX
+$VENV tools/check_mesh.py .                           # contrôle automatique des déformations
+$VENV tools/render_previews.py . && $VENV tools/render_previews.py . close   # rendus dans previews/
+```

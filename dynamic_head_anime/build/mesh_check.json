@@ -1,0 +1,254 @@
+{
+ "Neutral": {
+  "moved": 0,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "ChinRaiser": {
+  "moved": 92,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "ChinRaiserUpperLip": {
+  "moved": 143,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "EyesLookDown": {
+  "moved": 202,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "EyesLookLeft": {
+  "moved": 202,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "EyesLookRight": {
+  "moved": 202,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "EyesLookUp": {
+  "moved": 202,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "JawDrop": {
+  "moved": 92,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftBrowLowerer": {
+  "moved": 129,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftCheekRaiser": {
+  "moved": 37,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftEyeClosed": {
+  "moved": 180,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftEyeUpperLidRaiser": {
+  "moved": 186,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftInnerBrowRaiser": {
+  "moved": 45,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftLipCornerDown": {
+  "moved": 34,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftLipCornerPuller": {
+  "moved": 46,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftLipStretcher": {
+  "moved": 34,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftLowerLipDepressor": {
+  "moved": 35,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftOuterBrowRaiser": {
+  "moved": 85,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftUpperLipRaiser": {
+  "moved": 37,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LipsTogether": {
+  "moved": 95,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "Pucker": {
+  "moved": 123,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightBrowLowerer": {
+  "moved": 133,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightCheekRaiser": {
+  "moved": 38,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightEyeClosed": {
+  "moved": 187,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightEyeUpperLidRaiser": {
+  "moved": 198,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightInnerBrowRaiser": {
+  "moved": 46,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightLipCornerDown": {
+  "moved": 34,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightLipCornerPuller": {
+  "moved": 46,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightLipStretcher": {
+  "moved": 34,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightLowerLipDepressor": {
+  "moved": 36,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightOuterBrowRaiser": {
+  "moved": 90,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightUpperLipRaiser": {
+  "moved": 38,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftCheekRaiser_LeftEyeClosed": {
+  "moved": 189,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightCheekRaiser_RightEyeClosed": {
+  "moved": 196,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftEyeClosed+EyesLookDown": {
+  "moved": 382,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightEyeClosed+EyesLookDown": {
+  "moved": 389,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "Pucker+LeftLipCornerPuller+RightLipCornerPuller": {
+  "moved": 147,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "ChinRaiser+ChinRaiserUpperLip+LeftCheekRaiser+RightCheekRaiser+LeftInnerBrowRaiser+RightInnerBrowRaiser+LeftLipCornerDown+RightLipCornerDown+LeftLowerLipDepressor+RightLowerLipDepressor": {
+  "moved": 291,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftEyeClosed+EyesLookUp": {
+  "moved": 382,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "LeftEyeClosed+EyesLookLeft": {
+  "moved": 382,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "RightEyeClosed+EyesLookRight": {
+  "moved": 389,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ },
+ "JawDrop+LeftLipCornerPuller+RightLipCornerPuller": {
+  "moved": 148,
+  "poke": 0,
+  "flipped": 0,
+  "stretched": 0
+ }
+}
