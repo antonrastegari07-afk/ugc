@@ -54,6 +54,16 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   bord du trou (pas de marche, pas de liseré blanc), et ses coins descendent assez bas pour ne jamais découvrir un coin
   de l'œil pendant le mouvement. Fermé, le trait de cils garde la forme de ton eyeliner, descendu sur le bas de l'œil.
 
+### Poids (weight painting)
+Chaque point du visage a un « poids » par os (0 = ne bouge pas, 1 = suit l'os complètement) ; c'est ce que l'on
+« peint » dans Blender. Ici les poids sont calculés pour être lisses et cohérents (`previews/sheet_weights.png`,
+bleu = 0 → rouge = 1) :
+- **Sourcils** : chaque sourcil bouge **d'un bloc** (part « intérieur » + part « extérieur » = 1 sur tout le sourcil),
+  avec un passage progressif de l'intérieur vers l'extérieur et une décroissance douce vers le front : froncer, lever
+  l'intérieur (air triste) ou l'extérieur (arqué) garde la forme du sourcil (`previews/sheet_brows.png`).
+- Sous les yeux / joues : décroissance vers les coins des yeux (pas de pli au coin) ; bouche : mâchoire, lèvres et
+  coins partagés de façon à ne jamais croiser ; paupière + eyeliner : 100 % sur leur os.
+
 ### Recoloriable
 Tout ce qui est peau (tête, paupières) est transparent dans la texture → couleur de la tête. Les yeux, les cils, les
 sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
@@ -90,4 +100,5 @@ $VENV tools/build_head.py .                           # géométrie, rig, poses,
 $VENV tools/check_mesh.py .                           # contrôle automatique des déformations
 $VENV tools/render_previews.py . && $VENV tools/render_previews.py . close && $VENV tools/render_previews.py . blinkseq
 $VENV tools/make_sheets.py .                          # planches previews/sheet_*.png
+$VENV tools/render_weights.py .                       # carte des poids previews/sheet_weights.png
 ```

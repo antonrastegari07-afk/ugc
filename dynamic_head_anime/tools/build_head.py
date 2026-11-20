@@ -729,9 +729,19 @@ for idx, p in enumerate(REST):
                 w[nms + 'Cheek'] = ck if ck > 0.06 else 0.0
                 # brows
                 bmask = smoothstep(ztop + 0.02, ztop + 0.08, z) * frontish
+                # weight painting along the brow: the whole brow moves as one piece (inner + outer = 1 on it),
+                # inner -> outer blended smoothly along its length, soft falloff up into the forehead and down
                 inner, outer = BROWS[s]
-                w[nms + 'InnerBrow'] = gauss((x, z), inner, 0.075) * bmask
-                w[nms + 'OuterBrow'] = gauss((x, z), outer, 0.085) * bmask
+                ax_, az_ = outer[0] - inner[0], outer[1] - inner[1]
+                L2 = ax_ * ax_ + az_ * az_
+                t_raw = ((x - inner[0]) * ax_ + (z - inner[1]) * az_) / L2
+                t_ = min(1.0, max(0.0, t_raw))
+                dz_ = z - (inner[1] + az_ * t_)
+                beyond = max(-t_raw, t_raw - 1.0, 0.0) * math.sqrt(L2)
+                base = math.exp(-(dz_ / (0.07 if dz_ > 0 else 0.035)) ** 2) * math.exp(-(beyond / 0.05) ** 2) * bmask
+                ts = smoothstep(0.15, 0.85, t_)
+                w[nms + 'InnerBrow'] = base * (1 - ts)
+                w[nms + 'OuterBrow'] = base * ts
     w = {k: v for k, v in w.items() if v > 0.01}
     if len(w) > 3:
         w = dict(sorted(w.items(), key=lambda kv: -kv[1])[:3])
