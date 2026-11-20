@@ -41,15 +41,15 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   `Frame0 = Neutral`, os du visage sous `Head → DynamicHead`, clés uniquement sur les os du visage.
 
 ### Les yeux
-- **Globe inversé** : derrière l'ouverture, l'intérieur d'un globe oculaire (mesh inversé) : un blanc concave et un
-  **iris en demi-sphère creuse** (un bol de ~8 cm de profondeur) soudé au blanc. Sous n'importe quel angle (face, côté,
-  dessous) on voit la paroi intérieure du bol tournée vers soi : l'iris reste rond et **semble regarder la caméra et
-  la suivre** (illusion du masque creux), au lieu de s'aplatir comme un disque vu de côté.
+- **Œil 3D sphérique** : le blanc est **l'intérieur d'une vraie sphère** (mesh inversé, rayon 0,21) et l'iris est une
+  **vraie boule 3D** (mesh normal, convexe) de la taille de ton iris, placée **exactement au centre de cette sphère**,
+  avec ton dessin d'iris projeté de face. Une boule reste ronde sous tous les angles, et posée au fond du globe creux
+  elle semble se tourner vers celui qui regarde : les yeux suivent la caméra de face, de côté et de dessous.
 - **Creux évasé vers le haut** (comme une grotte plus grande que son entrée) : vu de dessous, on voit **l'iris rond
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
-- **Regard** (EyesLook*) : tout le globe (blanc + iris) tourne d'un bloc ; le blanc est uni, donc son mouvement est
-  invisible, et il reste toujours derrière la peau quel que soit le regard.
+- **Regard** (EyesLook*) : la boule de l'iris tourne sur elle-même autour du centre de la sphère (comme un vrai œil) ;
+  le blanc, uni, reste fixe.
 - **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
 - **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
   la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du
@@ -80,11 +80,12 @@ sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
   peau, aucun triangle retourné, aucun étirement anormal ;
 - au repos, la paupière rangée n'est visible **sous aucun angle** (face, dessous, dessus, côtés) ;
 - œil fermé : l'ouverture est **entièrement couverte** sous tous ces angles ;
+- on ne voit **jamais l'intérieur de l'œil hors des ouvertures** (le creux ne perce la peau nulle part) ;
 - **aucune face vue de dos** (= trou dans Roblox) depuis 5 angles de caméra, pour toutes les poses à 50 / 100 % ;
 - aucun triangle de peau qui se plie (> 35°) ;
 - pas de double couche de peau, pas de trou, aucune face qui prend une texture d'œil ou de bouche hors de sa place
   (ni à l'arrière de la tête), et l'arrière de la tête n'est piloté par aucun os du visage.
-**Résultat : 0 problème sur 151 cas + 7 tests globaux.** Mesh 100 % triangles (3926 / 4000 max), 4 influences d'os max,
+**Résultat : 0 problème sur 151 cas + 7 tests globaux.** Mesh 100 % triangles (3982 / 4000 max), 4 influences d'os max,
 aucun sommet sans poids, FBX aux mêmes axes / unités que le Blocky officiel de Roblox.
 
 ## Limites honnêtes

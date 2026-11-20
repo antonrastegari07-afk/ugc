@@ -207,13 +207,33 @@ for gx in range(-50, 51):
         if nrm.y > 0.05 and CAT[idx] not in ('mouth',):
             holes.append((round(x, 3), round(z, 3), CAT[idx]))
 print(('ok ' if not holes else '!! ') + f'holes in the skin: {len(holes)} {holes[:8]}')
+# the inside of the eyes (white, iris, socket walls) must never show outside the eye openings (e.g. a socket cutter
+# breaking through the cheek), from the front and from below / the sides
+def _seg_d(p, a, b):
+    ax, ay = a; bx, by = b; px, py = p; dx, dy = bx - ax, by - ay
+    t = max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy + 1e-12)))
+    return math.hypot(px - ax - t * dx, py - ay - t * dy)
+def poly_dist(p, poly): return min(_seg_d(p, poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
+inside_out = []
+_bvh_r = BVHTree.FromPolygons(rest, POLYS)
+for dn in ('front',):
+    d = dir_vec(*DIRS[dn])
+    for gx in range(-50, 51):
+        for gz in range(-40, 20):
+            x, z = gx * 0.011, gz * 0.011
+            if any(poly_dist((x, z), EYES[s_]) < 0.03 or pip((x, z), EYES[s_]) for s_ in 'LR'): continue
+            h, n2, i2, _ = _bvh_r.ray_cast(Vector((HC.x + x * SC, HC.y - 3, HC.z + z * SC)), Vector((0, 1, 0)))
+            if i2 is not None and CAT[i2] in ('wall', 'dish', 'iris'):
+                inside_out.append((dn, round(x, 3), round(z, 3), CAT[i2]))
+print(('ok ' if not inside_out else '!! ') + f'eye interior visible outside the openings: {len(inside_out)} {inside_out[:5]}')
+if inside_out: problems.append('eye interior outside')
 # texture islands: eye textures (dish / iris / socket wall) only inside the eye area, mouth texture only in the mouth
 wrong_uv = []
 for p, c in zip(me.polygons, CAT):
     q = to_mask(head.matrix_world @ p.center)
     if c in ('dish', 'iris', 'wall'):
-        ok = q.y < 0.0 and any(min(x for x, _ in EYES[s_]) - 0.08 < q.x < max(x for x, _ in EYES[s_]) + 0.08 and
-                 min(z for _, z in EYES[s_]) - 0.08 < q.z < max(z for _, z in EYES[s_]) + 0.16 for s_ in 'LR')
+        ok = q.y < 0.0 and any(min(x for x, _ in EYES[s_]) - (0.22 if c == "dish" else 0.08) < q.x < max(x for x, _ in EYES[s_]) + (0.22 if c == "dish" else 0.08) and
+                 min(z for _, z in EYES[s_]) - (0.22 if c == "dish" else 0.08) < q.z < max(z for _, z in EYES[s_]) + (0.22 if c == "dish" else 0.16) for s_ in 'LR')
         if not ok: wrong_uv.append((c, round(q.x, 3), round(q.z, 3)))
     if c == 'mouth' and q.y > -0.3: wrong_uv.append((c, round(q.x, 3), round(q.y, 3), round(q.z, 3)))
 print(('ok ' if not wrong_uv else '!! ') + f'faces with a texture from the wrong place: {len(wrong_uv)} {wrong_uv[:6]}')

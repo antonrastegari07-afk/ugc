@@ -48,97 +48,97 @@
   "stretched": 0
  },
  "EyesLookDown@25": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookDown@50": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookDown@75": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookDown@100": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookLeft@25": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookLeft@50": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookLeft@75": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookLeft@100": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookRight@25": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookRight@50": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookRight@75": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookRight@100": {
-  "moved": 282,
+  "moved": 202,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookUp@25": {
-  "moved": 730,
+  "moved": 650,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookUp@50": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookUp@75": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookUp@100": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -744,25 +744,25 @@
   "stretched": 0
  },
  "LeftEyeClosed@50+EyesLookDown@50": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@100+EyesLookDown@100": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@50+EyesLookDown@50": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@100+EyesLookDown@100": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -792,37 +792,37 @@
   "stretched": 0
  },
  "LeftEyeClosed@50+EyesLookUp@50": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@100+EyesLookUp@100": {
-  "moved": 802,
+  "moved": 722,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@50+EyesLookLeft@50": {
-  "moved": 542,
+  "moved": 462,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@100+EyesLookLeft@100": {
-  "moved": 542,
+  "moved": 462,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@50+EyesLookRight@50": {
-  "moved": 542,
+  "moved": 462,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@100+EyesLookRight@100": {
-  "moved": 542,
+  "moved": 462,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
