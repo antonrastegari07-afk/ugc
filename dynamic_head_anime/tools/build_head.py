@@ -963,7 +963,9 @@ P['LipPresser'] = {'LeftUpperLip': T(0, 0.005, -0.002), 'RightUpperLip': T(0, 0.
                    'LeftLowerLip': T(0, 0.005, 0.004), 'RightLowerLip': T(0, 0.005, 0.004),
                    'LeftLipCorner': T(0, 0.003, 0), 'RightLipCorner': T(0, 0.003, 0)}
 P['LowerLipSuck'] = {'LeftLowerLip': T(0, 0.008, 0.006), 'RightLowerLip': T(0, 0.008, 0.006)}
-P['UpperLipSuck'] = {'LeftUpperLip': T(0, 0.008, -0.004), 'RightUpperLip': T(0, 0.008, -0.004)}
+P['UpperLipSuck'] = {'LeftUpperLip': T(0, 0.016, -0.004), 'RightUpperLip': T(0, 0.016, -0.004),
+                     'LeftLipCorner': T(-0.003, 0.006, -0.002), 'RightLipCorner': T(0.003, 0.006, -0.002),
+                     'LeftLowerLip': T(0, 0.004, 0.002), 'RightLowerLip': T(0, 0.004, 0.002)}
 for s_, sg in (('Left', 1), ('Right', -1)):
     o_ = 'Right' if s_ == 'Left' else 'Left'
     P[s_ + 'CheekPuff'] = {s_ + 'Cheek': T(0.004 * sg, -0.016, -0.002), s_ + 'UnderEye': T(0, -0.004, 0),
