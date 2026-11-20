@@ -144,21 +144,33 @@ for side in 'RL':
     atlas[ry - 2:ry + rh + 2, rx - 2:rx + rw + 2, :3] = (222, 222, 225)
     atlas[ry - 2:ry + rh + 2, rx - 2:rx + rw + 2, 3] = 255
 
-# --- the eye as drawn (the white with its shading and corner lines; the dark iris disc REMOVED: the black 3D ball at the
-#     centre of the eye sphere is the iris),
-#     painted on the inside of the eye sphere by a front projection
+# --- the eye texture painted on the inside of the eye sphere (front projection): PURE WHITE (no line, no shading in the
+#     hole) + the drawn iris (rings, highlight; its top rebuilt) with the PUPIL REMOVED: the pupil is the black 3D ball
+#     at the centre of the sphere
 SCLERA = np.array((222, 222, 225), np.float32)
+_rR, _rL = eye_rect('R'), eye_rect('L')
+atlas[_rR[1] - 2:_rR[1] + max(_rR[3], _rL[3]) + 2, _rR[0] - 2:_rL[0] + _rL[2] + 2, :3] = SCLERA   # no dark gap to bleed
+atlas[_rR[1] - 2:_rR[1] + max(_rR[3], _rL[3]) + 2, _rR[0] - 2:_rL[0] + _rL[2] + 2, 3] = 255
 for side in 'RL':
     x0, x1, z0, z1 = eye_tex_box(side)
     rx, ry, rw, rh = eye_rect(side)
     yy, xx = np.mgrid[0:rh, 0:rw]
     xs_ = x0 + (xx - 1 + 0.5) / (rw - 2) * (x1 - x0); zs_ = z1 - (yy - 1 + 0.5) / (rh - 2) * (z1 - z0)
-    m_x = (CX + xs_ * SX).astype(np.float32); m_y = (CY - zs_ * SY).astype(np.float32)
-    base = cv2.remap(eye_img, m_x, m_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    inm = cv2.remap(cv2.dilate(eye_mask, np.ones((3, 3), np.uint8)).astype(np.float32) / 255, m_x, m_y, cv2.INTER_LINEAR)
-    tex = base * inm[..., None] + SCLERA * (1 - inm[..., None])          # drawing in the opening, white around it
-    # the dark iris disc of the drawing is NOT painted: the 3D black ball at the centre of the sphere is the iris
+    tex = np.zeros((rh, rw, 3), np.float32) + SCLERA
+    xi, zi, irx, irz = iris_studs(side)
+    a_ = (xs_ - xi) / irx; b_ = (zs_ - zi) / irz
+    rr = np.sqrt(a_ ** 2 + b_ ** 2)
+    icol = IRIS_COL[side]; ih, iw = icol.shape[:2]
+    ix = np.clip((a_ + 1) / 2 * iw - 0.5, 0, iw - 1).astype(np.float32); iy = np.clip((1 - b_) / 2 * ih - 0.5, 0, ih - 1).astype(np.float32)
+    iris_px = cv2.remap(icol, ix, iy, cv2.INTER_LINEAR)
+    ia = np.clip((1.0 - rr) / 0.03, 0, 1)[..., None]                     # soft 1-texel edge
+    tex = tex * (1 - ia) + iris_px * ia
+    # remove the drawn pupil (the dark vertical lens in the middle), keep the highlight
+    lens = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
     t8 = np.clip(tex, 0, 255).astype(np.uint8)
+    t8 = cv2.inpaint(t8, cv2.dilate(lens.astype(np.uint8), np.ones((5, 5), np.uint8)), 9, cv2.INPAINT_TELEA)
+    hl_ = (iris_px.mean(2) > 140) & (rr < 1.0)
+    t8 = np.where(hl_[..., None], np.clip(iris_px, 0, 255).astype(np.uint8), t8)
     atlas[ry:ry + rh, rx:rx + rw, :3] = t8
     atlas[ry:ry + rh, rx:rx + rw, 3] = 255
 
@@ -195,7 +207,10 @@ emis = np.zeros((ATLAS, ATLAS), np.float32)
 lum = out[..., :3].astype(np.float32).mean(2)
 def mark(rect):
     x, y, w, h = rect[:4]
-    emis[y - 2:y + h + 2, x - 2:x + w + 2] = lum[y - 2:y + h + 2, x - 2:x + w + 2]
+    l_ = lum[y - 2:y + h + 2, x - 2:x + w + 2]
+    # whites fully emissive (one flat deep white whatever the surface angle: sphere and socket walls match);
+    # darks keep their (low) value: the iris / pupil stay deep black, no glow
+    emis[y - 2:y + h + 2, x - 2:x + w + 2] = np.where(l_ > 150, 255, l_)
 for side in 'RL':
     mark(cup_rect(side)); mark(iris_rect(side))
 mark(WALL_UP_RECT); mark(WALL_LO_RECT); mark(BALL_RECT)

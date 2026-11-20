@@ -41,18 +41,19 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   `Frame0 = Neutral`, os du visage sous `Head → DynamicHead`, clés uniquement sur les os du visage.
 
 ### Les yeux
-- **Œil 3D sphérique** : le blanc est **l'intérieur d'une vraie sphère** (mesh inversé, rayon 0,21) sur lequel est
-  projetée **ta texture d'œil d'origine** (le blanc de la photo, son ombrage et ses traits), **sans le disque sombre de
-  l'iris** ; l'iris est une **vraie boule 3D noir profond** (mesh normal, convexe, 28 × 9, fermée) de la taille de ton
-  iris, placée **au centre de cette sphère**. Elle reste ronde sous tous les angles et, posée au fond du globe creux,
-  elle semble se tourner vers celui qui regarde.
-- **PBR** : tout le noir de l'œil est un noir profond sans reflet (rugosité 1, métal 0, aucune émission) ; le blanc est
-  émissif (blanc plat qui ne prend pas l'ombre).
+- **Œil 3D sphérique** : chaque œil est une **sphère complète vue de l'intérieur** (mesh inversé, rayon 0,125 ; sa
+  moitié avant, vue de dos, est invisible) sur laquelle est projetée **ta texture d'œil d'origine** : blanc pur + ton
+  **iris dessiné** (anneaux, reflet), **la pupille dessinée retirée**. La **pupille** est une **vraie boule 3D noir
+  profond** (mesh normal) placée **exactement au centre de la sphère**. Plus proche que l'iris peint au fond, elle se
+  décale vers celui qui regarde quand il tourne autour : l'œil le suit. La sphère est placée assez profond pour rester
+  derrière la peau (et derrière la paupière fermée) dans toutes les positions.
+- **PBR** : tout le noir de l'œil est un noir profond sans reflet (rugosité 1, métal 0, aucune émission) ; tous les
+  blancs sont entièrement émissifs (un blanc plat identique sur la sphère et les parois, sans ombre ni ligne).
 - **Creux évasé vers le haut et vers le bas** (comme une grotte plus grande que son entrée) : on voit **la boule ronde
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
-- **Regard** (EyesLook*) : la boule se déplace dans la sphère blanche (4 cm sur les côtés, 2,2 cm en haut / en bas) ;
-  le blanc reste fixe.
+- **Regard** (EyesLook*) : la sphère tourne (l'iris dessiné se déplace de 3,5 cm sur les côtés, 2 cm en haut / en bas)
+  et la pupille suit exactement.
 - **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
 - **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
   la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du

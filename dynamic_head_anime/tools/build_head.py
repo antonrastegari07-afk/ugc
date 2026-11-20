@@ -26,13 +26,13 @@ DISH_MIN = 0.006          # the dish never comes closer than this to the face su
 IRIS_OFF = 0.0025         # iris disc floats this much in front of the sclera dish
 CUP_STEP = 0.04
 SOCKET_EXTRA = 0.15       # cutter goes this much deeper than the deepest cup point
-EYE_DC = float(os.environ.get('EYE_DC', 0.16))   # depth of the eyeball centre behind the face (at the iris centre)
-EYE_RE = float(os.environ.get('EYE_RE', 0.21))   # radius of the white eyeball sphere (seen from the inside: inverted)
-CAVE_DOWN = 0.06          # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
+EYE_DC = float(os.environ.get('EYE_DC', 0.135))  # depth of the eyeball centre behind the face (at the iris centre)
+EYE_RE = float(os.environ.get('EYE_RE', 0.125))  # radius of the white eyeball sphere (seen from the inside: inverted)
+CAVE_DOWN = 0.075         # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
 CAVE_H = 0.105            # the socket widens UPWARDS inside the head (a cave larger than its entrance): seen from
                           # below, the whole round iris and the white around it are visible (no flat white ceiling)
 CAVE_D0, CAVE_D1 = 0.004, 0.065  # depth where the widening starts / is complete (the rim keeps the opening's shape)
-LOOK_X, LOOK_Z = 0.04, 0.022
+LOOK_X, LOOK_Z = 0.035, 0.02
 MOUTH_HALF_GAP = 0.0026
 MOUTH_DEPTH = 0.10
 MOUTH_INSET = 0.012
@@ -104,7 +104,34 @@ CAVE_POLY = {s: [(x, z + cave_raise(s, x, z)) for x, z in EYES[s]] for s in 'LR'
 def surf_nb(x, z):
     """deepest face surface around (x, z) within a gaze shift: the face curves back towards the temples"""
     return max((surf_y(x + dx, z + dz) or -9) for dx in (-0.035, 0, 0.035) for dz in (-0.022, 0, 0.022))
-EYE_C = {s: Vector((IRIS_C[s][0], surf_y(*IRIS_C[s]) + EYE_DC, IRIS_C[s][1])) for s in 'LR'}   # eyeball centres
+def _eye_depth(s):
+    """smallest depth of the eye-sphere centre (>= EYE_DC) for which the whole sphere stays behind the skin (and behind
+    the closed lid over the opening): a sphere turning about its centre always fills the same volume, so this holds for
+    every gaze"""
+    xi, zi = IRIS_C[s]; y0 = surf_y(xi, zi)
+    dirs = []
+    for i in range(1, 19):
+        th = math.radians(i * 5)                                     # front hemisphere, 5..90 deg from the front pole
+        for k in range(36):
+            ph = 2 * math.pi * k / 36
+            dirs.append((math.sin(th) * math.cos(ph), -math.cos(th), math.sin(th) * math.sin(ph)))
+    dirs.append((0.0, -1.0, 0.0))
+    dc = EYE_DC
+    while dc < 0.4:
+        ok = True
+        for dx, dy, dz in dirs:
+            x, y, z = xi + EYE_RE * dx, y0 + dc + EYE_RE * dy, zi + EYE_RE * dz
+            sy = surf_y(x, z)
+            if sy is None: continue
+            inside = pip((x, z), EYES[s]) and poly_dist((x, z), EYES[s]) > 0.004
+            if y < sy + (0.008 if inside else 0.014):
+                ok = False; break
+        if ok: break
+        dc += 0.0025
+    return dc
+EYE_DEPTH = {s: _eye_depth(s) for s in 'LR'}
+EYE_C = {s: Vector((IRIS_C[s][0], surf_y(*IRIS_C[s]) + EYE_DEPTH[s], IRIS_C[s][1])) for s in 'LR'}   # eye sphere centres
+print('eye sphere centre depth', {s: round(v, 4) for s, v in EYE_DEPTH.items()})
 
 # mouth centre line: smooth polynomial through the extracted ink line
 mx = [p[0] for p in FACE['mouth']]; mz = [p[1] for p in FACE['mouth']]
@@ -355,77 +382,54 @@ bm.normal_update()
 SHELL_N = len(bm.verts)
 print('shell tris after boolean', sum(len(f.verts) - 2 for f in bm.faces))
 
-# ---------------------------------------------------------------- 3D eyes: inverted white sphere + a real iris BALL inside
-# White = the inside of a sphere (inverted mesh, static).  Iris = a real 3D ball (normal, convex mesh) at the centre of
-# that sphere, the size of the drawn iris, the drawing projected on its front.  A ball stays round from every side, and
-# lying deep in the hollow eye it seems to turn towards whoever looks at it.  Gaze = the ball spins about its centre.
-IRIS_SEG = 28
-PUPIL_K = float(os.environ.get('PUPIL_K', 1.0))    # black ball radius / drawn iris radius (the ball IS the iris)
+# ---------------------------------------------------------------- 3D eyes: closed inverted eye sphere + black pupil ball
+# Eye = a complete sphere seen from the INSIDE (inverted mesh: its front half is back-facing, so invisible) with the
+# drawn eye projected on it from the front: pure white + the drawn iris (rings, highlight) with the drawn pupil removed.
+# Pupil = a real black 3D ball (normal mesh) exactly at the centre of that sphere.  The pupil is nearer than the iris
+# painted on the far wall, so when you move around it slides towards you: the eye follows you.  The white around the
+# sphere is the white socket itself.  Gaze: the sphere turns (the drawn iris moves) and the pupil moves with it.
+PUPIL_K = float(os.environ.get('PUPIL_K', 0.36))    # pupil ball radius / drawn iris radius
 cup_verts = {'L': [], 'R': []}
 iris_verts = {'L': [], 'R': []}
 def sph_dir(theta, phi, back=True):
     """unit vector; theta from the back (+Y) pole if back else from the front (-Y) pole"""
     st, ct = math.sin(theta), math.cos(theta)
     return Vector((st * math.cos(phi), ct if back else -ct, st * math.sin(phi)))
+def uv_sphere(C, R, seg, lats, inward, uvf, store):
+    """closed UV sphere; lats = latitudes in degrees from the front pole (0 and 180 are the poles)"""
+    fpole = bm.verts.new(C + sph_dir(0, 0, back=False) * R); store.append(fpole)
+    bpole = bm.verts.new(C + sph_dir(0, 0, back=True) * R); store.append(bpole)
+    rows = []
+    for la in lats[1:-1]:
+        row = []
+        for k in range(seg):
+            v = bm.verts.new(C + sph_dir(math.radians(la), 2 * math.pi * k / seg, back=False) * R)
+            row.append(v); store.append(v)
+        rows.append(row)
+    def face(vs):
+        f = bm.faces.new(vs); f.smooth = True
+        f.normal_update()
+        cen_ = sum((v.co for v in vs), Vector()) / len(vs)
+        out = f.normal.dot(cen_ - C) > 0
+        if out == inward: f.normal_flip()
+        for l in f.loops: l[uvl].uv = uvf(cen_, l.vert.co)
+    for k in range(seg):
+        k2 = (k + 1) % seg
+        face((fpole, rows[0][k], rows[0][k2]))
+        for j in range(len(rows) - 1):
+            face((rows[j][k], rows[j + 1][k], rows[j + 1][k2], rows[j][k2]))
+        face((rows[-1][k], bpole, rows[-1][k2]))
 for s in 'LR':
     xi, zi, r0, _ = IRIS[s]
     C = EYE_C[s]
-    rx_, ry_, rw_, rh_ = cup_rect(s)
-    WHITE_UV = px2uv(rx_ + rw_ / 2, ry_ + rh_ / 2)
-    # --- white sphere, seen from the inside (normals point to its centre)
-    TH = [0.0, 45.0, 85.0, 122.0]
-    WSEG = 16
-    pole = bm.verts.new(C + sph_dir(0, 0) * EYE_RE); cup_verts[s].append(pole)
-    rows = []
-    for th in TH[1:]:
-        row = []
-        for k in range(WSEG):
-            p_ = C + sph_dir(math.radians(th), 2 * math.pi * k / WSEG) * EYE_RE
-            sy = surf_y(p_.x, p_.z)
-            if sy is not None and p_.y < sy + 0.012: p_.y = sy + 0.012    # never in front of the skin
-            v = bm.verts.new(p_); row.append(v); cup_verts[s].append(v)
-        rows.append(row)
-    def wface(vs):
-        f = bm.faces.new(vs); f.smooth = True
-        f.normal_update()
-        cen_ = sum((v.co for v in vs), Vector()) / len(vs)
-        if f.normal.dot(C - cen_) < 0: f.normal_flip()                # inverted: faces the inside
-        for l in f.loops: l[uvl].uv = eye_tex_uv(s, l.vert.co.x, l.vert.co.z)   # the drawn eye, front projection
-    for k in range(WSEG):
-        k2 = (k + 1) % WSEG
-        wface((pole, rows[0][k], rows[0][k2]))
-        for j in range(len(rows) - 1):
-            wface((rows[j][k], rows[j + 1][k], rows[j + 1][k2], rows[j][k2]))
-    # --- iris ball (normal, convex), front pole towards the viewer
-    AL_ = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0]   # + the back pole: a complete closed ball
+    WHITE_UV = eye_tex_uv(s, eye_tex_box(s)[0] + 0.004, eye_tex_box(s)[3] - 0.004)        # a pure white texel
+    # the drawn iris only on the far (back) half: seen from the side, the near half must stay pure white
+    uv_sphere(C, EYE_RE, 20, [0, 30, 60, 90, 120, 150, 180], True,
+              lambda cen_, co: eye_tex_uv(s, co.x, co.z) if cen_.y > C.y else WHITE_UV, cup_verts[s])   # per face
     BALL_UV = rect_center_uv(BALL_RECT)
-    def ball_uv(p_, al):
-        return BALL_UV                                                 # one plain dark colour: nothing painted on it
-    rp = PUPIL_K * r0                                                  # the black ball = the dark iris of the drawing
-    fpole = bm.verts.new(C + sph_dir(0, 0, back=False) * rp); iris_verts[s].append(fpole)
-    brows = []
-    for al in AL_[1:]:
-        row = []
-        for k in range(IRIS_SEG):
-            p_ = C + sph_dir(math.radians(al), 2 * math.pi * k / IRIS_SEG, back=False) * rp
-            v = bm.verts.new(p_); row.append((v, al)); iris_verts[s].append(v)
-        brows.append(row)
-    def bface(vs_al):
-        vs = [v for v, _ in vs_al]
-        f = bm.faces.new(vs); f.smooth = True
-        f.normal_update()
-        cen_ = sum((v.co for v in vs), Vector()) / len(vs)
-        if f.normal.dot(cen_ - C) < 0: f.normal_flip()                # convex: faces outwards
-        for l, (v, al) in zip(f.loops, vs_al):
-            l[uvl].uv = ball_uv(v.co, al)
-    bpole = bm.verts.new(C + sph_dir(0, 0, back=True) * rp); iris_verts[s].append(bpole)
-    for k in range(IRIS_SEG):
-        k2 = (k + 1) % IRIS_SEG
-        bface(((fpole, 0.0), brows[0][k], brows[0][k2]))
-        for j in range(len(brows) - 1):
-            bface((brows[j][k], brows[j + 1][k], brows[j + 1][k2], brows[j][k2]))
-        bface((brows[-1][k], (bpole, 180.0), brows[-1][k2]))
-    print('eye', s, 'pupil ball radius %.3f, centre %.3f behind the face, eye sphere radius %.3f' % (rp, EYE_DC, EYE_RE))
+    rp = PUPIL_K * r0
+    uv_sphere(C, rp, 18, [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180], False, lambda cen_, co: BALL_UV, iris_verts[s])
+    print('eye', s, 'pupil ball radius %.3f at the centre of the eye sphere (radius %.3f, centre %.3f behind the face)' % (rp, EYE_RE, EYE_DEPTH[s]))
 bm.normal_update()
 
 # ---------------------------------------------------------------- eyelid: ONE rigid skin lid + the 3D eyeliner on ONE bone
@@ -699,6 +703,7 @@ EYE_BOT = {s: min(p[1] for p in EYES[s]) for s in 'LR'}
 FACE_BONES = {}
 for s, nm in (('L', 'Left'), ('R', 'Right')):
     FACE_BONES[nm + 'Eye'] = tuple(EYE_C[s])
+    FACE_BONES[nm + 'Pupil'] = tuple(EYE_C[s])
     FACE_BONES[nm + 'UpperEyelid'] = tuple(lid_info[s]['pivot'])
     FACE_BONES[nm + 'LashTip'] = front(lid_info[s]['x1'] if s == 'L' else lid_info[s]['x0'], EC[s][1] + 0.04, -0.011)
     FACE_BONES[nm + 'UnderEye'] = front(EC[s][0], EYE_BOT[s] - 0.01)
@@ -733,7 +738,7 @@ for idx, p in enumerate(REST):
     side = next((s for s in 'LR' if idx in IRIS_IDX[s] or idx in LID_IDX[s] or idx in LASH_IDX[s] or idx in CUP_IDX[s]), None)
     nm = {'L': 'Left', 'R': 'Right'}.get(side or SOCK[idx] if (side or SOCK[idx]) in ('L', 'R') else None, '')
     if side and idx in IRIS_IDX[side]:
-        w[nm + 'Eye'] = 1.0
+        w[nm + 'Pupil'] = 1.0                            # black pupil ball
     elif side and idx in LID_IDX[side]:
         w[nm + 'UpperEyelid'] = 1.0
     elif side and idx in LASH_IDX[side]:
@@ -741,7 +746,7 @@ for idx, p in enumerate(REST):
         w[nm + 'UpperEyelid'] = 1.0 - wt
         if wt > 0.01: w[nm + 'LashTip'] = wt
     elif side and idx in CUP_IDX[side]:
-        pass                                             # white sphere: static (uniform, its spin would be invisible)
+        w[nm + 'Eye'] = 1.0                              # eye sphere (drawn iris): turns with the gaze
     else:
         x, y, z = p
         frontish = smoothstep(-0.15, -0.35, y)
@@ -848,9 +853,16 @@ print('socket rim band vertices skinned like the rim:', n_band)
 # ---------------------------------------------------------------- FACS poses (in mask studs; rigid transforms)
 def T(*d): return ('t', Vector(d))
 def ROT(piv, axis, ang): return ('r', Vector(piv), axis, ang)
-def eye_rot(s, axis, dist):
-    # the plain iris ball MOVES inside the white sphere (a spin would not show): Z: +dist -> +X ; X: +dist -> up
-    return T(dist, 0, 0) if axis == 'Z' else T(0, 0, dist)
+def eye_look(axis, dist):
+    """both eyes: the eye sphere turns so that the drawn iris moves by `dist` (seen from the front) and the pupil ball
+    moves by the same amount.  Z: +dist -> towards +X ; X: +dist -> up"""
+    out = {}
+    for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
+        if axis == 'Z':
+            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'Z', -math.asin(dist / EYE_RE)); out[nm_ + 'Pupil'] = T(dist, 0, 0)
+        else:
+            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'X', math.asin(dist / EYE_RE)); out[nm_ + 'Pupil'] = T(0, 0, dist)
+    return out
 def mirror(d):
     out = {}
     for k, v in d.items():
@@ -864,10 +876,10 @@ def mirror(d):
             out[k2] = v
     return out
 P = {}
-P['EyesLookDown'] = {'LeftEye': eye_rot('L', 'X', -LOOK_Z), 'RightEye': eye_rot('R', 'X', -LOOK_Z)}
-P['EyesLookUp'] = {'LeftEye': eye_rot('L', 'X', LOOK_Z), 'RightEye': eye_rot('R', 'X', LOOK_Z)}
-P['EyesLookLeft'] = {'LeftEye': eye_rot('L', 'Z', LOOK_X), 'RightEye': eye_rot('R', 'Z', LOOK_X)}
-P['EyesLookRight'] = {'LeftEye': eye_rot('L', 'Z', -LOOK_X), 'RightEye': eye_rot('R', 'Z', -LOOK_X)}
+P['EyesLookDown'] = eye_look('X', -LOOK_Z)
+P['EyesLookUp'] = eye_look('X', LOOK_Z)
+P['EyesLookLeft'] = eye_look('Z', LOOK_X)
+P['EyesLookRight'] = eye_look('Z', -LOOK_X)
 def lid_rot(s_, frac=1.0):
     """the lid slide (a pure translation): frac 1 = closed"""
     return ('t', Vector(lid_info[s_]['t']) * frac, 'lid', frac)
@@ -882,13 +894,13 @@ for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
     o_ = 'Right' if nm_ == 'Left' else 'Left'; os_ = 'R' if s_ == 'L' else 'L'
     P[nm_ + 'EyeClosed_EyesLookUp'] = {nm_ + 'UpperEyelid': lid_rot(s_), o_ + 'UpperEyelid': lid_rot(os_, LID_UP),
                                        nm_ + 'LashTip': tip(1.0), o_ + 'LashTip': tip(LID_UP),
-                                       'LeftEye': eye_rot('L', 'X', LOOK_Z), 'RightEye': eye_rot('R', 'X', LOOK_Z)}
+                                       **eye_look('X', LOOK_Z)}
     P[nm_ + 'EyeClosed'] = {nm_ + 'UpperEyelid': lid_rot(s_), nm_ + 'LashTip': tip(1.0)}
     P[nm_ + 'CheekRaiser'] = {nm_ + 'Cheek': T(0, -0.004, 0.012), nm_ + 'UnderEye': T(0, -0.004, 0.012)}
     # corrective (same naming as Roblox's own Blocky head): closed + looking down must stay exactly closed
     P[nm_ + 'EyeClosed_EyesLookDown'] = {nm_ + 'UpperEyelid': lid_rot(s_), o_ + 'UpperEyelid': lid_rot(os_, LID_FOLLOW),
                                          nm_ + 'LashTip': tip(1.0), o_ + 'LashTip': tip(LID_FOLLOW),
-                                         'LeftEye': eye_rot('L', 'X', -LOOK_Z), 'RightEye': eye_rot('R', 'X', -LOOK_Z)}
+                                         **eye_look('X', -LOOK_Z)}
 P['LeftEyeUpperLidRaiser'] = {'LeftUpperEyelid': lid_rot('L', -0.07), 'LeftLashTip': tip(-0.07), 'LeftOuterBrow': T(0, 0, 0.006), 'LeftInnerBrow': T(0, 0, 0.004)}
 P['LeftLipCornerPuller'] = {'LeftLipCorner': T(0.014, 0.006, 0.020), 'LeftCheek': T(0, -0.002, 0.005), 'LeftUnderEye': T(0, -0.001, 0.003)}
 P['LeftLipCornerDown'] = {'LeftLipCorner': T(0.004, 0.0, -0.018)}
