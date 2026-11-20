@@ -1,5 +1,14 @@
 # Tête dynamique anime (yeux creusés, recoloriable)
 
+> ## 👉 VERSION ACTUELLE : **v1.0** → dossier [`VERSION_ACTUELLE/`](VERSION_ACTUELLE/)
+> Tous les fichiers à utiliser (FBX, textures, vidéos, images) sont **dans ce dossier, et seulement là**.
+> Il est entièrement remplacé à chaque nouvelle version : pas de mélange possible. Le numéro et la date sont dans
+> [`VERSION_ACTUELLE/README.md`](VERSION_ACTUELLE/README.md).
+>
+> | Version | Contenu |
+> |---|---|
+> | **v1.0** | Œil 3D : sphère-iris inversée avec ton iris dessiné + pupille boule noire au centre, œil fixe, iris/pupille sans reflet ; clignement par paupière glissante ; sourcils en weight painting ; vidéos 6 angles (paysage + téléphone) et planche 18 vues |
+
 Ton visage (`in/face_ref.webp`) monté en **dynamic head Roblox animée**, posée sur le **corps Blocky officiel de
 Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face mask*, à la taille standard d'une tête
 (1,18 × 1,18 × 1,20 stud).
@@ -96,7 +105,7 @@ sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
 - aucun triangle de peau qui se plie (> 35°) ;
 - pas de double couche de peau, pas de trou, aucune face qui prend une texture d'œil ou de bouche hors de sa place
   (ni à l'arrière de la tête), et l'arrière de la tête n'est piloté par aucun os du visage.
-**Résultat : 0 problème sur 141 cas + 8 tests globaux.** Mesh 100 % triangles (3982 / 4000 max), 4 influences d'os max,
+**Résultat : 0 problème sur 141 cas + 8 tests globaux.** Mesh 100 % triangles (3788 / 4000 max), 4 influences d'os max,
 aucun sommet sans poids, FBX aux mêmes axes / unités que le Blocky officiel de Roblox.
 
 ## Limites honnêtes
