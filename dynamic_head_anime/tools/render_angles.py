@@ -13,9 +13,12 @@ apply([])
 cells = []
 for pitch, pn in ((0, 'hauteur des yeux'), (-30, 'dessous'), (30, 'dessus')):
     for yaw in (-90, -60, -30, 0, 30, 60) if pitch == 0 else (-60, -30, 0, 30, 60, 90):
-        place(yaw, pitch, 0.036); cam.data.lens = 70
-        fn = os.path.join(OUT, f'_angle_{pitch}_{yaw}.png'); render(os.path.basename(fn))
-        cells.append((fn, f'{pn}, {"face" if yaw == 0 else ("%d° %s" % (abs(yaw), "droite" if yaw < 0 else "gauche"))}'))
+        pt, pl = pitch, pn
+        if pitch < 0 and abs(yaw) >= 90:      # full side from -30° puts the camera inside the shoulder
+            pt, pl = -12, 'un peu dessous'
+        place(yaw, pt, 0.036); cam.data.lens = 70
+        fn = os.path.join(OUT, f'_angle_{pt}_{yaw}.png'); render(os.path.basename(fn))
+        cells.append((fn, f'{pl}, {"face" if yaw == 0 else ("%d° %s" % (abs(yaw), "droite" if yaw < 0 else "gauche"))}'))
 try:
     font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', 17)
 except Exception:
