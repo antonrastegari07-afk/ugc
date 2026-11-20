@@ -52,8 +52,9 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   autour : l'œil le suit. Le blanc autour est le trou blanc lui-même (élargi en profondeur vers le haut, le bas et les
   côtés pour que la sphère-iris ne touche jamais une paroi). La sphère est placée assez profond pour rester derrière la
   peau et la paupière fermée dans toutes les positions.
-- **PBR** : la pupille est un **noir pur** (0,0,0) sans reflet (rugosité 1, métal 0, aucune émission), comme le noir de l'iris ; tous les
-  blancs sont entièrement émissifs (un blanc plat identique sur la sphère et les parois, sans ombre ni ligne).
+- **PBR** : le blanc et **l'iris** sont **entièrement émissifs** (rugosité 1, métal 0) : ils s'affichent en aplat,
+  exactement comme ton dessin, **sans ombrage ni reflet** quelle que soit la lumière ; la **pupille** est un **noir pur**
+  (0,0,0, rugosité 1, métal 0, aucune émission) : le noir le plus profond.
 - **Creux évasé vers le haut et vers le bas** (comme une grotte plus grande que son entrée) : on voit **la boule ronde
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.

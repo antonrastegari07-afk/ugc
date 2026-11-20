@@ -215,7 +215,10 @@ for side in 'RL':
     mark(cup_rect(side)); mark(iris_rect(side))
 mark(WALL_UP_RECT); mark(WALL_LO_RECT); mark(BALL_RECT)
 for side in 'RL':
-    mark(eye_rect(side))
+    # the eye texture (white + drawn iris) is FULLY emissive: shown flat exactly as drawn, it does not react to the
+    # light at all (no shading, no reflection).  The pupil ball (BALL_RECT) stays at 0: the deepest black.
+    x, y, w, h = eye_rect(side)
+    emis[y - 2:y + h + 2, x - 2:x + w + 2] = 255
 # the eye pixels kept on the face block around the rim (opaque image pixels inside the dilated opening)
 fem = cv2.remap(cv2.dilate(eye_mask, np.ones((5, 5), np.uint8)).astype(np.float32) / 255, mx, my, cv2.INTER_LINEAR)
 fl = lum[fy:fy + fh, fx:fx + fw]
