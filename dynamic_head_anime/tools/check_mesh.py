@@ -211,7 +211,7 @@ wrong_uv = []
 for p, c in zip(me.polygons, CAT):
     q = to_mask(head.matrix_world @ p.center)
     if c in ('dish', 'iris', 'wall'):
-        ok = q.y < -0.3 and any(min(x for x, _ in EYES[s_]) - 0.08 < q.x < max(x for x, _ in EYES[s_]) + 0.08 and
+        ok = q.y < 0.0 and any(min(x for x, _ in EYES[s_]) - 0.08 < q.x < max(x for x, _ in EYES[s_]) + 0.08 and
                  min(z for _, z in EYES[s_]) - 0.08 < q.z < max(z for _, z in EYES[s_]) + 0.16 for s_ in 'LR')
         if not ok: wrong_uv.append((c, round(q.x, 3), round(q.z, 3)))
     if c == 'mouth' and q.y > -0.3: wrong_uv.append((c, round(q.x, 3), round(q.y, 3), round(q.z, 3)))

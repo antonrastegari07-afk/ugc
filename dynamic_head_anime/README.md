@@ -43,6 +43,9 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
 ### Les yeux
 - **Creusés** : l'ouverture est un vrai trou ; au fond, une coupelle **concave** blanche et un **iris rond concave**
   posé dessus. Tout étant concave, l'iris semble **suivre la caméra**.
+- **Creux évasé vers le haut** (comme une grotte plus grande que son entrée) : vu de dessous, on voit **l'iris rond
+  en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
+  sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
 - **Regard** (EyesLook*) : l'iris glisse sur la coupelle en tournant autour de son centre de courbure ; le blanc et son
   ombre de paupière restent fixes.
 - **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
@@ -79,7 +82,7 @@ sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
 - aucun triangle de peau qui se plie (> 35°) ;
 - pas de double couche de peau, pas de trou, aucune face qui prend une texture d'œil ou de bouche hors de sa place
   (ni à l'arrière de la tête), et l'arrière de la tête n'est piloté par aucun os du visage.
-**Résultat : 0 problème sur 151 cas + 7 tests globaux.** Mesh 100 % triangles (3734 / 4000 max), 4 influences d'os max,
+**Résultat : 0 problème sur 151 cas + 7 tests globaux.** Mesh 100 % triangles (3942 / 4000 max), 4 influences d'os max,
 aucun sommet sans poids, FBX aux mêmes axes / unités que le Blocky officiel de Roblox.
 
 ## Limites honnêtes

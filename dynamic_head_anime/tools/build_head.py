@@ -19,12 +19,15 @@ OUT = os.path.join(ROOT, 'build')
 FACE = json.load(open(os.path.join(OUT, 'face_data.json')))
 
 # ---------------------------------------------------------------- parameters
-DISH_D = 0.088            # depth of the sclera dish behind the face at the iris centre (concave -> eyes follow the camera)
+DISH_D = float(os.environ.get('DISH_D', 0.10))   # depth of the sclera dish behind the face at the iris centre (concave -> eyes follow the camera)
 DISH_RH, DISH_RV = 0.42, 0.26   # curvature radii of the dish (horizontal, vertical); centres of curvature are in front
 DISH_MIN = 0.006          # the dish never comes closer than this to the face surface
 IRIS_OFF = 0.0025         # iris disc floats this much in front of the sclera dish
-CUP_STEP = 0.03
+CUP_STEP = 0.04
 SOCKET_EXTRA = 0.07       # cutter goes this much deeper than the deepest cup point
+CAVE_H = 0.105            # the socket widens UPWARDS inside the head (a cave larger than its entrance): seen from
+                          # below, the whole round iris and the white around it are visible (no flat white ceiling)
+CAVE_D0, CAVE_D1 = 0.004, 0.05   # depth where the widening starts / is complete (the rim keeps the opening's shape)
 LOOK_X, LOOK_Z = 0.028, 0.017
 MOUTH_HALF_GAP = 0.0026
 MOUTH_DEPTH = 0.10
@@ -82,6 +85,20 @@ EYES = {'L': eye_poly_studs('L'), 'R': eye_poly_studs('R')}
 IRIS = {s: iris_studs(s) for s in 'LR'}                      # x, z, rx, rz
 IRIS_C = {s: IRIS[s][:2] for s in 'LR'}
 DISH_B = {s: surf_y(*IRIS_C[s]) + DISH_D for s in 'LR'}       # deepest point (y)
+def cave_raise(s, x, z):
+    """how much the cave ceiling is above the opening's top rim (fully widened), 0 on the lower rim / corners"""
+    xs = [p[0] for p in EYES[s]]; x0, x1 = min(xs), max(xs)
+    sp = vertical_span(EYES[s], min(max(x, x0 + 1e-4), x1 - 1e-4))
+    if sp is None or z < (sp[0] + sp[1]) / 2: return 0.0
+    u = (x - (x0 + x1) / 2) / ((x1 - x0) / 2)
+    return CAVE_H * max(0.0, 1 - u ** 4) ** 0.5
+def cave_frac(d):
+    t = max(0.0, min(1.0, (d - CAVE_D0) / (CAVE_D1 - CAVE_D0)))
+    return t * t * (3 - 2 * t)
+CAVE_POLY = {s: [(x, z + cave_raise(s, x, z)) for x, z in EYES[s]] for s in 'LR'}   # fully widened outline
+def surf_nb(x, z):
+    """deepest face surface around (x, z) within a gaze shift: the face curves back towards the temples"""
+    return max((surf_y(x + dx, z + dz) or -9) for dx in (-0.035, 0, 0.035) for dz in (-0.022, 0, 0.022))
 def dish_y(s, x, z):
     xi, zi = IRIS_C[s]
     y = DISH_B[s] - (x - xi) ** 2 / (2 * DISH_RH) - (z - zi) ** 2 / (2 * DISH_RV)
@@ -143,7 +160,18 @@ for s in 'LR':
     xi, zi = IRIS_C[s]
     yb = max(dish_y(s, x, z) for x, z in EYES[s] + [IRIS_C[s]]) + SOCKET_EXTRA
     eye_back[s] = yb
-    add_prism(bc, EYES[s], -1.5, yb)
+    # loft: straight through the skin, then widening upwards behind it
+    rings = [[(x, -1.5, z) for x, z in EYES[s]]]
+    for d in (CAVE_D0, CAVE_D1):
+        rings.append([(x, surf_y(x, z) + d, z + cave_raise(s, x, z) * cave_frac(d)) for x, z in EYES[s]])
+    rings.append([(x, yb, z + cave_raise(s, x, z)) for x, z in EYES[s]])
+    vr = [[bc.verts.new(p) for p in r] for r in rings]
+    n = len(EYES[s])
+    bc.faces.new(vr[0]); bc.faces.new(vr[-1][::-1])
+    for a, b in zip(vr, vr[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            bc.faces.new((a[i], a[j], b[j], b[i]))
 bmesh.ops.recalc_face_normals(bc, faces=bc.faces[:])
 cut_me = bpy.data.meshes.new('cut'); bc.to_mesh(cut_me); bc.free()
 cut = bpy.data.objects.new('cut', cut_me); bpy.context.scene.collection.objects.link(cut)
@@ -170,7 +198,7 @@ def socket_of(p):
         return None
     for s in 'LR':
         q = (p.x, p.z)
-        if pip(q, EYES[s]) or poly_dist(q, EYES[s]) < 0.002:
+        if pip(q, EYES[s]) or poly_dist(q, EYES[s]) < 0.002 or pip(q, CAVE_POLY[s]) or poly_dist(q, CAVE_POLY[s]) < 0.002:
             return s
     q = (p.x, p.z)
     if pip(q, MOUTH_POLY) or poly_dist(q, MOUTH_POLY) < 0.002:
@@ -180,8 +208,15 @@ n_face = 0
 for f in bm.faces:
     c = f.calc_center_median()
     sk = socket_of(c)
+    if sk is None:
+        # the first, shallow band of the socket wall (rim -> 4 mm deep, before the cave widens): its centre is barely
+        # behind the surface, but it is a wall: one of its vertices is inside the socket and it hugs the outline
+        vs_ = [socket_of(v.co) for v in f.verts]
+        for s_ in 'LR':
+            if s_ in vs_ and poly_dist((c.x, c.z), EYES[s_]) < 0.003 and abs(f.normal.y) < 0.9:
+                sk = s_
     if sk in ('L', 'R'):
-        rect = WALL_UP_RECT if f.normal.z < -0.5 else WALL_LO_RECT
+        rect = WALL_LO_RECT                                       # plain deep white everywhere in the socket (no shading band)
         for l in f.loops:
             co = l.vert.co
             l[uvl].uv = wall_uv(rect, co.y - surf_y(co.x, co.z))
@@ -313,6 +348,8 @@ def para(s, x, z):
 for s in 'LR':
     xi, zi, r0, _ = IRIS[s]
     x0, x1, z0, z1 = eye_bbox(s)
+    z1c = z1                                                   # top of the cup texture
+    z1 = max(z for _, z in CAVE_POLY[s]) + 0.012                # the dish fills the whole cave
     nx = int(math.ceil((x1 - x0) / CUP_STEP)); nz = int(math.ceil((z1 - z0) / CUP_STEP))
     grid = []
     for j in range(nz + 1):
@@ -325,20 +362,18 @@ for s in 'LR':
     for j in range(nz):
         for i in range(nx):
             f = bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i])); f.smooth = True
-            for l in f.loops: l[uvl].uv = cup_uv(s, l.vert.co.x, l.vert.co.z)
+            for l in f.loops: l[uvl].uv = cup_uv(s, l.vert.co.x, min(l.vert.co.z, z1c - 0.002))
     rings = []
     for rr in (0.40, 0.75, 1.0):
         ring = []
         for k in range(IRIS_SEG):
             t = 2 * math.pi * k / IRIS_SEG
             x, z = xi + r0 * rr * math.cos(t), zi + r0 * rr * math.sin(t)
-            y = para(s, x, z) - IRIS_OFF
-            if not pip((x, z), EYES[s]):                             # hidden part: keep it behind the skin for every gaze
-                sy = max((surf_y(x + dx, z + dz) or -9) for dx in (-0.035, 0, 0.035) for dz in (-0.022, 0, 0.022))
-                y = max(y, sy + 0.01)
+            # full round disc lying on the dish (the part above the opening sits in the cave, seen from below)
+            y = dish_y(s, x, z) - IRIS_OFF
             v = bm.verts.new((x, y, z)); ring.append(v); iris_verts[s].append(v)
         rings.append(ring)
-    cen = bm.verts.new((xi, para(s, xi, zi) - IRIS_OFF, zi)); iris_verts[s].append(cen)
+    cen = bm.verts.new((xi, dish_y(s, xi, zi) - IRIS_OFF, zi)); iris_verts[s].append(cen)
     def iuv(v): return iris_uv(s, (v.co.x - xi) / r0, (v.co.z - zi) / r0)
     def iface(vs):
         f = bm.faces.new(vs); f.smooth = True
@@ -753,6 +788,21 @@ for idx, p in enumerate(REST):
     weights.append(w)
 for ia, ib in BAG_IDX:
     weights[ib] = dict(weights[ia])                       # mouth bag back = same skinning as its rim vertex
+# the shallow first band of the eye socket wall (rim -> CAVE_D0) follows the rim skin exactly (no shearing)
+from mathutils.kdtree import KDTree
+_rim = [i for i in range(SHELL_N) if SOCK[i] is None]
+_kd = KDTree(len(_rim))
+for k, i in enumerate(_rim): _kd.insert(Vector((REST[i].x, 0.0, REST[i].z)), k)
+_kd.balance()
+n_band = 0
+for i in range(SHELL_N):
+    if SOCK[i] in ('L', 'R'):
+        sy_ = surf_y(REST[i].x, REST[i].z)
+        if sy_ is not None and REST[i].y - sy_ < CAVE_D0 + 0.002:
+            co_, k, d_ = _kd.find(Vector((REST[i].x, 0.0, REST[i].z)))
+            if d_ < 0.004:
+                weights[i] = dict(weights[_rim[k]]); n_band += 1
+print('socket rim band vertices skinned like the rim:', n_band)
 
 # ---------------------------------------------------------------- FACS poses (in mask studs; rigid transforms)
 def T(*d): return ('t', Vector(d))
