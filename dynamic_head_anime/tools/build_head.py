@@ -110,11 +110,13 @@ def surf_nb(x, z):
     """deepest face surface around (x, z) within a gaze shift: the face curves back towards the temples"""
     return max((surf_y(x + dx, z + dz) or -9) for dx in (-0.035, 0, 0.035) for dz in (-0.022, 0, 0.022))
 EYE_R = {s: IRIS_SPH_K * IRIS[s][2] for s in 'LR'}   # iris sphere radius = the drawn iris (same size as the black ball)
+EYE_DROP = float(os.environ.get('EYE_DROP', 0.028))   # the eye (iris sphere + pupil) sits this much lower than the drawn
+                                                      # iris centre, so the pupil is not hidden under the eyeliner
 def _eye_depth(s):
     """smallest depth of the eye-sphere centre (>= EYE_DC) for which the whole sphere stays behind the skin (and behind
     the closed lid over the opening): a sphere turning about its centre always fills the same volume, so this holds for
     every gaze"""
-    xi, zi = IRIS_C[s]; y0 = surf_y(xi, zi)
+    xi, zi = IRIS_C[s][0], IRIS_C[s][1] - EYE_DROP; y0 = surf_y(xi, zi)
     dirs = []
     for i in range(1, 19):
         th = math.radians(i * 5)                                     # front hemisphere, 5..90 deg from the front pole
@@ -136,7 +138,7 @@ def _eye_depth(s):
         dc += 0.0025
     return dc
 EYE_DEPTH = {s: _eye_depth(s) for s in 'LR'}
-EYE_C = {s: Vector((IRIS_C[s][0], surf_y(*IRIS_C[s]) + EYE_DEPTH[s], IRIS_C[s][1])) for s in 'LR'}   # eye sphere centres
+EYE_C = {s: Vector((IRIS_C[s][0], surf_y(IRIS_C[s][0], IRIS_C[s][1] - EYE_DROP) + EYE_DEPTH[s], IRIS_C[s][1] - EYE_DROP)) for s in 'LR'}   # eye centres
 print('eye sphere centre depth', {s: round(v, 4) for s, v in EYE_DEPTH.items()})
 
 # mouth centre line: smooth polynomial through the extracted ink line
@@ -399,7 +401,7 @@ print('shell tris after boolean', sum(len(f.verts) - 2 for f in bm.faces))
 #   - the PUPIL: a real black 3D ball (normal mesh) exactly at the centre of the iris sphere.
 # The pupil is nearer than the iris painted on the far wall of the sphere, so when you move around it slides towards
 # you: the eye follows you.  The white around is the white socket itself.  Gaze: the iris sphere turns, the pupil follows.
-PUPIL_K = float(os.environ.get('PUPIL_K', 0.36))    # pupil ball radius / drawn iris radius
+PUPIL_K = float(os.environ.get('PUPIL_K', 0.45))    # pupil ball radius / drawn iris radius
 cup_verts = {'L': [], 'R': []}
 iris_verts = {'L': [], 'R': []}
 def sph_dir(theta, phi, back=True):
@@ -438,7 +440,7 @@ for s in 'LR':
     # from the side, from the inside): the iris' dark outer colour.  UVs per face (no interpolation across the atlas).
     RIM_UV = eye_tex_uv(s, xi + 0.93 * r0, zi)                             # the dark side of the iris ring
     uv_sphere(C, R_, 20, [0, 30, 60, 90, 120, 150, 180], True,
-              lambda cen_, co: eye_tex_uv(s, xi + (co.x - xi) * 0.93 * r0 / R_, zi + (co.z - zi) * 0.93 * r0 / R_)
+              lambda cen_, co: eye_tex_uv(s, xi + (co.x - C.x) * 0.93 * r0 / R_, zi + (co.z - C.z) * 0.93 * r0 / R_)
               if cen_.y > C.y else RIM_UV, cup_verts[s])
     BALL_UV = rect_center_uv(BALL_RECT)
     rp = PUPIL_K * r0

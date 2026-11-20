@@ -46,6 +46,8 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
     invisible), **de la taille de ton iris** (comme la grosse boule noire), avec **ton iris dessiné** projeté dessus
     (anneaux, reflet ; la pupille dessinée retirée) ;
   - **la pupille** : une **vraie boule 3D noir profond** (mesh normal) **exactement au centre de la sphère-iris**.
+    L'œil est descendu de 2,8 cm par rapport au centre de l'iris dessiné pour que la pupille (rayon 0,45 × l'iris) ne
+    soit pas cachée sous l'eyeliner.
   Plus proche que l'iris peint au fond de la sphère, la pupille se décale vers celui qui regarde quand il tourne
   autour : l'œil le suit. Le blanc autour est le trou blanc lui-même (élargi en profondeur vers le haut, le bas et les
   côtés pour que la sphère-iris ne touche jamais une paroi). La sphère est placée assez profond pour rester derrière la
