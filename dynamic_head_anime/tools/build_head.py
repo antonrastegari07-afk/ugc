@@ -32,7 +32,7 @@ CAVE_DOWN = 0.06          # the socket also widens downwards behind the lower ri
 CAVE_H = 0.105            # the socket widens UPWARDS inside the head (a cave larger than its entrance): seen from
                           # below, the whole round iris and the white around it are visible (no flat white ceiling)
 CAVE_D0, CAVE_D1 = 0.004, 0.065  # depth where the widening starts / is complete (the rim keeps the opening's shape)
-LOOK_X, LOOK_Z = 0.028, 0.017
+LOOK_X, LOOK_Z = 0.04, 0.022
 MOUTH_HALF_GAP = 0.0026
 MOUTH_DEPTH = 0.10
 MOUTH_INSET = 0.012
@@ -138,6 +138,9 @@ for f in bm.faces:
     if c.y < -0.3 and brow:
         sel.update(f.edges)
 bmesh.ops.subdivide_edges(bm, edges=list(sel), cuts=1, use_grid_fill=True)
+# the back of the head never deforms and is never seen up close: half the grid density there (its shading comes from
+# the smooth base surface normals anyway) -> triangles for round 3D eyes
+bmesh.ops.unsubdivide(bm, verts=[v for v in bm.verts if v.co.y > 0.25], iterations=2)
 for v in bm.verts:
     v.co = radial(v.co)
 bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
@@ -356,7 +359,7 @@ print('shell tris after boolean', sum(len(f.verts) - 2 for f in bm.faces))
 # White = the inside of a sphere (inverted mesh, static).  Iris = a real 3D ball (normal, convex mesh) at the centre of
 # that sphere, the size of the drawn iris, the drawing projected on its front.  A ball stays round from every side, and
 # lying deep in the hollow eye it seems to turn towards whoever looks at it.  Gaze = the ball spins about its centre.
-IRIS_SEG = 20
+IRIS_SEG = 28
 cup_verts = {'L': [], 'R': []}
 iris_verts = {'L': [], 'R': []}
 def sph_dir(theta, phi, back=True):
@@ -393,12 +396,10 @@ for s in 'LR':
         for j in range(len(rows) - 1):
             wface((rows[j][k], rows[j + 1][k], rows[j + 1][k2], rows[j][k2]))
     # --- iris ball (normal, convex), front pole towards the viewer
-    AL_ = [0.0, 30.0, 60.0, 90.0, 120.0, 150.0]                  # + the back pole: a complete closed ball
+    AL_ = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0]   # + the back pole: a complete closed ball
+    BALL_UV = rect_center_uv(BALL_RECT)
     def ball_uv(p_, al):
-        dx, dz = (p_.x - xi) / r0, (p_.z - zi) / r0
-        if al > 90:                                                    # behind the equator: the iris' outer edge colour
-            n_ = math.hypot(dx, dz) or 1.0; dx, dz = dx / n_ * 0.97, dz / n_ * 0.97
-        return iris_uv(s, dx, dz)
+        return BALL_UV                                                 # one plain dark colour: nothing painted on it
     fpole = bm.verts.new(C + sph_dir(0, 0, back=False) * r0); iris_verts[s].append(fpole)
     brows = []
     for al in AL_[1:]:
@@ -846,9 +847,8 @@ print('socket rim band vertices skinned like the rim:', n_band)
 def T(*d): return ('t', Vector(d))
 def ROT(piv, axis, ang): return ('r', Vector(piv), axis, ang)
 def eye_rot(s, axis, dist):
-    r0 = IRIS[s][2]
-    # the iris ball spins about its centre: its front moves by `dist`  (Z: +dist -> iris to +X ; X: +dist -> iris up)
-    return ROT(tuple(EYE_C[s]), axis, (dist / r0) if axis == 'Z' else (-dist / r0))
+    # the plain iris ball MOVES inside the white sphere (a spin would not show): Z: +dist -> +X ; X: +dist -> up
+    return T(dist, 0, 0) if axis == 'Z' else T(0, 0, dist)
 def mirror(d):
     out = {}
     for k, v in d.items():

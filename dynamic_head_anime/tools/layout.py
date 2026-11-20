@@ -49,6 +49,7 @@ WALL_LO_RECT = (870, 678, 150, 24)     # lower / side socket walls: sclera
 IRIS_RECT = {'R': (4, 790), 'L': (190, 790)}         # top-left; size from the iris ellipse
 MOUTH_RECT = (870, 706, 150, 50)       # mouth interior
 CLEAR_RECT = (990, 990, 30, 30)        # transparent (skin colour shows through)
+BALL_RECT = (952, 990, 30, 30)         # iris ball: one plain dark colour (the iris of the drawing)
 
 def eye_poly_studs(side):
     return [img2stud(*p) for p in EYE_PX[side]]

@@ -83,6 +83,7 @@ def category(p):
     if in_rect(px, py, LASH_RECT) or in_rect(px, py, LASH_SIDE_RECT): return 'lash'
     if in_rect(px, py, MOUTH_RECT): return 'mouth'
     if in_rect(px, py, WALL_UP_RECT) or in_rect(px, py, WALL_LO_RECT): return 'wall'
+    if in_rect(px, py, BALL_RECT): return 'iris'
     for s in 'LR':
         if in_rect(px, py, cup_rect(s)): return 'dish'
         if in_rect(px, py, iris_rect(s)): return 'iris'

@@ -157,6 +157,10 @@ x, y, w, h = MOUTH_RECT; atlas[y:y + h, x:x + w] = (46, 20, 24, 255)
 x, y, w, h = LASH_RECT; atlas[y:y + h, x:x + w] = (16, 14, 17, 255)
 x, y, w, h = LASH_SIDE_RECT; atlas[y:y + h, x:x + w] = (52, 50, 55, 255)
 x, y, w, h = CLEAR_RECT; atlas[y:y + h, x:x + w] = (0, 0, 0, 0)
+# iris ball: one plain colour = the median of the drawn iris (highlights excluded)
+_ball = np.median(im[known_nohl], axis=0)
+x, y, w, h = BALL_RECT; atlas[y:y + h, x:x + w, :3] = _ball; atlas[y:y + h, x:x + w, 3] = 255
+print('iris ball colour', [int(c) for c in _ball])
 
 fa = atlas[fy:fy + fh, fx:fx + fw]
 fa[..., 3] = np.clip(fa[..., 3], 0, 1) * 255
@@ -174,7 +178,7 @@ def mark(rect):
     emis[y - 2:y + h + 2, x - 2:x + w + 2] = lum[y - 2:y + h + 2, x - 2:x + w + 2]
 for side in 'RL':
     mark(cup_rect(side)); mark(iris_rect(side))
-mark(WALL_UP_RECT); mark(WALL_LO_RECT)
+mark(WALL_UP_RECT); mark(WALL_LO_RECT); mark(BALL_RECT)
 # the eye pixels kept on the face block around the rim (opaque image pixels inside the dilated opening)
 fem = cv2.remap(cv2.dilate(eye_mask, np.ones((5, 5), np.uint8)).astype(np.float32) / 255, mx, my, cv2.INTER_LINEAR)
 fl = lum[fy:fy + fh, fx:fx + fw]

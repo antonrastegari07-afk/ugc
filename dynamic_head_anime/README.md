@@ -42,14 +42,14 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
 
 ### Les yeux
 - **Œil 3D sphérique** : le blanc est **l'intérieur d'une vraie sphère** (mesh inversé, rayon 0,21) et l'iris est une
-  **vraie boule 3D** (mesh normal, convexe) de la taille de ton iris, placée **exactement au centre de cette sphère**,
-  avec ton dessin d'iris projeté de face. Une boule reste ronde sous tous les angles, et posée au fond du globe creux
-  elle semble se tourner vers celui qui regarde : les yeux suivent la caméra de face, de côté et de dessous.
+  **vraie boule 3D** (mesh normal, convexe, 28 segments × 9 anneaux, fermée) de la taille de ton iris, d'un **gris-noir
+  uni** (la couleur de ton iris), placée **au centre de cette sphère**. Rien n'est peint sur la boule : elle reste ronde
+  sous tous les angles et, posée au fond du globe creux, elle semble se tourner vers celui qui regarde.
 - **Creux évasé vers le haut et vers le bas** (comme une grotte plus grande que son entrée) : on voit **la boule ronde
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
-- **Regard** (EyesLook*) : la boule de l'iris tourne sur elle-même autour du centre de la sphère (comme un vrai œil) ;
-  le blanc, uni, reste fixe.
+- **Regard** (EyesLook*) : la boule se déplace dans la sphère blanche (4 cm sur les côtés, 2,2 cm en haut / en bas) ;
+  le blanc reste fixe.
 - **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
 - **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
   la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du
