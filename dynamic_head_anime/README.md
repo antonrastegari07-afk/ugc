@@ -50,13 +50,13 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   autour : l'œil le suit. Le blanc autour est le trou blanc lui-même (élargi en profondeur vers le haut, le bas et les
   côtés pour que la sphère-iris ne touche jamais une paroi). La sphère est placée assez profond pour rester derrière la
   peau et la paupière fermée dans toutes les positions.
-- **PBR** : tout le noir de l'œil est un noir profond sans reflet (rugosité 1, métal 0, aucune émission) ; tous les
+- **PBR** : la pupille est un **noir pur** (0,0,0) sans reflet (rugosité 1, métal 0, aucune émission), comme le noir de l'iris ; tous les
   blancs sont entièrement émissifs (un blanc plat identique sur la sphère et les parois, sans ombre ni ligne).
 - **Creux évasé vers le haut et vers le bas** (comme une grotte plus grande que son entrée) : on voit **la boule ronde
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
-- **Regard** (EyesLook*) : la sphère-iris tourne (l'iris dessiné se déplace de 3,5 cm sur les côtés, 2 cm en haut / en bas)
-  et la pupille suit exactement.
+- **Regard** (EyesLook*) : la pupille noire **ne bouge jamais** ; seule la sphère-iris tourne, ton iris dessiné glisse
+  autour d'elle (3,5 cm sur les côtés, 2 cm en haut / en bas) et la pupille se retrouve du côté où l'œil regarde.
 - **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
 - **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
   la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du

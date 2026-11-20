@@ -717,7 +717,6 @@ EYE_BOT = {s: min(p[1] for p in EYES[s]) for s in 'LR'}
 FACE_BONES = {}
 for s, nm in (('L', 'Left'), ('R', 'Right')):
     FACE_BONES[nm + 'Eye'] = tuple(EYE_C[s])
-    FACE_BONES[nm + 'Pupil'] = tuple(EYE_C[s])
     FACE_BONES[nm + 'UpperEyelid'] = tuple(lid_info[s]['pivot'])
     FACE_BONES[nm + 'LashTip'] = front(lid_info[s]['x1'] if s == 'L' else lid_info[s]['x0'], EC[s][1] + 0.04, -0.011)
     FACE_BONES[nm + 'UnderEye'] = front(EC[s][0], EYE_BOT[s] - 0.01)
@@ -752,7 +751,7 @@ for idx, p in enumerate(REST):
     side = next((s for s in 'LR' if idx in IRIS_IDX[s] or idx in LID_IDX[s] or idx in LASH_IDX[s] or idx in CUP_IDX[s]), None)
     nm = {'L': 'Left', 'R': 'Right'}.get(side or SOCK[idx] if (side or SOCK[idx]) in ('L', 'R') else None, '')
     if side and idx in IRIS_IDX[side]:
-        w[nm + 'Pupil'] = 1.0                            # black pupil ball
+        w[nm + 'Eye'] = 1.0                              # black pupil ball: on the eye joint, AT its pivot -> never moves
     elif side and idx in LID_IDX[side]:
         w[nm + 'UpperEyelid'] = 1.0
     elif side and idx in LASH_IDX[side]:
@@ -868,14 +867,15 @@ print('socket rim band vertices skinned like the rim:', n_band)
 def T(*d): return ('t', Vector(d))
 def ROT(piv, axis, ang): return ('r', Vector(piv), axis, ang)
 def eye_look(axis, dist):
-    """both eyes: the eye sphere turns so that the drawn iris moves by `dist` (seen from the front) and the pupil ball
-    moves by the same amount.  Z: +dist -> towards +X ; X: +dist -> up"""
+    """both eyes: the black pupil never moves (it sits at the pivot); the iris sphere turns so that the drawn iris slides
+    the OTHER way by `dist`: the pupil then sits towards the gaze side of the iris.  Z: +dist -> look towards +X ;
+    X: +dist -> look up"""
     out = {}
     for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
         if axis == 'Z':
-            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'Z', -math.asin(dist / EYE_R[s_])); out[nm_ + 'Pupil'] = T(dist, 0, 0)
+            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'Z', math.asin(dist / EYE_R[s_]))     # drawn iris -> -X
         else:
-            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'X', math.asin(dist / EYE_R[s_])); out[nm_ + 'Pupil'] = T(0, 0, dist)
+            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'X', -math.asin(dist / EYE_R[s_]))    # drawn iris -> down
     return out
 def mirror(d):
     out = {}

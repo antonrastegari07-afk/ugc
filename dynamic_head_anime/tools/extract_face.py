@@ -190,7 +190,7 @@ x, y, w, h = LASH_RECT; atlas[y:y + h, x:x + w] = (16, 14, 17, 255)
 x, y, w, h = LASH_SIDE_RECT; atlas[y:y + h, x:x + w] = (52, 50, 55, 255)
 x, y, w, h = CLEAR_RECT; atlas[y:y + h, x:x + w] = (0, 0, 0, 0)
 # iris ball: one plain colour = the median of the drawn iris (highlights excluded)
-_ball = np.array((4, 4, 5), np.float32)                 # the pupil ball: deep black (no reflection: roughness 1)
+_ball = np.array((0, 0, 0), np.float32)                 # the pupil ball: the deepest black (roughness 1, metal 0, no emission)
 x, y, w, h = BALL_RECT; atlas[y:y + h, x:x + w, :3] = _ball; atlas[y:y + h, x:x + w, 3] = 255
 
 
