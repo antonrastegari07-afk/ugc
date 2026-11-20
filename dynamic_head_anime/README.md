@@ -78,8 +78,9 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   est posé sur un disque plat **collé au fond du trou blanc**, à 12 cm derrière la peau. Vu de côté, le dessin glisse
   vers celui qui regarde : effet « les yeux te suivent » plus marqué, et 3164 triangles seulement.
 - **Cils du haut (eyeliner) en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou. La partie qui
-  dépasse de l'œil (l'aile vers la tempe et la pointe côté nez) est **réduite de moitié** par rapport au dessin ; le
-  trait dessiné est entièrement effacé de la texture, donc il ne reste aucune trace peinte de l'ancienne longueur.
+  dépasse de l'œil (l'aile vers la tempe et la pointe côté nez) est **réduite de moitié** par rapport au dessin. Le
+  dessin autour des coins (le bas de l'aile, les petits traits) est **raccourci de la même façon** dans la texture
+  (compressé horizontalement au-delà du coin de l'œil) : le trait peint finit exactement sous la pointe de l'eyeliner 3D.
 - **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
   la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du
   visage (qui est vertical autour des yeux), collée au trait de cils à chaque instant : un demi-clignement est une vraie
