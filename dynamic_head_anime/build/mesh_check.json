@@ -192,7 +192,7 @@
   "stretched": 0
  },
  "LeftCheekRaiser@25": {
-  "moved": 65,
+  "moved": 63,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -312,25 +312,25 @@
   "stretched": 0
  },
  "LeftLipCornerPuller@25": {
-  "moved": 87,
+  "moved": 86,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftLipCornerPuller@50": {
-  "moved": 96,
+  "moved": 95,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftLipCornerPuller@75": {
-  "moved": 97,
+  "moved": 96,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftLipCornerPuller@100": {
-  "moved": 98,
+  "moved": 96,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -504,7 +504,7 @@
   "stretched": 0
  },
  "RightCheekRaiser@25": {
-  "moved": 64,
+  "moved": 62,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -624,25 +624,25 @@
   "stretched": 0
  },
  "RightLipCornerPuller@25": {
-  "moved": 87,
+  "moved": 86,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightLipCornerPuller@50": {
-  "moved": 93,
+  "moved": 92,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightLipCornerPuller@75": {
-  "moved": 97,
+  "moved": 95,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightLipCornerPuller@100": {
-  "moved": 97,
+  "moved": 95,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -768,13 +768,13 @@
   "stretched": 0
  },
  "Pucker@50+LeftLipCornerPuller@50+RightLipCornerPuller@50": {
-  "moved": 243,
+  "moved": 241,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "Pucker@100+LeftLipCornerPuller@100+RightLipCornerPuller@100": {
-  "moved": 249,
+  "moved": 245,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -840,13 +840,13 @@
   "stretched": 0
  },
  "JawDrop@50+LeftLipCornerPuller@50+RightLipCornerPuller@50": {
-  "moved": 242,
+  "moved": 240,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "JawDrop@100+LeftLipCornerPuller@100+RightLipCornerPuller@100": {
-  "moved": 248,
+  "moved": 244,
   "poke": 0,
   "flipped": 0,
   "stretched": 0

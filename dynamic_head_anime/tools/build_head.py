@@ -27,7 +27,8 @@ IRIS_OFF = 0.0025         # iris disc floats this much in front of the sclera di
 CUP_STEP = 0.04
 SOCKET_EXTRA = 0.15       # cutter goes this much deeper than the deepest cup point
 EYE_DC = float(os.environ.get('EYE_DC', 0.135))  # depth of the eyeball centre behind the face (at the iris centre)
-EYE_RE = float(os.environ.get('EYE_RE', 0.125))  # radius of the white eyeball sphere (seen from the inside: inverted)
+IRIS_SPH_K = float(os.environ.get('IRIS_SPH_K', 1.0))   # iris sphere radius / drawn iris radius
+CAVE_SIDE = 0.035         # ... and sideways at the corners (the iris sphere never touches a side wall)
 CAVE_DOWN = 0.075         # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
 CAVE_H = 0.105            # the socket widens UPWARDS inside the head (a cave larger than its entrance): seen from
                           # below, the whole round iris and the white around it are visible (no flat white ceiling)
@@ -95,15 +96,20 @@ def cave_raise(s, x, z):
     sp = vertical_span(EYES[s], min(max(x, x0 + 1e-4), x1 - 1e-4))
     if sp is None: return 0.0
     u = (x - (x0 + x1) / 2) / ((x1 - x0) / 2)
-    shape = max(0.0, 1 - u ** 4) ** 0.5
+    shape = max(0.0, 1 - (0.9 * u) ** 4) ** 0.5
     return CAVE_H * shape if z >= (sp[0] + sp[1]) / 2 else -CAVE_DOWN * shape
 def cave_frac(d):
     t = max(0.0, min(1.0, (d - CAVE_D0) / (CAVE_D1 - CAVE_D0)))
     return t * t * (3 - 2 * t)
-CAVE_POLY = {s: [(x, z + cave_raise(s, x, z)) for x, z in EYES[s]] for s in 'LR'}   # fully widened outline
+def cave_side(s, x):
+    xs = [e[0] for e in EYES[s]]; xc = (min(xs) + max(xs)) / 2; hw = (max(xs) - min(xs)) / 2
+    u = (x - xc) / hw
+    return math.copysign(1.0, u) * CAVE_SIDE * max(0.0, min(1.0, (abs(u) - 0.6) / 0.4)) ** 2
+CAVE_POLY = {s: [(x + cave_side(s, x), z + cave_raise(s, x, z)) for x, z in EYES[s]] for s in 'LR'}   # fully widened outline
 def surf_nb(x, z):
     """deepest face surface around (x, z) within a gaze shift: the face curves back towards the temples"""
     return max((surf_y(x + dx, z + dz) or -9) for dx in (-0.035, 0, 0.035) for dz in (-0.022, 0, 0.022))
+EYE_R = {s: IRIS_SPH_K * IRIS[s][2] for s in 'LR'}   # iris sphere radius = the drawn iris (same size as the black ball)
 def _eye_depth(s):
     """smallest depth of the eye-sphere centre (>= EYE_DC) for which the whole sphere stays behind the skin (and behind
     the closed lid over the opening): a sphere turning about its centre always fills the same volume, so this holds for
@@ -120,7 +126,7 @@ def _eye_depth(s):
     while dc < 0.4:
         ok = True
         for dx, dy, dz in dirs:
-            x, y, z = xi + EYE_RE * dx, y0 + dc + EYE_RE * dy, zi + EYE_RE * dz
+            x, y, z = xi + EYE_R[s] * dx, y0 + dc + EYE_R[s] * dy, zi + EYE_R[s] * dz
             sy = surf_y(x, z)
             if sy is None: continue
             inside = pip((x, z), EYES[s]) and poly_dist((x, z), EYES[s]) > 0.004
@@ -189,7 +195,7 @@ eye_back = {}
 bc = bmesh.new()
 for s in 'LR':
     xi, zi = IRIS_C[s]
-    yb = EYE_C[s].y + EYE_RE + 0.04                            # behind the back of the white sphere
+    yb = EYE_C[s].y + EYE_R[s] + 0.06                          # behind the back of the iris sphere
     eye_back[s] = yb
     # loft: straight through the skin, then widening upwards behind it
     rings = [[(x, -1.5, z) for x, z in EYES[s]]]
@@ -198,12 +204,13 @@ for s in 'LR':
         # up: widens from CAVE_D0; down: only from 3 cm deep (straight under the lower rim first: the cheek is close)
         fr = cave_frac(d) if cr >= 0 else max(0.0, min(1.0, (d - 0.03) / (CAVE_D1 - 0.03)))
         z2 = z + cr * fr
+        x = x + cave_side(s, x) * cave_frac(d)
         # behind the skin both at the rim AND where the widened outline lands (the cheek recedes under the eye)
         y = max(surf_y(x, z) + d, (surf_y(x, z2) or -9) + max(d, 0.03) if d > CAVE_D0 else -9)
         return (x, y, z2)
     for d in (CAVE_D0, 0.03, CAVE_D1):
         rings.append([ring_pt(x, z, d) for x, z in EYES[s]])
-    rings.append([(x, max(yb, rings[-1][i][1] + 0.05), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
+    rings.append([(rings[-1][i][0], max(yb, rings[-1][i][1] + 0.05), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
     vr = [[bc.verts.new(p) for p in r] for r in rings]
     n = len(EYES[s])
     bc.faces.new(vr[0]); bc.faces.new(vr[-1][::-1])
@@ -243,8 +250,11 @@ def socket_of(p):
             # the widened part of the socket: above the eye it starts right behind the rim; below the eye only from
             # 3 cm deep (shallower points there are cheek skin, a little behind the ideal surface)
             sp = vertical_span(EYES[s], min(max(p.x, min(e[0] for e in EYES[s]) + 1e-4), max(e[0] for e in EYES[s]) - 1e-4))
-            below = sp is not None and p.z < sp[1]
-            if not below or p.y > sy + 0.025:
+            xs_e = [e[0] for e in EYES[s]]
+            below = sp is not None and p.z < sp[1] and min(xs_e) + 0.03 < p.x < max(xs_e) - 0.03
+            # outside the opening itself, shallow points are skin (the shell's chords lie a few mm behind the ideal
+            # surface): the widened socket is only there deeper than 1.2 cm (2.5 cm under the eye)
+            if p.y > sy + (0.025 if below else 0.012):
                 return s
     q = (p.x, p.z)
     if pip(q, MOUTH_POLY) or poly_dist(q, MOUTH_POLY) < 0.002:
@@ -382,12 +392,13 @@ bm.normal_update()
 SHELL_N = len(bm.verts)
 print('shell tris after boolean', sum(len(f.verts) - 2 for f in bm.faces))
 
-# ---------------------------------------------------------------- 3D eyes: closed inverted eye sphere + black pupil ball
-# Eye = a complete sphere seen from the INSIDE (inverted mesh: its front half is back-facing, so invisible) with the
-# drawn eye projected on it from the front: pure white + the drawn iris (rings, highlight) with the drawn pupil removed.
-# Pupil = a real black 3D ball (normal mesh) exactly at the centre of that sphere.  The pupil is nearer than the iris
-# painted on the far wall, so when you move around it slides towards you: the eye follows you.  The white around the
-# sphere is the white socket itself.  Gaze: the sphere turns (the drawn iris moves) and the pupil moves with it.
+# ---------------------------------------------------------------- 3D eyes: inverted IRIS sphere + black pupil ball at its centre
+# Each eye has exactly two meshes in the white socket:
+#   - the IRIS: a complete sphere the size of the drawn iris, seen from the INSIDE (inverted mesh: its front half is
+#     back-facing, so invisible), with the drawn iris (rings, highlight, drawn pupil removed) projected on it;
+#   - the PUPIL: a real black 3D ball (normal mesh) exactly at the centre of the iris sphere.
+# The pupil is nearer than the iris painted on the far wall of the sphere, so when you move around it slides towards
+# you: the eye follows you.  The white around is the white socket itself.  Gaze: the iris sphere turns, the pupil follows.
 PUPIL_K = float(os.environ.get('PUPIL_K', 0.36))    # pupil ball radius / drawn iris radius
 cup_verts = {'L': [], 'R': []}
 iris_verts = {'L': [], 'R': []}
@@ -422,14 +433,17 @@ def uv_sphere(C, R, seg, lats, inward, uvf, store):
 for s in 'LR':
     xi, zi, r0, _ = IRIS[s]
     C = EYE_C[s]
-    WHITE_UV = eye_tex_uv(s, eye_tex_box(s)[0] + 0.004, eye_tex_box(s)[3] - 0.004)        # a pure white texel
-    # the drawn iris only on the far (back) half: seen from the side, the near half must stay pure white
-    uv_sphere(C, EYE_RE, 20, [0, 30, 60, 90, 120, 150, 180], True,
-              lambda cen_, co: eye_tex_uv(s, co.x, co.z) if cen_.y > C.y else WHITE_UV, cup_verts[s])   # per face
+    R_ = EYE_R[s]
+    # far half: the drawn iris (its outer ring sampled just inside the rim: no white border); near half (seen only
+    # from the side, from the inside): the iris' dark outer colour.  UVs per face (no interpolation across the atlas).
+    RIM_UV = eye_tex_uv(s, xi + 0.93 * r0, zi)                             # the dark side of the iris ring
+    uv_sphere(C, R_, 20, [0, 30, 60, 90, 120, 150, 180], True,
+              lambda cen_, co: eye_tex_uv(s, xi + (co.x - xi) * 0.93 * r0 / R_, zi + (co.z - zi) * 0.93 * r0 / R_)
+              if cen_.y > C.y else RIM_UV, cup_verts[s])
     BALL_UV = rect_center_uv(BALL_RECT)
     rp = PUPIL_K * r0
     uv_sphere(C, rp, 18, [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180], False, lambda cen_, co: BALL_UV, iris_verts[s])
-    print('eye', s, 'pupil ball radius %.3f at the centre of the eye sphere (radius %.3f, centre %.3f behind the face)' % (rp, EYE_RE, EYE_DEPTH[s]))
+    print('eye', s, 'iris sphere radius %.3f (inverted), pupil ball radius %.3f at its centre, %.3f behind the face' % (R_, rp, EYE_DEPTH[s]))
 bm.normal_update()
 
 # ---------------------------------------------------------------- eyelid: ONE rigid skin lid + the 3D eyeliner on ONE bone
@@ -859,9 +873,9 @@ def eye_look(axis, dist):
     out = {}
     for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
         if axis == 'Z':
-            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'Z', -math.asin(dist / EYE_RE)); out[nm_ + 'Pupil'] = T(dist, 0, 0)
+            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'Z', -math.asin(dist / EYE_R[s_])); out[nm_ + 'Pupil'] = T(dist, 0, 0)
         else:
-            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'X', math.asin(dist / EYE_RE)); out[nm_ + 'Pupil'] = T(0, 0, dist)
+            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'X', math.asin(dist / EYE_R[s_])); out[nm_ + 'Pupil'] = T(0, 0, dist)
     return out
 def mirror(d):
     out = {}
