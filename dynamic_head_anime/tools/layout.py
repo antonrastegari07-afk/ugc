@@ -24,6 +24,16 @@ EYE_PX = {
 IRIS_PX = {'R': (389.5, 556.0), 'L': (680.5, 556.0)}   # round iris centres (image px); top part hidden under the lid
 IRIS_R_PX = {'R': (59.5, 58.0), 'L': (58.5, 57.0)}      # radii (image px) -> ~0.102 stud circle
 
+# SYMMETRIC EYES: the character's RIGHT eye + brow (screen left) is the reference; the left one is its mirror image
+# about the face centre (CX), both in the drawing (extract_face mirrors the image band MIRROR_ROWS) and in all the
+# traced shapes below
+MIRROR_EYES = True
+MIRROR_ROWS = (300, 728)               # image rows mirrored (brows -> lower lashes), feathered
+def _mirror_poly(poly): return [(2 * CX - x, y) for x, y in reversed(poly)]
+if MIRROR_EYES:
+    EYE_PX['L'] = _mirror_poly(EYE_PX['R'])
+    IRIS_PX['L'] = (2 * CX - IRIS_PX['R'][0], IRIS_PX['R'][1]); IRIS_R_PX['L'] = IRIS_R_PX['R']
+
 # raised (3D) upper eyeliner band, traced on the reference (image px)
 LASH_PX = {
  'R': [(196, 539), (215, 540), (240, 538), (262, 535), (282, 533), (310, 534), (340, 535.5), (370, 538), (390, 541),
@@ -33,6 +43,8 @@ LASH_PX = {
        (785, 534.5), (820, 534), (850, 533.5), (872.5, 533), (845, 545), (812, 561), (800, 559), (770, 558.5),
        (740, 558.5), (710, 559), (680, 559), (650, 559), (636, 561), (628, 566), (623, 572), (605, 575)],
 }
+if MIRROR_EYES:
+    LASH_PX['L'] = _mirror_poly(LASH_PX['R'])
 # the 3D eyeliner is shorter than the drawn one: the part beyond the eye opening (the wing / the inner tip) keeps only
 # LASH_K of its length.  The texture still erases the WHOLE drawn eyeliner (LASH_PX_FULL), so nothing is left painted.
 LASH_K = 0.5

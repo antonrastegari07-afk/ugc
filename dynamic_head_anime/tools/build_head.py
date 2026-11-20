@@ -565,11 +565,14 @@ for s in 'LR':
                 q = c + lift(dz, 1.0)
                 if pip((q.x, q.z), EYES[s]):
                     tp, bt = span_c(s, q.x)
-                    m = q.z - (tp - LASH_OVER + 0.002) - 0.0015            # tucked under the eyeliner overhang
+                    # tucked high under the eyeliner: the band stands 1.1 cm out, so seen from below (up to ~50 deg)
+                    # the lid edge must sit well above its lower edge, or it peeks out as a light strip
+                    m = q.z - (tp - LASH_OVER + 0.002) - LID_TUCK
                 else:
                     m = q.y - (skin_y(q.x, q.z) + 0.0009)                 # behind the skin
                 worst = min(worst, m)
         return worst
+    LID_TUCK = float(os.environ.get('LID_TUCK', 0.0015))
     # smallest lift that parks the lid out of sight
     dz = max(span_c(s, x)[0] - LASH_OVER + 0.002 - lid_bottom(x) for x in lid_xs[1:-1]) - 0.004
     while True:
@@ -667,7 +670,14 @@ for s in 'LR':
     xsl = [xl + (xr - xl) * (0.5 - 0.5 * math.cos(math.pi * k / LASH_COLS)) for k in range(LASH_COLS + 1)]
     top = [(x, at_x(top, x)) for x in xsl]; bot = [(x, at_x(bot, x)) for x in xsl]
     bot = [(x, min(zb, zt - 0.002)) for (x, zb), (_, zt) in zip(bot, top)]
-    bot = [(x, z - LASH_OVER) if poly_dist((x, z), EYES[s]) < 0.004 else (x, z) for x, z in bot]
+    # overhang below the rim: full on the rim, fading out smoothly where the band leaves it towards the tips (a binary
+    # cut made a step under the eyeliner, showing a notch of the white socket wall from below); the tips keep their shape
+    def _ov(x, z):
+        d = poly_dist((x, z), EYES[s])
+        t = max(0.0, min(1.0, (0.012 - d) / 0.008))
+        return LASH_OVER * t * t * (3 - 2 * t)
+    bot = [(x, z - _ov(x, z)) for x, z in bot]
+    bot = [(x, min(zb, zt - 0.002)) for (x, zb), (_, zt) in zip(bot, top)]
     def mk(x, z):
         loc, nrm, _, _ = BVH.ray_cast(Vector((x, -3.0, z)), Vector((0, 1, 0)))
         return bm.verts.new(loc + nrm * LASH_T), bm.verts.new(loc - nrm * 0.004)
@@ -682,13 +692,17 @@ for s in 'LR':
         if f.normal.y > 0: f.normal_flip()
         for l in f.loops: l[uvl].uv = LASH_UV
     loop = T_ + B_[-2:0:-1]                                        # outline (front, back pairs)
+    # outward direction of each outline edge from the outline's winding (the hooked inner end is concave: a
+    # "away from the centroid" test flipped some underside faces inwards -> invisible in Roblox, white showed through)
+    p2 = [(fr.co.x, fr.co.z) for fr, _ in loop]
+    area2 = sum(p2[i][0] * p2[(i + 1) % len(p2)][1] - p2[(i + 1) % len(p2)][0] * p2[i][1] for i in range(len(p2)))
     for i in range(len(loop)):
         (fa, ba), (fb, bb) = loop[i], loop[(i + 1) % len(loop)]
         f = bm.faces.new((fa, ba, bb, fb)); f.smooth = False
         f.normal_update()
-        cen = sum((v.co for v in (fa, ba, bb, fb)), Vector()) / 4
-        mid = sum((p[0].co for p in loop), Vector()) / len(loop)
-        if f.normal.dot(cen - mid) < 0: f.normal_flip()
+        ex_, ez_ = fb.co.x - fa.co.x, fb.co.z - fa.co.z
+        out_ = (ez_, -ex_) if area2 > 0 else (-ez_, ex_)            # right-hand normal of a CCW outline points out
+        if f.normal.x * out_[0] + f.normal.z * out_[1] < 0: f.normal_flip()
         for l in f.loops: l[uvl].uv = LASH_SIDE_UV
 bm.normal_update()
 
@@ -1122,7 +1136,11 @@ for poly in me.polygons:
     for li in poly.loop_indices:
         vi = me.loops[li].vertex_index
         lid_side = next((s_ for s_ in 'LR' if vi in LID_IDX[s_]), None)
-        if lid_side:
+        if any(vi in IRIS_IDX[s_] for s_ in 'LR'):
+            # pupil ball: every normal faces the front -> no rim sheen / reflection gradient in Roblox, a uniform
+            # deepest black from every angle (the ball keeps its 3D shape and silhouette)
+            newn.append((R3 @ Vector((0, -1, 0))).normalized()); nset += 1
+        elif lid_side:
             Lf = lid_info[lid_side]
             pr = Minv @ me.vertices[vi].co                         # rest position (mask studs)
             # the lid only slides (no rotation): its normal is the skin normal where it lies when closed

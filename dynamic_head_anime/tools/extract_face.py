@@ -6,6 +6,16 @@ from layout import *
 SRC, OUT = sys.argv[1], sys.argv[2]
 im = cv2.cvtColor(cv2.imread(SRC), cv2.COLOR_BGR2RGB).astype(np.float32)
 H, W, _ = im.shape
+if MIRROR_EYES:                        # the left eye + brow = mirror image of the right ones (screen left) (see layout.MIRROR_EYES)
+    _r0, _r1 = MIRROR_ROWS
+    _xs = np.arange(W, dtype=np.float32)
+    _mir = cv2.remap(im, np.tile(2 * CX - _xs, (H, 1)).astype(np.float32),
+                     np.tile(np.arange(H, dtype=np.float32)[:, None], (1, W)), cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    _ry = np.arange(H, dtype=np.float32)[:, None]
+    _wy = np.clip(np.minimum(_ry - (_r0 - 15), (_r1 + 15) - _ry) / 15, 0, 1)
+    _wx = np.clip((_xs[None, :] - CX - 2) / 4, 0, 1)                       # only the screen-right half, soft seam
+    _w = (_wy * _wy * (3 - 2 * _wy) * _wx)[..., None]
+    im = im * (1 - _w) + _mir * _w
 # shorten the drawn eyeliner strokes beyond the eye corners like the 3D eyeliner (see layout.lash_corners)
 _mx, _my = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
 _src = _mx.copy()
@@ -51,6 +61,19 @@ lash_mask = np.zeros((H, W), np.uint8)
 for side in 'RL':
     cv2.fillPoly(lash_mask, [np.round(np.array(LASH_PX[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
 lash_mask = cv2.dilate(lash_mask, np.ones((7, 7), np.uint8))
+# beyond the eye corners (the wings), keep the drawn ink of the bottom 6 px of the band: it lies under the 3D eyeliner
+# (hidden from the front) and joins the 3D wing to the drawn lower strokes from every angle (no parallax gap)
+wing_mask = np.zeros((H, W), np.uint8)
+for side in 'RL':
+    _p = np.array(LASH_PX[side], np.float32); _p[:, 1] -= 6
+    cv2.fillPoly(wing_mask, [np.round(_p * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
+wing_mask = cv2.dilate(wing_mask, np.ones((5, 5), np.uint8))
+_wz = np.zeros(W, np.float32)
+for side in 'RL':
+    _e0, _e1 = min(p[0] for p in EYE_PX[side]), max(p[0] for p in EYE_PX[side])
+    _x = np.arange(W, dtype=np.float32)
+    _wz = np.maximum(_wz, np.clip(np.maximum(_e0 + 2 - _x, _x - _e1 - 2) / 6, 0, 1) * ((_x > _e0 - 90) & (_x < _e1 + 90)))
+lash_mask = (lash_mask * (1 - _wz[None, :]) + np.minimum(lash_mask, wing_mask) * _wz[None, :]).astype(np.uint8)
 alpha *= 1 - cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
 
 # --- FACE block of the atlas: sample the image through the stud mapping
