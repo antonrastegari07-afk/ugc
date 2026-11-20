@@ -6,6 +6,18 @@ from layout import *
 SRC, OUT = sys.argv[1], sys.argv[2]
 im = cv2.cvtColor(cv2.imread(SRC), cv2.COLOR_BGR2RGB).astype(np.float32)
 H, W, _ = im.shape
+# shorten the drawn eyeliner strokes beyond the eye corners like the 3D eyeliner (see layout.lash_corners)
+_mx, _my = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
+_src = _mx.copy()
+for c, sgn, lw, lw2 in lash_corners():
+    u = (_mx[0] - c) * sgn
+    su = np.array([corner_src_u(v, lw, lw2) if 0 < v <= lw2 else v for v in u], np.float32)
+    sel = (u > 0) & (u <= lw2)
+    _src[:, sel] = (c + sgn * su[sel])[None, :]
+_b0, _b1 = LASH_BAND
+_w = np.clip(np.minimum(_my - (_b0 - 8), (_b1 + 8) - _my) / 8, 0, 1)
+_w = _w * _w * (3 - 2 * _w)
+im = cv2.remap(im, _mx + (_src - _mx) * _w, _my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 g = im.mean(2)
 
 # eye opening masks (image space)
@@ -37,7 +49,7 @@ INK = np.array([14, 12, 15], np.float32)
 # the upper eyeliner is real 3D geometry (it moves down when the eye closes): remove its ink from the face layer
 lash_mask = np.zeros((H, W), np.uint8)
 for side in 'RL':
-    cv2.fillPoly(lash_mask, [np.round(np.array(LASH_PX_FULL[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
+    cv2.fillPoly(lash_mask, [np.round(np.array(LASH_PX[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
 lash_mask = cv2.dilate(lash_mask, np.ones((7, 7), np.uint8))
 alpha *= 1 - cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
 

@@ -10,7 +10,7 @@
 >
 > | Version | Contenu |
 > |---|---|
-> | **v1.1** | Eyeliner 3D raccourci (la partie qui dépasse de l'œil, aile et coin intérieur, réduite de moitié) ; deux variantes : **A** yeux 3D (comme v1.0), **B** yeux plats au fond du trou blanc |
+> | **v1.1** | Eyeliner raccourci : la partie qui dépasse de l'œil (aile et coin intérieur) est réduite de moitié, en 3D **et** dans le dessin (le bas de l'aile et les petits traits suivent) ; deux variantes : **A** yeux 3D (comme v1.0), **B** yeux plats au fond du trou blanc |
 > | v1.0 | Œil 3D : sphère-iris inversée avec ton iris dessiné + pupille boule noire au centre, œil fixe, iris/pupille sans reflet ; clignement par paupière glissante ; sourcils en weight painting ; vidéos 6 angles (paysage + téléphone) et planche 18 vues |
 
 Ton visage (`in/face_ref.webp`) monté en **dynamic head Roblox animée**, posée sur le **corps Blocky officiel de

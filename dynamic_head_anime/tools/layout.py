@@ -41,6 +41,25 @@ def _shorten(poly, eye):
     ex0, ex1 = min(p[0] for p in eye), max(p[0] for p in eye)
     return [(ex0 - (ex0 - x) * LASH_K if x < ex0 else ex1 + (x - ex1) * LASH_K if x > ex1 else x, y) for x, y in poly]
 LASH_PX = {sd: _shorten(LASH_PX_FULL[sd], EYE_PX[sd]) for sd in 'RL'}
+# the DRAWN strokes around the eye corners (lower edge of the wing, inner tip, small lashes) are shortened the same way
+# in the texture: beyond each corner, inside the eye band, the image is compressed horizontally by LASH_K, so the
+# painted wing ends exactly where the 3D eyeliner ends.  (corner x, outward direction, compressed width, back-to-normal width)
+LASH_BAND = (528, 630)                 # image rows affected (eyeliner top -> lower lashes), feathered at both ends
+def lash_corners():
+    out = []
+    for sd in 'RL':
+        ex0, ex1 = min(p[0] for p in EYE_PX[sd]), max(p[0] for p in EYE_PX[sd])
+        f0, f1 = min(p[0] for p in LASH_PX_FULL[sd]), max(p[0] for p in LASH_PX_FULL[sd])
+        for c, sgn, ov in ((ex0, -1, ex0 - f0), (ex1, +1, f1 - ex1)):
+            lw = ov + 10                                     # the drawn strokes reach a little beyond the traced tip
+            lim = (c - IMG_X0 - 5) if sgn < 0 and c < CX else (IMG_X1 - c - 5) if sgn > 0 and c > CX else lw + 30
+            out.append((c, sgn, lw, max(lim, lw + 3)))
+    return out
+def corner_src_u(u, lw, lw2):
+    """distance from the corner in the shortened image -> distance in the drawing"""
+    if u <= LASH_K * lw: return u / LASH_K
+    if u <= lw2: return lw + (u - LASH_K * lw) * (lw2 - lw) / (lw2 - LASH_K * lw)
+    return u
 LASH_RECT = (870, 762, 150, 20)        # eyeliner front (ink)
 LASH_SIDE_RECT = (870, 786, 150, 20)   # eyeliner sides
 
