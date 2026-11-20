@@ -33,6 +33,14 @@ LASH_PX = {
        (785, 534.5), (820, 534), (850, 533.5), (872.5, 533), (845, 545), (812, 561), (800, 559), (770, 558.5),
        (740, 558.5), (710, 559), (680, 559), (650, 559), (636, 561), (628, 566), (623, 572), (605, 575)],
 }
+# the 3D eyeliner is shorter than the drawn one: the part beyond the eye opening (the wing / the inner tip) keeps only
+# LASH_K of its length.  The texture still erases the WHOLE drawn eyeliner (LASH_PX_FULL), so nothing is left painted.
+LASH_K = 0.5
+LASH_PX_FULL = LASH_PX
+def _shorten(poly, eye):
+    ex0, ex1 = min(p[0] for p in eye), max(p[0] for p in eye)
+    return [(ex0 - (ex0 - x) * LASH_K if x < ex0 else ex1 + (x - ex1) * LASH_K if x > ex1 else x, y) for x, y in poly]
+LASH_PX = {sd: _shorten(LASH_PX_FULL[sd], EYE_PX[sd]) for sd in 'RL'}
 LASH_RECT = (870, 762, 150, 20)        # eyeliner front (ink)
 LASH_SIDE_RECT = (870, 786, 150, 20)   # eyeliner sides
 

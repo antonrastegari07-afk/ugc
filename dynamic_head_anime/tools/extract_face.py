@@ -37,7 +37,7 @@ INK = np.array([14, 12, 15], np.float32)
 # the upper eyeliner is real 3D geometry (it moves down when the eye closes): remove its ink from the face layer
 lash_mask = np.zeros((H, W), np.uint8)
 for side in 'RL':
-    cv2.fillPoly(lash_mask, [np.round(np.array(LASH_PX[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
+    cv2.fillPoly(lash_mask, [np.round(np.array(LASH_PX_FULL[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
 lash_mask = cv2.dilate(lash_mask, np.ones((7, 7), np.uint8))
 alpha *= 1 - cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
 
@@ -167,6 +167,8 @@ for side in 'RL':
     tex = tex * (1 - ia) + iris_px * ia
     # remove the drawn pupil (the dark vertical lens in the middle), keep the highlight
     lens = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
+    if os.environ.get('EYE_STYLE', 'sphere') == 'flat':          # flat eye: the drawn pupil stays (no pupil ball)
+        lens[:] = False
     t8 = np.clip(tex, 0, 255).astype(np.uint8)
     t8 = cv2.inpaint(t8, cv2.dilate(lens.astype(np.uint8), np.ones((5, 5), np.uint8)), 9, cv2.INPAINT_TELEA)
     hl_ = (iris_px.mean(2) > 140) & (rr < 1.0)

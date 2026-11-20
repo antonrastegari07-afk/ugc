@@ -27,6 +27,9 @@ IRIS_OFF = 0.0025         # iris disc floats this much in front of the sclera di
 CUP_STEP = 0.04
 SOCKET_EXTRA = 0.15       # cutter goes this much deeper than the deepest cup point
 EYE_DC = float(os.environ.get('EYE_DC', 0.135))  # depth of the eyeball centre behind the face (at the iris centre)
+EYE_STYLE = os.environ.get('EYE_STYLE', 'sphere')   # 'sphere': inverted iris sphere + pupil ball; 'flat': the drawn eye
+                                                    # (iris + pupil) on a flat disc glued to the back of the white hole
+FLAT_D = float(os.environ.get('FLAT_D', 0.12))      # flat style: depth of the back of the hole behind the face (iris centre)
 IRIS_SPH_K = float(os.environ.get('IRIS_SPH_K', 1.0))   # iris sphere radius / drawn iris radius
 CAVE_SIDE = 0.035         # ... and sideways at the corners (the iris sphere never touches a side wall)
 CAVE_DOWN = 0.075         # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
@@ -110,7 +113,7 @@ def surf_nb(x, z):
     """deepest face surface around (x, z) within a gaze shift: the face curves back towards the temples"""
     return max((surf_y(x + dx, z + dz) or -9) for dx in (-0.035, 0, 0.035) for dz in (-0.022, 0, 0.022))
 EYE_R = {s: IRIS_SPH_K * IRIS[s][2] for s in 'LR'}   # iris sphere radius = the drawn iris (same size as the black ball)
-EYE_DROP = float(os.environ.get('EYE_DROP', 0.028))   # the eye (iris sphere + pupil) sits this much lower than the drawn
+EYE_DROP = 0.0 if EYE_STYLE == 'flat' else float(os.environ.get('EYE_DROP', 0.028))   # the eye (iris sphere + pupil) sits this much lower than the drawn
                                                       # iris centre, so the pupil is not hidden under the eyeliner
 def _eye_depth(s):
     """smallest depth of the eye-sphere centre (>= EYE_DC) for which the whole sphere stays behind the skin (and behind
@@ -137,7 +140,7 @@ def _eye_depth(s):
         if ok: break
         dc += 0.0025
     return dc
-EYE_DEPTH = {s: _eye_depth(s) for s in 'LR'}
+EYE_DEPTH = {s: (FLAT_D if EYE_STYLE == 'flat' else _eye_depth(s)) for s in 'LR'}
 EYE_C = {s: Vector((IRIS_C[s][0], surf_y(IRIS_C[s][0], IRIS_C[s][1] - EYE_DROP) + EYE_DEPTH[s], IRIS_C[s][1] - EYE_DROP)) for s in 'LR'}   # eye centres
 print('eye sphere centre depth', {s: round(v, 4) for s, v in EYE_DEPTH.items()})
 
@@ -198,6 +201,8 @@ bc = bmesh.new()
 for s in 'LR':
     xi, zi = IRIS_C[s]
     yb = EYE_C[s].y + EYE_R[s] + 0.06                          # behind the back of the iris sphere
+    if EYE_STYLE == 'flat':
+        yb = EYE_C[s].y + 0.003                                  # flat back wall, the iris disc lies just in front of it
     eye_back[s] = yb
     # loft: straight through the skin, then widening upwards behind it
     rings = [[(x, -1.5, z) for x, z in EYES[s]]]
@@ -432,7 +437,27 @@ def uv_sphere(C, R, seg, lats, inward, uvf, store):
         for j in range(len(rows) - 1):
             face((rows[j][k], rows[j + 1][k], rows[j + 1][k2], rows[j][k2]))
         face((rows[-1][k], bpole, rows[-1][k2]))
-for s in 'LR':
+def flat_disc(s, store):
+    """flat eye: the drawn iris WITH its pupil on an elliptic disc facing the front, glued to the back of the hole"""
+    xi, zi, rx, rz = IRIS[s]; C = EYE_C[s]; seg = 28
+    rows = [[bm.verts.new((xi + f * rx * math.cos(2 * math.pi * k / seg), C.y, zi + f * rz * math.sin(2 * math.pi * k / seg)))
+             for k in range(seg)] for f in (0.4, 0.75, 1.0)]
+    cen = bm.verts.new((xi, C.y, zi))
+    store += [cen] + [v for r in rows for v in r]
+    def face(vs):
+        f = bm.faces.new(vs); f.smooth = False
+        f.normal_update()
+        if f.normal.y > 0: f.normal_flip()
+        for l in f.loops: l[uvl].uv = eye_tex_uv(s, l.vert.co.x, l.vert.co.z)
+    for k in range(seg):
+        k2 = (k + 1) % seg
+        face((cen, rows[0][k], rows[0][k2]))
+        for j in range(len(rows) - 1):
+            face((rows[j][k], rows[j + 1][k], rows[j + 1][k2], rows[j][k2]))
+for s in ('LR' if EYE_STYLE == 'flat' else ''):
+    flat_disc(s, cup_verts[s])
+    print('eye', s, 'flat drawn eye disc %.3f behind the face' % EYE_DEPTH[s])
+for s in ('' if EYE_STYLE == 'flat' else 'LR'):
     xi, zi, r0, _ = IRIS[s]
     C = EYE_C[s]
     R_ = EYE_R[s]

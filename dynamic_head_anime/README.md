@@ -1,13 +1,17 @@
 # Tête dynamique anime (yeux creusés, recoloriable)
 
-> ## 👉 VERSION ACTUELLE : **v1.0** → dossier [`VERSION_ACTUELLE/`](VERSION_ACTUELLE/)
-> Tous les fichiers à utiliser (FBX, textures, vidéos, images) sont **dans ce dossier, et seulement là**.
-> Il est entièrement remplacé à chaque nouvelle version : pas de mélange possible. Le numéro et la date sont dans
-> [`VERSION_ACTUELLE/README.md`](VERSION_ACTUELLE/README.md).
+> ## 👉 VERSION ACTUELLE : **v1.1** → dossier [`VERSION_ACTUELLE/`](VERSION_ACTUELLE/)
+> Deux variantes au choix, chacune complète (FBX + textures + vidéos + images) :
+> - [`VERSION_ACTUELLE/A_yeux_3D/`](VERSION_ACTUELLE/A_yeux_3D/) : iris en sphère inversée + pupille boule noire 3D
+> - [`VERSION_ACTUELLE/B_yeux_plats/`](VERSION_ACTUELLE/B_yeux_plats/) : ton œil dessiné à plat, collé au fond du trou blanc
+>
+> Tous les fichiers à utiliser sont **dans ce dossier, et seulement là**. Il est entièrement remplacé à chaque nouvelle
+> version : pas de mélange possible. Le numéro et la date sont dans [`VERSION_ACTUELLE/README.md`](VERSION_ACTUELLE/README.md).
 >
 > | Version | Contenu |
 > |---|---|
-> | **v1.0** | Œil 3D : sphère-iris inversée avec ton iris dessiné + pupille boule noire au centre, œil fixe, iris/pupille sans reflet ; clignement par paupière glissante ; sourcils en weight painting ; vidéos 6 angles (paysage + téléphone) et planche 18 vues |
+> | **v1.1** | Eyeliner 3D raccourci (la partie qui dépasse de l'œil, aile et coin intérieur, réduite de moitié) ; deux variantes : **A** yeux 3D (comme v1.0), **B** yeux plats au fond du trou blanc |
+> | v1.0 | Œil 3D : sphère-iris inversée avec ton iris dessiné + pupille boule noire au centre, œil fixe, iris/pupille sans reflet ; clignement par paupière glissante ; sourcils en weight painting ; vidéos 6 angles (paysage + téléphone) et planche 18 vues |
 
 Ton visage (`in/face_ref.webp`) monté en **dynamic head Roblox animée**, posée sur le **corps Blocky officiel de
 Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face mask*, à la taille standard d'une tête
@@ -70,7 +74,12 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
 - **L'œil ne bouge pas et ne tourne pas** (sphère-iris et pupille fixes) : c'est l'illusion du globe creux qui donne
   l'impression qu'il regarde. Les poses `EyesLookUp` / `EyesLookDown` ne font que suivre avec les paupières (les poses
   de regard gauche / droite, non obligatoires, ont été retirées).
-- **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
+- **Variante B (yeux plats)** : pas de sphère ni de boule ; ton œil dessiné **tel quel** (iris + pupille + reflet)
+  est posé sur un disque plat **collé au fond du trou blanc**, à 12 cm derrière la peau. Vu de côté, le dessin glisse
+  vers celui qui regarde : effet « les yeux te suivent » plus marqué, et 3164 triangles seulement.
+- **Cils du haut (eyeliner) en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou. La partie qui
+  dépasse de l'œil (l'aile vers la tempe et la pointe côté nez) est **réduite de moitié** par rapport au dessin ; le
+  trait dessiné est entièrement effacé de la texture, donc il ne reste aucune trace peinte de l'ancienne longueur.
 - **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
   la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du
   visage (qui est vertical autour des yeux), collée au trait de cils à chaque instant : un demi-clignement est une vraie
@@ -128,3 +137,6 @@ $VENV tools/render_previews.py . && $VENV tools/render_previews.py . close && $V
 $VENV tools/make_sheets.py .                          # planches previews/sheet_*.png
 $VENV tools/render_weights.py .                       # carte des poids previews/sheet_weights.png
 ```
+Variante B (yeux plats) : mêmes commandes dans une copie du dossier, avec `EYE_STYLE=flat` (et `FLAT_D=0.12`,
+profondeur du fond) dans l'environnement pour `extract_face.py` **et** `build_head.py`. Puis
+`$VENV tools/make_release.py . v1.1 <dossier de la variante B>` remplit `VERSION_ACTUELLE/`.
