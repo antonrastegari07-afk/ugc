@@ -27,40 +27,50 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
 3. MeshPart : `Material` = **Plastic**, `Transparency` = 0, `VertexColor` = 1,1,1 (exigences Marketplace).
 4. Test : **Avatar → Animation Editor → Face Editor**, ou fais varier les curseurs de `Head → FaceControls`.
 
-## Ce qui est animé (34 frames : Neutral + 31 poses + 2 correctifs)
+## Ce qui est animé (36 frames : Neutral + 31 poses + 4 correctifs)
 
 - **Les 17 poses obligatoires Roblox** : LeftEyeClosed, RightEyeClosed, EyesLookDown, JawDrop, Pucker,
   Left/RightLipCornerPuller, ChinRaiser, ChinRaiserUpperLip, Left/RightCheekRaiser, Left/RightInnerBrowRaiser,
   Left/RightLipCornerDown, Left/RightLowerLipDepressor.
 - En plus : EyesLookLeft/Right/Up, LipsTogether, Left/RightLipStretcher, Left/RightUpperLipRaiser,
   Left/RightBrowLowerer, Left/RightOuterBrowRaiser, Left/RightEyeUpperLidRaiser.
-- Correctifs : `LeftCheekRaiser_LeftEyeClosed`, `RightCheekRaiser_RightEyeClosed` (fermer + plisser sans que la paupière
-  dépasse).
-- Mapping fait comme dans la doc Roblox : propriétés `RootFaceJoint = DynamicHead` et `Frame0 … Frame33` sur `Head_Geo`,
+- Correctifs (même nommage que la tête Blocky officielle) : `LeftEyeClosed_EyesLookDown`, `RightEyeClosed_EyesLookDown`,
+  `LeftEyeClosed_EyesLookUp`, `RightEyeClosed_EyesLookUp` : l'œil fermé reste exactement fermé quand le regard bouge
+  (la paupière suit un peu le regard vers le bas / le haut).
+- Mapping fait comme dans la doc Roblox : propriétés `RootFaceJoint = DynamicHead` et `Frame0 … Frame35` sur `Head_Geo`,
   `Frame0 = Neutral`, os du visage sous `Head → DynamicHead`, clés uniquement sur les os du visage.
 
 ### Les yeux
-- **Creusés** : l'ouverture est un vrai trou. Au fond, une coupelle **concave** blanche, et l'**iris rond est lui-même un
-  petit bol creusé** posé sur une collerette blanche. Comme tout est concave, l'iris semble **suivre la caméra**.
+- **Creusés** : l'ouverture est un vrai trou ; au fond, une coupelle **concave** blanche et un **iris rond concave**
+  posé dessus. Tout étant concave, l'iris semble **suivre la caméra**.
 - **Regard** (EyesLook*) : l'iris glisse sur la coupelle en tournant autour de son centre de courbure ; le blanc et son
   ombre de paupière restent fixes.
-- **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou, comme sur les têtes de
-  référence.
-- **Clignement naturel** : la paupière du haut (2/3) et celle du bas (1/3) sont de la vraie peau bombée qui **pivote**
-  autour du bord de l'œil, et le trait de cils 3D descend avec elles. Œil fermé = un arc de cils. Roblox interpole la
-  rotation, donc un demi-clignement est une vraie paupière à moitié fermée.
+- **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
+- **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
+  la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du
+  visage (qui est vertical autour des yeux), collée au trait de cils à chaque instant : un demi-clignement est une vraie
+  paupière à moitié fermée. Comme elle glisse sans tourner, ses normales restent exactement celles de la peau :
+  **même teinte que la peau à chaque instant** (plus d'effet « plaque » plus claire). Elle affleure la vraie peau au
+  bord du trou (pas de marche, pas de liseré blanc), et ses coins descendent assez bas pour ne jamais découvrir un coin
+  de l'œil pendant le mouvement. Fermé, le trait de cils garde la forme de ton eyeliner, descendu sur le bas de l'œil.
 
 ### Recoloriable
 Tout ce qui est peau (tête, paupières) est transparent dans la texture → couleur de la tête. Les yeux, les cils, les
 sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
 
 ## Vérifications faites
-- `tools/check_mesh.py` déforme la tête pour chaque pose et pour les 5 tests de validation Roblox (clignement
-  gauche/droit + regard en bas, bouche ouverte, joie, tristesse) et cherche : morceaux qui traversent la peau, triangles
-  retournés, étirements. **Résultat : 0 problème sur 43 cas.**
-- Mesh 100 % triangles (3579 / 4000 max pour une DynamicHead), 4 influences d'os max, aucun sommet sans poids.
-- FBX vérifié contre le Blocky officiel de Roblox : mêmes axes (Y-up, face +Z), mêmes unités (studs, UnitScale 100),
-  pas de rotation/échelle de nœud.
+`tools/check_mesh.py` (relancé après chaque modification) :
+- chaque pose à **25 / 50 / 75 / 100 %** (translations + rotations interpolées comme FaceControls) et les combinaisons
+  des tests de validation Roblox (clignements + regard, bouche ouverte, joie, tristesse…) : aucun morceau qui traverse la
+  peau, aucun triangle retourné, aucun étirement anormal ;
+- au repos, la paupière rangée n'est visible **sous aucun angle** (face, dessous, dessus, côtés) ;
+- œil fermé : l'ouverture est **entièrement couverte** sous tous ces angles ;
+- **aucune face vue de dos** (= trou dans Roblox) depuis 5 angles de caméra, pour toutes les poses à 50 / 100 % ;
+- aucun triangle de peau qui se plie (> 35°) ;
+- pas de double couche de peau, pas de trou, aucune face qui prend une texture d'œil ou de bouche hors de sa place
+  (ni à l'arrière de la tête), et l'arrière de la tête n'est piloté par aucun os du visage.
+**Résultat : 0 problème sur 151 cas + 7 tests globaux.** Mesh 100 % triangles (3734 / 4000 max), 4 influences d'os max,
+aucun sommet sans poids, FBX aux mêmes axes / unités que le Blocky officiel de Roblox.
 
 ## Limites honnêtes
 - **Pas pu tester dans Studio d'ici** (pas d'accès à Roblox depuis cet environnement). Si l'import ou la validation
@@ -78,5 +88,6 @@ $VENV tools/extract_face.py in/face_ref.webp build    # texture + données du vi
 cp build/HeadTexture*.png .
 $VENV tools/build_head.py .                           # géométrie, rig, poses, corps Blocky, export FBX
 $VENV tools/check_mesh.py .                           # contrôle automatique des déformations
-$VENV tools/render_previews.py . && $VENV tools/render_previews.py . close   # rendus dans previews/
+$VENV tools/render_previews.py . && $VENV tools/render_previews.py . close && $VENV tools/render_previews.py . blinkseq
+$VENV tools/make_sheets.py .                          # planches previews/sheet_*.png
 ```

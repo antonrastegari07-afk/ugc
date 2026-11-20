@@ -4,7 +4,7 @@ import bpy, sys, os, math
 from mathutils import Vector, Euler
 
 ROOT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].endswith('.py') else sys.argv[-1])
-args = [a for a in sys.argv if a in ('quick', 'close')]
+args = [a for a in sys.argv if a in ('quick', 'close', 'blinkseq')]
 OUT = os.path.join(ROOT, 'previews'); os.makedirs(OUT, exist_ok=True)
 bpy.ops.wm.open_mainfile(filepath=os.path.join(ROOT, 'build', 'head_rig.blend'))
 scn = bpy.context.scene
@@ -36,6 +36,10 @@ bsdf = nt.nodes.new('ShaderNodeBsdfPrincipled')
 bsdf.inputs['Roughness'].default_value = 0.55
 nt.links.new(mix.outputs[2], bsdf.inputs['Base Color'])
 bsdf.inputs['Roughness'].default_value = 0.6
+# same RoughnessMap as the SurfaceAppearance (1 = no reflection on the eyes / ink / mouth inside, 0.6 on the skin)
+rtex = nt.nodes.new('ShaderNodeTexImage'); rtex.image = bpy.data.images.load(os.path.join(ROOT, 'HeadTexture_Roughness.png'))
+rtex.image.colorspace_settings.name = 'Non-Color'
+nt.links.new(rtex.outputs['Color'], bsdf.inputs['Roughness'])
 # emulate SurfaceAppearance EmissiveMask: the eye interior is shown flat/unlit
 etex = nt.nodes.new('ShaderNodeTexImage'); etex.image = bpy.data.images.load(os.path.join(ROOT, 'HeadTexture_Emissive.png'))
 etex.image.colorspace_settings.name = 'Non-Color'
@@ -48,6 +52,12 @@ ms = nt.nodes.new('ShaderNodeMixShader')
 nt.links.new(geo.outputs['Backfacing'], ms.inputs[0])
 nt.links.new(lit.outputs[0], ms.inputs[1]); nt.links.new(tr.outputs[0], ms.inputs[2])
 out = nt.nodes.new('ShaderNodeOutputMaterial'); nt.links.new(ms.outputs[0], out.inputs[0])
+if os.environ.get('NORMALVIEW'):
+    g2 = nt.nodes.new('ShaderNodeNewGeometry'); vm = nt.nodes.new('ShaderNodeVectorMath'); vm.operation = 'MULTIPLY_ADD'
+    vm.inputs[1].default_value = (0.5, 0.5, 0.5); vm.inputs[2].default_value = (0.5, 0.5, 0.5)
+    nt.links.new(g2.outputs['Normal'], vm.inputs[0])
+    e2 = nt.nodes.new('ShaderNodeEmission'); nt.links.new(vm.outputs[0], e2.inputs['Color'])
+    nt.links.new(e2.outputs[0], out.inputs[0])
 
 # ---- world + lights
 world = bpy.data.worlds.new('w'); scn.world = world; world.use_nodes = True
@@ -55,6 +65,9 @@ world.node_tree.nodes['Background'].inputs[0].default_value = (0.11, 0.115, 0.13
 world.node_tree.nodes['Background'].inputs[1].default_value = 1.0
 world.node_tree.nodes['Background'].inputs[0].default_value = (0.20, 0.205, 0.22, 1)
 scn.render.film_transparent = True
+if os.environ.get('NOGI'):
+    scn.cycles.max_bounces = 0
+    world.node_tree.nodes['Background'].inputs[1].default_value = 0.0
 def light(name, rot, energy, size=0.2):
     l = bpy.data.lights.new(name, 'SUN'); l.energy = energy; l.angle = size
     l.use_shadow = False          # Roblox-like: no self-shadowing / AO inside small cavities
@@ -67,10 +80,10 @@ light('front', (math.radians(85), 0, 0), 1.2)
 cam_d = bpy.data.cameras.new('cam'); cam_d.lens = 70; cam_d.clip_start = 0.05; cam_d.clip_end = 100
 cam = bpy.data.objects.new('cam', cam_d); scn.collection.objects.link(cam); scn.camera = cam
 def place(yaw, pitch, dist=0.052, tz=-0.0005):
-    dist *= 100; tz = HC.z + tz * 100
+    dist *= 100; tz = HC.z + tz * 100 + float(os.environ.get('FOCUS_Z', 0))
     # yaw 0 = in front of the face (camera on -Y). positive yaw = camera moves to the character's left (+X)
     y, p = math.radians(yaw), math.radians(pitch)
-    target = Vector((HC.x, HC.y, tz))
+    target = Vector((HC.x + float(os.environ.get('FOCUS_X', 0)), HC.y, tz))
     pos = target + Vector((dist * math.sin(y) * math.cos(p), -dist * math.cos(y) * math.cos(p), dist * math.sin(p)))
     cam.location = pos
     cam.rotation_euler = (target - pos).to_track_quat('-Z', 'Y').to_euler()
@@ -129,6 +142,23 @@ def render(fn):
     im = Image.open(scn.render.filepath); bg = Image.new('RGBA', im.size, (33, 35, 41, 255)); bg.alpha_composite(im.convert('RGBA'))
     bg.convert('RGB').save(scn.render.filepath)
 
+def apply_frac(names, f):
+    from mathutils import Quaternion
+    apply(names)
+    for pb in arm.pose.bones:
+        pb.location = pb.location * f
+        pb.rotation_quaternion = Quaternion((1, 0, 0, 0)).slerp(pb.rotation_quaternion, f)
+    bpy.context.view_layer.update()
+if 'blinkseq' in args:
+    scn.render.resolution_x, scn.render.resolution_y = int(os.environ.get("BW", 640)), int(os.environ.get("BH", 300))
+    scn.cycles.samples = 32
+    for vn, yaw, pitch in (('front', 0, 0), ('below', 0, -30), ('side', -35, 5)):
+        for f in (0.0, 0.25, 0.5, 0.75, 1.0):
+            apply_frac(['LeftEyeClosed', 'RightEyeClosed'], f)
+            place(yaw, pitch, 0.03, -0.0002); cam.data.lens = float(os.environ.get('LENS', 85))
+            render(f'blink_{vn}_{int(f * 100):03d}.png')
+    apply([])
+    sys.exit(0)
 if 'close' in args:
     apply([])
     scn.render.resolution_x, scn.render.resolution_y = 900, 420

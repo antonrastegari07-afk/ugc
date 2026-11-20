@@ -85,7 +85,8 @@ DISH_B = {s: surf_y(*IRIS_C[s]) + DISH_D for s in 'LR'}       # deepest point (y
 def dish_y(s, x, z):
     xi, zi = IRIS_C[s]
     y = DISH_B[s] - (x - xi) ** 2 / (2 * DISH_RH) - (z - zi) ** 2 / (2 * DISH_RV)
-    return max(y, surf_y(x, z) + DISH_MIN)
+    b = surf_y(x, z) + DISH_MIN
+    return (y + b + math.sqrt((y - b) ** 2 + 0.012 ** 2)) / 2          # smooth max: no crease / step in the dish
 
 # mouth centre line: smooth polynomial through the extracted ink line
 mx = [p[0] for p in FACE['mouth']]; mz = [p[1] for p in FACE['mouth']]
@@ -156,10 +157,16 @@ bpy.data.objects.remove(cut)
 bm = bmesh.new(); bm.from_mesh(head.data)
 uvl = bm.loops.layers.uv.new('UVMap')
 CLEAR_UV = rect_center_uv(CLEAR_RECT); MOUTH_UV = rect_center_uv(MOUTH_RECT)
+def set_skin_uv(f):
+    """face block UVs only if the whole face is inside the face window, else plain skin (never another atlas block)"""
+    if all(in_face_window(v.co.x, v.co.z) for v in f.verts):
+        for l in f.loops: l[uvl].uv = face_uv(l.vert.co.x, l.vert.co.z)
+    else:
+        for l in f.loops: l[uvl].uv = CLEAR_UV
 WALL_UP_UV = rect_center_uv(WALL_UP_RECT); WALL_LO_UV = rect_center_uv(WALL_LO_RECT)
 def socket_of(p):
     sy = surf_y(p.x, p.z)
-    if sy is None or p.y < sy + 0.0025:
+    if sy is None or p.y < sy + 0.0025 or p.y > sy + 0.45:      # only the eye / mouth cavities (not the back of the head!)
         return None
     for s in 'LR':
         q = (p.x, p.z)
@@ -182,7 +189,7 @@ for f in bm.faces:
         for l in f.loops: l[uvl].uv = MOUTH_UV
     elif f.normal.y < -0.2 and all(in_face_window(v.co.x, v.co.z) for v in f.verts):
         n_face += 1
-        for l in f.loops: l[uvl].uv = face_uv(l.vert.co.x, l.vert.co.z)
+        set_skin_uv(f)
     else:
         for l in f.loops: l[uvl].uv = CLEAR_UV
 bmesh.ops.dissolve_degenerate(bm, dist=0.0006, edges=bm.edges[:])
@@ -215,7 +222,7 @@ outer2d = rings2d[-1]
 cut2d = [tuple(Vector(p) + (Vector(p) - Vector(MOUTH_C)).normalized() * 0.03) for p in outer2d]
 uv_layer = uvl
 # delete the shell faces under the patch
-kill = [f for f in bm.faces if f.calc_center_median().y < -0.3 and pip((f.calc_center_median().x, f.calc_center_median().z), cut2d)]
+kill = [f for f in bm.faces if f.calc_center_median().y < -0.3 and any(pip((v.co.x, v.co.z), cut2d) for v in f.verts)]
 bmesh.ops.delete(bm, geom=kill, context='FACES')
 hole_edges = [e for e in bm.edges if e.is_boundary]
 def sv(x, z, back=0.0):
@@ -226,7 +233,7 @@ def face_front(vs):
     f = bm.faces.new(vs); f.smooth = True
     f.normal_update()
     if f.normal.y > 0: f.normal_flip()
-    for l in f.loops: l[uvl].uv = face_uv(l.vert.co.x, l.vert.co.z)
+    set_skin_uv(f)
     return f
 for k in range(len(rings) - 1):
     for j in range(M2):
@@ -245,9 +252,12 @@ for f in fill_faces:
     f.smooth = True
     f.normal_update()
     if f.normal.y > 0: f.normal_flip()
-    for l in f.loops: l[uvl].uv = face_uv(l.vert.co.x, l.vert.co.z)
+    set_skin_uv(f)
 # mouth bag: walls + strip floor
+# straight tube; every back vertex is skinned EXACTLY like its rim vertex (see weights), so the bag moves rigidly
+# with the lips: its walls can never be turned towards the inside (a wall seen from behind = a hole in Roblox)
 back = [bm.verts.new(v.co + Vector((0, MOUTH_DEPTH, 0))) for v in rings[0]]
+BAG_PAIRS = list(zip(rings[0], back))
 def mface(vs, want):
     f = bm.faces.new(vs); f.smooth = False
     f.normal_update()
@@ -257,8 +267,15 @@ mc3 = Vector((MOUTH_C[0], surf_y(*MOUTH_C) + MOUTH_DEPTH * 0.5, MOUTH_C[1]))
 for j in range(M2):
     j2 = (j + 1) % M2
     a, b2, c2, d2 = rings[0][j], rings[0][j2], back[j2], back[j]
-    mid = (a.co + b2.co + c2.co + d2.co) / 4
-    mface((a, b2, c2, d2), mc3 - mid)                    # walls face into the bag
+    # walls face into the bag: upper-lip walls look down, lower-lip walls look up (decided by the lip, not by the
+    # bag centre: near the corners a wall is almost flat and the centre test could pick the outer side)
+    sg_ = slit2[j][2] or slit2[j2][2]
+    if sg_:
+        want = Vector((0, 0, -1.0 if sg_ > 0 else 1.0))
+    else:
+        mid = (a.co + b2.co + c2.co + d2.co) / 4
+        want = Vector((mc3.x - mid.x, 0, mc3.z - mid.z))
+    mface((a, b2, c2, d2), want)
 up_idx = list(range(0, MN + 1)); lo_idx = [0] + list(range(M2 - 1, MN, -1)) + [MN]
 for i in range(MN):
     ua, ub = back[up_idx[i]], back[up_idx[i + 1]]
@@ -284,12 +301,10 @@ bm.normal_update()
 SHELL_N = len(bm.verts)
 print('shell tris after boolean', sum(len(f.verts) - 2 for f in bm.faces))
 
-# ---------------------------------------------------------------- sclera dishes (static, holed) + round concave irises (move)
-IRIS_SEG = 20
-IRIS_WALL = 0.010         # depth of the little wall at the iris rim (light crescent seen at an angle)
-IRIS_BOWL = 0.018         # extra depth of the iris bowl at its centre
-SKIRT = (2 * LOOK_X + 0.05, 2 * LOOK_Z + 0.05)   # covers the dish hole for every gaze    # sclera skirt around the iris (covers the hole in the static dish while the eye looks around)
-LIGHT_UV = rect_center_uv(WALL_LO_RECT)
+# ---------------------------------------------------------------- sclera dishes (static, whole) + round concave iris discs (move)
+# The iris is a disc lying on the concave dish paraboloid, just in front of it; looking around = rotating it about the
+# dish's centre of curvature, so it always stays on the dish.  No hole, no skirt, no step: clean from every angle.
+IRIS_SEG = 24
 cup_verts = {'L': [], 'R': []}
 iris_verts = {'L': [], 'R': []}
 def para(s, x, z):
@@ -309,138 +324,166 @@ for s in 'LR':
         grid.append(row)
     for j in range(nz):
         for i in range(nx):
-            q = (grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i])   # x right, z up -> normal -Y
-            if any(((v.co.x - xi) / (r0 + LOOK_X + 0.004)) ** 2 + ((v.co.z - zi) / (r0 + LOOK_Z + 0.004)) ** 2 < 1 for v in q):
-                continue                       # hole: iris + gaze range (the moving skirt covers it)
-            f = bm.faces.new(q); f.smooth = True
+            f = bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i])); f.smooth = True
             for l in f.loops: l[uvl].uv = cup_uv(s, l.vert.co.x, l.vert.co.z)
-    for v in [v for v in cup_verts[s] if not v.link_faces]:
-        cup_verts[s].remove(v); bm.verts.remove(v)
-    # moving part: skirt ring (sclera) + rim wall (light) + concave bowl (iris texture)
-    def ring(rx, rz, depth):
-        out = []
+    rings = []
+    for rr in (0.40, 0.75, 1.0):
+        ring = []
         for k in range(IRIS_SEG):
             t = 2 * math.pi * k / IRIS_SEG
-            x, z = xi + rx * math.cos(t), zi + rz * math.sin(t)
-            y = para(s, x, z) - IRIS_OFF + depth
-            sy = max((surf_y(x + dx, z + dz) or -9) for dx in (-0.05, -0.025, 0, 0.025, 0.05) for dz in (-0.025, 0, 0.025))
-            y = max(y, sy + 0.02)                        # hidden part of the skirt stays inside the head for every gaze
-            v = bm.verts.new((x, y, z))
-            out.append(v); iris_verts[s].append(v)
-        return out
-    skirt = ring(r0 + SKIRT[0], r0 + SKIRT[1], 0.0)
-    rim = ring(r0, r0, 0.0)
-    wall = ring(r0 * 0.992, r0 * 0.992, IRIS_WALL)
-    bowl = [(0.992, wall)]
-    for rr in (0.70, 0.40):
-        bowl.append((rr, ring(r0 * rr, r0 * rr, IRIS_WALL + IRIS_BOWL * (1 - (rr / 0.992) ** 2))))
-    cen = bm.verts.new((xi, para(s, xi, zi) - IRIS_OFF + IRIS_WALL + IRIS_BOWL, zi)); iris_verts[s].append(cen)
-    def quad(outer, inner, uvf):
-        for k in range(IRIS_SEG):
-            k2 = (k + 1) % IRIS_SEG
-            f = bm.faces.new((inner[k], outer[k], outer[k2], inner[k2])); f.smooth = True
-            for l in f.loops: l[uvl].uv = uvf(l.vert)
-    def iuv(v, scale=1.0):
-        a_, b_ = (v.co.x - xi) / r0, (v.co.z - zi) / r0
-        return iris_uv(s, a_ / 0.992, b_ / 0.992)
-    quad(skirt, rim, lambda v: cup_uv(s, v.co.x, v.co.z))
-    quad(rim, wall, lambda v: LIGHT_UV)
-    for (ra, outer), (rb, inner) in zip(bowl[:-1], bowl[1:]):
-        quad(outer, inner, iuv)
-    last = bowl[-1][1]
-    for k in range(IRIS_SEG):
-        f = bm.faces.new((cen, last[k], last[(k + 1) % IRIS_SEG])); f.smooth = True
+            x, z = xi + r0 * rr * math.cos(t), zi + r0 * rr * math.sin(t)
+            y = para(s, x, z) - IRIS_OFF
+            if not pip((x, z), EYES[s]):                             # hidden part: keep it behind the skin for every gaze
+                sy = max((surf_y(x + dx, z + dz) or -9) for dx in (-0.035, 0, 0.035) for dz in (-0.022, 0, 0.022))
+                y = max(y, sy + 0.01)
+            v = bm.verts.new((x, y, z)); ring.append(v); iris_verts[s].append(v)
+        rings.append(ring)
+    cen = bm.verts.new((xi, para(s, xi, zi) - IRIS_OFF, zi)); iris_verts[s].append(cen)
+    def iuv(v): return iris_uv(s, (v.co.x - xi) / r0, (v.co.z - zi) / r0)
+    def iface(vs):
+        f = bm.faces.new(vs); f.smooth = True
+        f.normal_update()
+        if f.normal.y > 0: f.normal_flip()
         for l in f.loops: l[uvl].uv = iuv(l.vert)
+    for k in range(IRIS_SEG):
+        k2 = (k + 1) % IRIS_SEG
+        iface((cen, rings[0][k], rings[0][k2]))
+        for a in range(len(rings) - 1):
+            iface((rings[a][k], rings[a + 1][k], rings[a + 1][k2], rings[a][k2]))
 bm.normal_update()
-for s in 'LR':
-    fs = {f for v in iris_verts[s] for f in v.link_faces}
-    print('iris', s, 'mean normal y (want < 0)', round(sum(f.normal.y for f in fs) / len(fs), 3))
 
-# ---------------------------------------------------------------- eyelids: curved skin lids that ROTATE closed
-# The upper lid comes down ~2/3 of the eye and the lower lid comes up ~1/3; they meet under the eyeliner.
-# Closed shape = a slightly bulged skin lid between the rim and the meeting line.  Rest shape = the same rigid lid
-# rotated LID_ANGLE back into the head around a hinge axis that follows the rim (tilted with the face curvature),
-# so it is invisible when the eye is open.  Roblox interpolates the bone rotation -> real half-blinks.
-LID_ANGLE = math.radians(100)
+# ---------------------------------------------------------------- eyelid: ONE rigid skin lid + the 3D eyeliner on ONE bone
+# Both SLIDE together (one translation, down along the face and slightly forward):
+#   rest  : the lid is parked behind the skin above the eye, the eyeliner sits on its rim
+#   closed: the lid covers the whole opening (tucked under the skin all around), the eyeliner lies on the lower rim
+# Same bone for both -> the eyeliner stays glued to the lid edge at every blend value (no plate, no gap), and since
+# nothing rotates the lid keeps the skin's normals (same shading as the skin around it at every moment).
+# the REAL skin (triangulated shell, not the smooth base surface): what the lid must hide behind
+bm.normal_update()
+_sk_faces = [f for f in bm.faces if f.normal.y < 0 and all(socket_of(v.co) is None for v in f.verts)]
+_sk_verts = {v: i for i, v in enumerate({v for f in _sk_faces for v in f.verts})}
+SKIN_BVH = BVHTree.FromPolygons([v.co.copy() for v in _sk_verts], [[_sk_verts[v] for v in f.verts] for f in _sk_faces])
+def skin_y(x, z):
+    loc, n, i, d = SKIN_BVH.ray_cast(Vector((x, -3.0, z)), Vector((0, 1, 0)))
+    sy = surf_y(x, z)
+    if loc is None or loc.y - sy > 0.008: return sy   # no skin right here (opening): the base surface
+    return max(loc.y, sy)                # the deeper of the two (chords of the shell lie behind the base surface)
+LID_DOME = 0.004
+LID_COLS, LID_ROWS = 14, 7     # columns: one tucked beyond each corner, one right at the outline, 12 across
+LASH_T = 0.011            # eyeliner thickness in front of the face
+LASH_OVER = 0.0055        # eyeliner overhang below the opening's top rim
 def smoothstep(a, b, x):
     t = max(0.0, min(1.0, (x - a) / (b - a)))
     return t * t * (3 - 2 * t)
-LID_BULGE = 0.008
-MEET = 0.30                                   # meeting line height (fraction of the eye height above the lower rim)
-LID_COLS = 10
 def eye_xr(s):
     xs = [p[0] for p in EYES[s]]
     return min(xs), max(xs)
 def span_c(s, x):
     x0, x1 = eye_xr(s)
     return vertical_span(EYES[s], min(max(x, x0 + 0.0015), x1 - 0.0015))
-def meet_z(s, x):
-    t, b = span_c(s, x)
-    return b + MEET * (t - b)
+def inside_d(s, x, z):
+    """signed distance to the opening outline (positive inside)"""
+    d = poly_dist((x, z), EYES[s])
+    return d if pip((x, z), EYES[s]) else -d
 lid_info = {}
-def make_lid(s, kind):
+PULL = {}
+LID_D = float(os.environ.get('LID_D', 0.0025))   # how far behind the skin the lid slides back up
+for s in 'LR':
     x0, x1 = eye_xr(s)
-    xa, xb = x0 - 0.003, x1 + 0.003
-    ts = [0.0, 0.25, 0.55, 0.8, 1.0] if kind == 'U' else [0.0, 0.5, 1.0]
-    cols = LID_COLS
-    def edge_z(x):
-        t, b = span_c(s, x)
-        return (t + 0.0025) if kind == 'U' else (b - 0.0025)
-    def end_z(x):
-        m = meet_z(s, x)
-        return (m - 0.004) if kind == 'U' else (m + 0.004)
-    hinge_a = Vector((xa, surf_y(xa, edge_z(xa)) - 0.0004, edge_z(xa)))
-    hinge_b = Vector((xb, surf_y(xb, edge_z(xb)) - 0.0004, edge_z(xb)))
-    axis = (hinge_b - hinge_a).normalized()
-    pivot = (hinge_a + hinge_b) / 2
-    grid, closed = [], {}
-    hmax = max(abs(edge_z(xa + (xb - xa) * i / cols) - end_z(xa + (xb - xa) * i / cols)) for i in range(cols + 1))
-    for r, t in enumerate(ts):
-        row = []
-        for i in range(cols + 1):
-            x = xa + (xb - xa) * i / cols
-            e, f_ = edge_z(x), end_z(x)
-            z = e + (f_ - e) * t
-            q = (x, z)
-            ins = pip(q, EYES[s])
-            d = poly_dist(q, EYES[s])
-            dome = LID_BULGE * smoothstep(0.0, 0.035, d) if ins else 0.0
-            t_, b_ = span_c(s, x)
-            corner = 1 - smoothstep(0.0, 0.03, t_ - b_)          # tuck only where the opening is a sharp corner
-            y = surf_y(x, z) - 0.0004 + 0.004 * corner - dome    # flush with the skin at the rim, domed over the hole
-            row.append(Vector((x, y, z)))
-        grid.append(row)
-    # rotation sign: the free edge must go BACK into the head
-    probe = grid[-1][cols // 2]
-    ang = LID_ANGLE
-    Rm = lambda a_: Matrix.Translation(pivot) @ Matrix.Rotation(a_, 4, axis) @ Matrix.Translation(-pivot)
-    if (Rm(ang) @ probe).y < probe.y:
-        ang = -ang
-    R = Rm(ang)
+    xc = (x0 + x1) / 2
+    top, bot = span_c(s, xc)
+    # The face is vertical around the eyes (its normals have no vertical component there), so the lid simply SLIDES
+    # down along it (a translation, slightly forward): it stays on the skin surface at every blend value and its
+    # normals never turn -> it is shaded exactly like the skin around it (no lighter "plate").
+    pivot = Vector((xc, surf_y(xc, (top + bot) / 2) + 0.03, (top + bot) / 2))   # bone head, behind the eye
+    xq0, xq1 = x0 + 0.25 * (x1 - x0), x1 - 0.25 * (x1 - x0)
+    bq0, bq1 = span_c(s, xq0)[1], span_c(s, xq1)[1]
+    def lid_bottom(x):
+        """lower edge of the closed lid: the lower rim, but kept low in the corners (where the almond outline rises)
+        so that the lid never uncovers a corner of the opening while it slides; the extra part stays under the skin"""
+        line = bq0 + (bq1 - bq0) * (x - xq0) / (xq1 - xq0)
+        return min(span_c(s, x)[1], line) - 0.001
+    def lift(dz, f):           # rest (parked) = closed + lift(dz, 1)
+        return Vector((0.0, LID_D * f, dz * f))
+    def real_y(x, z):
+        """the real (triangulated) skin level; across the opening: the base surface shifted to meet the real rims"""
+        tp, bt = span_c(s, x)
+        if z >= tp or z <= bt:
+            return skin_y(x, z)
+        za, zb = tp + 0.0012, bt - 0.0012
+        oa, ob = skin_y(x, za) - surf_y(x, za), skin_y(x, zb) - surf_y(x, zb)
+        u = (tp - z) / max(tp - bt, 1e-6)
+        return surf_y(x, z) + oa + (ob - oa) * u
+    def closed_pt(x, t, dz):
+        tp, bt = span_c(s, x)
+        r_ = round(t * LID_ROWS)                                        # row 0 above the top rim, row 1 right at it, then down
+        z = (tp + 0.005) if r_ == 0 else (tp - 0.001) + (lid_bottom(x) - (tp - 0.001)) * (r_ - 1) / (LID_ROWS - 1)
+        sy = surf_y(x, z)
+        # tucked under the skin only if the point is never over the opening during the slide
+        sd = max(inside_d(s, x, z + dz * f / 10) for f in range(11))
+        y_d = real_y(x, z) + 0.00015 + 0.0006 * smoothstep(0.0, 0.002, bt - z)   # a hair behind the rims (no step); more below the lower rim
+        if sd < 0:
+            y_d = y_d + (skin_y(x, z) + 0.0025 - y_d) * smoothstep(0.0, 0.002, -sd)
+        c = Vector((x, y_d, z))
+        # wherever it is NOT over the opening it must be behind the (real, triangulated) skin at every moment
+        need = 0.0
+        for f in range(11):
+            q = c + lift(dz, f / 10)
+            if inside_d(s, q.x, q.z) < -0.0005:
+                need = max(need, skin_y(q.x, q.z) + 0.0003 + 0.0007 * f / 10 - q.y)
+        c.y += need
+        PULL[(s, round(x, 3), round(z, 3))] = (inside_d(s, x, z), z - bt, need)
+        return c
+    xa, xb = x0 - 0.008, x1 + 0.008
+    lid_xs = [xa] + [x0 + 0.0015 + (x1 - x0 - 0.003) * (0.5 - 0.5 * math.cos(math.pi * k / (LID_COLS - 2))) for k in range(LID_COLS - 1)] + [xb]   # dense in the corners
+    def parked_margin(grid, dz):
+        """worst clearance of the parked lid: behind the skin where there is skin, under the eyeliner overhang where
+        it is over the opening"""
+        worst = 9
+        for row in grid:
+            for c in row:
+                q = c + lift(dz, 1.0)
+                if pip((q.x, q.z), EYES[s]):
+                    tp, bt = span_c(s, q.x)
+                    m = q.z - (tp - LASH_OVER + 0.002) - 0.0015            # tucked under the eyeliner overhang
+                else:
+                    m = q.y - (skin_y(q.x, q.z) + 0.0009)                 # behind the skin
+                worst = min(worst, m)
+        return worst
+    # smallest lift that parks the lid out of sight
+    dz = max(span_c(s, x)[0] - LASH_OVER + 0.002 - lid_bottom(x) for x in lid_xs[1:-1]) - 0.004
+    while True:
+        grid = [[closed_pt(lid_xs[i], r / LID_ROWS, dz) for i in range(LID_COLS + 1)] for r in range(LID_ROWS + 1)]
+        if parked_margin(grid, dz) >= 0.0 or dz > 0.2: break
+        dz += 0.001
+    t_close = -lift(dz, 1.0)
+    R_close = Matrix.Translation(t_close); R_open = Matrix.Translation(-t_close)
+    if os.environ.get('LID_DEBUG'):
+        for k, (sd0, dzb, pl) in sorted(PULL.items()):
+            if k[0] == s and pl > 0.0008 and sd0 > -0.002: print('LIDPULL', k, 'sd %.4f above-bottom %.4f pushed back %.4f' % (sd0, dzb, pl))
+    print('lid', s, 'slide %.4f down, %.4f forward, parked clearance %.4f' % (dz, LID_D, parked_margin(grid, dz)))
+    closed = {}
     vrows = []
-    for r, row in enumerate(grid):
+    for row in grid:
         vr = []
         for c in row:
-            v = bm.verts.new(R @ c); closed[v] = c; vr.append(v)
+            v = bm.verts.new(R_open @ c); closed[v] = c; vr.append(v)
         vrows.append(vr)
-    for r in range(len(ts) - 1):
-        for i in range(cols):
-            q = (vrows[r][i], vrows[r + 1][i], vrows[r + 1][i + 1], vrows[r][i + 1])
-            f = bm.faces.new(q); f.smooth = True
+    for r in range(LID_ROWS):
+        for i in range(LID_COLS):
+            f = bm.faces.new((vrows[r][i], vrows[r + 1][i], vrows[r + 1][i + 1], vrows[r][i + 1])); f.smooth = True
             for l in f.loops: l[uvl].uv = CLEAR_UV                    # skin colour (recolourable)
-            # visible side must face the front once closed
             cs = [closed[v] for v in f.verts]
-            if (cs[1] - cs[0]).cross(cs[2] - cs[0]).y > 0:
+            if (cs[1] - cs[0]).cross(cs[2] - cs[0]).y > 0:              # visible side faces the front when closed
                 f.normal_flip()
-    return dict(pivot=pivot, axis=axis, angle=-ang, verts=closed)   # pose angle: rest -> closed
-for s in 'LR':
-    lid_info[s] = make_lid(s, 'U')
-    lid_info[s + 'low'] = make_lid(s, 'D')
+    lid_info[s] = dict(pivot=pivot, t=t_close, verts=closed, x0=x0, x1=x1, R_open=R_open, R_close=R_close)
 bm.normal_update()
+def lash_w(s, x):
+    """how much of the lid rotation each eyeliner column follows (1 over the eye, ~0.55 at the tips)"""
+    x0, x1 = eye_xr(s)
+    return 0.80 + 0.20 * smoothstep(-0.05, 0.0, min(x - x0, x1 - x))   # rigid with the lid over the whole eye
 
-# ---------------------------------------------------------------- raised 3D upper eyeliner (moves down to close the eye)
-LASH_T = 0.011            # thickness in front of the face
-LASH_OVER = 0.0055        # overhang below the opening's top rim
+# ---------------------------------------------------------------- raised 3D upper eyeliner (hides the top of the hole, closes with the lid)
 LASH_SIDE_UV = rect_center_uv(LASH_SIDE_RECT); LASH_UV = rect_center_uv(LASH_RECT)
 lash_verts = {'L': [], 'R': []}
 def ear_clip(pts):
@@ -529,16 +572,6 @@ for s in 'LR':
         for l in f.loops: l[uvl].uv = LASH_SIDE_UV
 bm.normal_update()
 
-# how far the eyeliner drops at each x to land on the lower rim (0 at the corners and beyond)
-def lash_drop(s, x):
-    xs = [p[0] for p in EYES[s]]
-    if x <= min(xs) or x >= max(xs):
-        return 0.0
-    sp = vertical_span(EYES[s], x)
-    d = max(0.0, (sp[0] - LASH_OVER) - (meet_z(s, x) - 0.006))
-    return d * smoothstep(0.0, 0.09, min(x - min(xs), max(xs) - x)) ** 0.7   # rounded arc, no shear at the corners
-LASH_H = {s: max(lash_drop(s, min(p[0] for p in EYES[s]) + (max(p[0] for p in EYES[s]) - min(p[0] for p in EYES[s])) * i / 200) for i in range(201)) for s in 'LR'}
-
 # every n-gon -> clean triangles (the boolean leaves concave n-gons around the eyes; a naive fan would fold)
 ng = [f for f in bm.faces if len(f.verts) > 3]                      # quads too: best diagonal, no sliver
 bmesh.ops.triangulate(bm, faces=ng, quad_method='BEAUTY', ngon_method='EAR_CLIP')
@@ -556,9 +589,21 @@ bm.verts.ensure_lookup_table()
 CUP_IDX = {s: set(v.index for v in cup_verts[s]) for s in 'LR'}
 IRIS_IDX = {s: set(v.index for v in iris_verts[s]) for s in 'LR'}
 LID_IDX = {s: set(v.index for v in lid_info[s]['verts']) for s in 'LR'}
-LOWLID_IDX = {s: set(v.index for v in lid_info[s + 'low']['verts']) for s in 'LR'}
+BAG_IDX = [(a.index, b.index) for a, b in BAG_PAIRS]
 LASH_IDX = {s: set(v.index for v in lash_verts[s]) for s in 'LR'}
+REST_ = [v.co.copy() for v in bm.verts]
+TIP_DZ = -0.2
+LASH_WT = {}
+for s in 'LR':
+    L = lid_info[s]; xc = (L['x0'] + L['x1']) / 2
+    disp = {i: (L['R_close'] @ REST_[i]) - REST_[i] for i in LASH_IDX[s]}
+    centre = [disp[i].z for i in LASH_IDX[s] if abs(REST_[i].x - xc) < 0.03]
+    dz_des = sum(centre) / len(centre)
+    for i, d in disp.items():
+        wt = (dz_des - d.z) / (TIP_DZ - d.z)
+        LASH_WT[i] = max(0.0, min(0.85, wt))
 REST = [v.co.copy() for v in bm.verts]
+REST_ = REST
 SOCK = [socket_of(v.co) if v.index < SHELL_N else None for v in bm.verts]
 bm.free()
 tris = sum(len(p.vertices) - 2 for p in head.data.polygons)
@@ -579,8 +624,7 @@ FACE_BONES = {}
 for s, nm in (('L', 'Left'), ('R', 'Right')):
     FACE_BONES[nm + 'Eye'] = (IRIS_C[s][0], DISH_B[s] - DISH_RH, IRIS_C[s][1])
     FACE_BONES[nm + 'UpperEyelid'] = tuple(lid_info[s]['pivot'])
-    FACE_BONES[nm + 'Eyelash'] = front(EC[s][0], EC[s][1] + 0.05, -0.011)
-    FACE_BONES[nm + 'LowerEyelid'] = tuple(lid_info[s + 'low']['pivot'])
+    FACE_BONES[nm + 'LashTip'] = front(lid_info[s]['x1'] if s == 'L' else lid_info[s]['x0'], EC[s][1] + 0.04, -0.011)
     FACE_BONES[nm + 'UnderEye'] = front(EC[s][0], EYE_BOT[s] - 0.01)
     FACE_BONES[nm + 'Cheek'] = front(EC[s][0], EYE_BOT[s] - 0.06)
     FACE_BONES[nm + 'InnerBrow'] = front(*BROWS[s][0])
@@ -610,17 +654,16 @@ def below_mouth(x, z):
 weights = []
 for idx, p in enumerate(REST):
     w = {}
-    side = next((s for s in 'LR' if idx in IRIS_IDX[s] or idx in LID_IDX[s] or idx in LOWLID_IDX[s] or idx in LASH_IDX[s] or idx in CUP_IDX[s]), None)
+    side = next((s for s in 'LR' if idx in IRIS_IDX[s] or idx in LID_IDX[s] or idx in LASH_IDX[s] or idx in CUP_IDX[s]), None)
     nm = {'L': 'Left', 'R': 'Right'}.get(side or SOCK[idx] if (side or SOCK[idx]) in ('L', 'R') else None, '')
     if side and idx in IRIS_IDX[side]:
         w[nm + 'Eye'] = 1.0
     elif side and idx in LID_IDX[side]:
         w[nm + 'UpperEyelid'] = 1.0
-    elif side and idx in LOWLID_IDX[side]:
-        w[nm + 'LowerEyelid'] = 1.0
     elif side and idx in LASH_IDX[side]:
-        d = lash_drop(side, p.x) / LASH_H[side]
-        if d > 0: w[nm + 'Eyelash'] = d
+        wt = LASH_WT[idx]
+        w[nm + 'UpperEyelid'] = 1.0 - wt
+        if wt > 0.01: w[nm + 'LashTip'] = wt
     elif side and idx in CUP_IDX[side]:
         pass                                             # sclera dish: static
     else:
@@ -636,7 +679,9 @@ for idx, p in enumerate(REST):
             near = smoothstep(0.03, 0.0, depth)
             sp = vertical_span(EYES[s], min(max(x, min(q[0] for q in EYES[s]) + 0.001), max(q[0] for q in EYES[s]) - 0.001))
             if sp and z < (sp[0] + sp[1]) / 2:
-                w[nmw + 'UnderEye'] = smoothstep(0.05, 0.0, depth) * 0.6
+                xs_w = [q[0] for q in EYES[s]]
+                corner = smoothstep(0.0, 0.04, min(x - min(xs_w), max(xs_w) - x))   # same corner fade as the skin
+                w[nmw + 'UnderEye'] = smoothstep(0.05, 0.0, depth) * 0.6 * (0.15 + 0.85 * corner)
         elif frontish > 0:
             # ---- mouth: at most Jaw + one/two lip bones + one corner per vertex, all smooth and shared by both
             #      edges of the slit (no crossing / folding)
@@ -673,11 +718,13 @@ for idx, p in enumerate(REST):
                 ztop, zbot = sp
                 # skin just above the eye stretches down a little when the lid closes (follows the eyeliner)
                 above = smoothstep(ztop + 0.06, ztop, z) * (1.0 if z >= ztop - 0.002 else 0.0)
-                lw = lash_drop(s, min(max(x, min(xs_) + 0.001), max(xs_) - 0.001)) / LASH_H[s]
-                w[nms + 'Eyelash'] = 0.10 * above * inx * lw * frontish
+                w[nms + 'UpperEyelid'] = 0.08 * above * inx * frontish     # skin above the eye follows the lid a little
                 # lower lid / cheek
                 below = smoothstep(zbot - 0.06, zbot - 0.005, z) * smoothstep(zbot + 0.012, zbot, z)
-                w[nms + 'UnderEye'] = 0.9 * below * inx * frontish
+                # ... fading out towards the eye corners, where the top and bottom rims meet (else the corner rim
+                # vertex moves while its neighbour just above does not -> a folded sliver)
+                corner = smoothstep(0.0, 0.04, min(x - min(xs_), max(xs_) - x))
+                w[nms + 'UnderEye'] = 0.9 * below * inx * frontish * (0.15 + 0.85 * corner)
                 ck = gauss((x, z), (ex, zbot - 0.07), 0.07) * smoothstep(zbot + 0.005, zbot - 0.03, z) * frontish * 0.7
                 w[nms + 'Cheek'] = ck if ck > 0.06 else 0.0
                 # brows
@@ -694,6 +741,8 @@ for idx, p in enumerate(REST):
     if tot < 0.999:
         w['DynamicHead'] = 1 - tot
     weights.append(w)
+for ia, ib in BAG_IDX:
+    weights[ib] = dict(weights[ia])                       # mouth bag back = same skinning as its rim vertex
 
 # ---------------------------------------------------------------- FACS poses (in mask studs; rigid transforms)
 def T(*d): return ('t', Vector(d))
@@ -707,29 +756,42 @@ def mirror(d):
     out = {}
     for k, v in d.items():
         k2 = k.replace('Left', '§').replace('Right', 'Left').replace('§', 'Right')
-        if v[0] == 't':
+        if v[0] == 't' and len(v) > 2 and v[2] == 'lid':
+            out[k2] = lid_rot('R' if k2.startswith('Right') else 'L', v[3])
+        elif v[0] == 't':
             out[k2] = T(-v[1].x, v[1].y, v[1].z)
         else:
-            out[k2] = v                                   # rotations are built per side, never mirrored
+            sd = 'R' if k2.startswith('Right') else 'L'
+            out[k2] = v
     return out
 P = {}
 P['EyesLookDown'] = {'LeftEye': eye_rot('L', 'X', -LOOK_Z), 'RightEye': eye_rot('R', 'X', -LOOK_Z)}
 P['EyesLookUp'] = {'LeftEye': eye_rot('L', 'X', LOOK_Z), 'RightEye': eye_rot('R', 'X', LOOK_Z)}
 P['EyesLookLeft'] = {'LeftEye': eye_rot('L', 'Z', LOOK_X), 'RightEye': eye_rot('R', 'Z', LOOK_X)}
 P['EyesLookRight'] = {'LeftEye': eye_rot('L', 'Z', -LOOK_X), 'RightEye': eye_rot('R', 'Z', -LOOK_X)}
-def lid_rot(key, frac=1.0):
-    L = lid_info[key]
-    return ('r', Vector(L['pivot']), Vector(L['axis']), L['angle'] * frac)
+def lid_rot(s_, frac=1.0):
+    """the lid slide (a pure translation): frac 1 = closed"""
+    return ('t', Vector(lid_info[s_]['t']) * frac, 'lid', frac)
+LID_FOLLOW = 0.12                                   # the upper lid follows the gaze down a little
+def tip(frac): return T(0, 0, TIP_DZ * frac)
+P['EyesLookDown']['LeftUpperEyelid'] = lid_rot('L', LID_FOLLOW); P['EyesLookDown']['LeftLashTip'] = tip(LID_FOLLOW)
+P['EyesLookDown']['RightUpperEyelid'] = lid_rot('R', LID_FOLLOW); P['EyesLookDown']['RightLashTip'] = tip(LID_FOLLOW)
+LID_UP = -0.05                                      # ... and lifts a little when looking up
 for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
-    P[nm_ + 'EyeClosed'] = {nm_ + 'UpperEyelid': lid_rot(s_), nm_ + 'LowerEyelid': lid_rot(s_ + 'low'),
-                            nm_ + 'Eyelash': T(0, -0.002, -LASH_H[s_]), nm_ + 'UnderEye': T(0, -0.001, 0.003)}
-    P[nm_ + 'CheekRaiser'] = {nm_ + 'Cheek': T(0, -0.004, 0.012), nm_ + 'UnderEye': T(0, -0.002, 0.012)}
-    # corrective: closing + squinting must not over-rotate the lower lid
-    P[nm_ + 'CheekRaiser_' + nm_ + 'EyeClosed'] = {nm_ + 'UpperEyelid': lid_rot(s_), nm_ + 'LowerEyelid': lid_rot(s_ + 'low'),
-                              nm_ + 'Eyelash': T(0, -0.002, -LASH_H[s_]), nm_ + 'UnderEye': T(0, -0.002, 0.010),
-                              nm_ + 'Cheek': T(0, -0.004, 0.012)}
-P['LeftEyeUpperLidRaiser'] = {'LeftEyelash': T(0, 0, 0.008), 'LeftOuterBrow': T(0, 0, 0.006), 'LeftInnerBrow': T(0, 0, 0.004)}
-P['LeftLipCornerPuller'] = {'LeftLipCorner': T(0.014, 0.006, 0.020), 'LeftCheek': T(0, -0.002, 0.004)}
+    P['EyesLookUp'][nm_ + 'UpperEyelid'] = lid_rot(s_, LID_UP); P['EyesLookUp'][nm_ + 'LashTip'] = tip(LID_UP)
+for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
+    o_ = 'Right' if nm_ == 'Left' else 'Left'; os_ = 'R' if s_ == 'L' else 'L'
+    P[nm_ + 'EyeClosed_EyesLookUp'] = {nm_ + 'UpperEyelid': lid_rot(s_), o_ + 'UpperEyelid': lid_rot(os_, LID_UP),
+                                       nm_ + 'LashTip': tip(1.0), o_ + 'LashTip': tip(LID_UP),
+                                       'LeftEye': eye_rot('L', 'X', LOOK_Z), 'RightEye': eye_rot('R', 'X', LOOK_Z)}
+    P[nm_ + 'EyeClosed'] = {nm_ + 'UpperEyelid': lid_rot(s_), nm_ + 'LashTip': tip(1.0)}
+    P[nm_ + 'CheekRaiser'] = {nm_ + 'Cheek': T(0, -0.004, 0.012), nm_ + 'UnderEye': T(0, -0.004, 0.012)}
+    # corrective (same naming as Roblox's own Blocky head): closed + looking down must stay exactly closed
+    P[nm_ + 'EyeClosed_EyesLookDown'] = {nm_ + 'UpperEyelid': lid_rot(s_), o_ + 'UpperEyelid': lid_rot(os_, LID_FOLLOW),
+                                         nm_ + 'LashTip': tip(1.0), o_ + 'LashTip': tip(LID_FOLLOW),
+                                         'LeftEye': eye_rot('L', 'X', -LOOK_Z), 'RightEye': eye_rot('R', 'X', -LOOK_Z)}
+P['LeftEyeUpperLidRaiser'] = {'LeftUpperEyelid': lid_rot('L', -0.07), 'LeftLashTip': tip(-0.07), 'LeftOuterBrow': T(0, 0, 0.006), 'LeftInnerBrow': T(0, 0, 0.004)}
+P['LeftLipCornerPuller'] = {'LeftLipCorner': T(0.014, 0.006, 0.020), 'LeftCheek': T(0, -0.002, 0.005), 'LeftUnderEye': T(0, -0.001, 0.003)}
 P['LeftLipCornerDown'] = {'LeftLipCorner': T(0.004, 0.0, -0.018)}
 P['LeftLipStretcher'] = {'LeftLipCorner': T(0.024, 0.002, -0.006)}
 P['LeftLowerLipDepressor'] = {'LeftLowerLip': T(0.004, 0, -0.024)}
@@ -885,13 +947,26 @@ def skin_loop(li):
     u, v = uvd[li].uv; px, py = u * ATLAS, (1 - v) * ATLAS
     return py <= FACE_RECT[1] + FACE_RECT[3] + 1 or (CLEAR_RECT[0] - 1 <= px <= CLEAR_RECT[0] + CLEAR_RECT[2] + 1 and CLEAR_RECT[1] - 1 <= py <= CLEAR_RECT[1] + CLEAR_RECT[3] + 1)
 cur = [Vector(n.vector) for n in me.corner_normals]
-lid_or_inner = set().union(*[IRIS_IDX[s_] | LID_IDX[s_] | LOWLID_IDX[s_] | LASH_IDX[s_] | CUP_IDX[s_] for s_ in 'LR'])
+lid_or_inner = set().union(*[IRIS_IDX[s_] | LID_IDX[s_] | LASH_IDX[s_] | CUP_IDX[s_] for s_ in 'LR'])
 newn = []
 nset = 0
 for poly in me.polygons:
     for li in poly.loop_indices:
         vi = me.loops[li].vertex_index
-        if vi < SHELL_N and vi not in lid_or_inner and skin_loop(li) and SOCK[vi] is None:
+        lid_side = next((s_ for s_ in 'LR' if vi in LID_IDX[s_]), None)
+        if lid_side:
+            Lf = lid_info[lid_side]
+            pr = Minv @ me.vertices[vi].co                         # rest position (mask studs)
+            # the lid only slides (no rotation): its normal is the skin normal where it lies when closed
+            pc = Lf['R_close'] @ pr
+            loc, _, fi, _ = TB.find_nearest(pc)
+            f = tri_base.faces[fi]
+            a, b, c = [x.co for x in f.verts]
+            na, nb, nc = [x.normal for x in f.verts]
+            w = barycentric_transform(loc, a, b, c, Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)))
+            n_rest = (na * w.x + nb * w.y + nc * w.z).normalized()
+            newn.append((R3 @ n_rest).normalized()); nset += 1
+        elif vi < SHELL_N and vi not in lid_or_inner and skin_loop(li) and SOCK[vi] is None:
             pm = Minv @ me.vertices[vi].co
             loc, _, fi, _ = TB.find_nearest(pm)
             f = tri_base.faces[fi]

@@ -60,6 +60,21 @@ face[..., 3] = np.maximum(face[..., 3], em_s)
 _l = rgb_s.mean(2)
 _w = (em_s > 0.5) & (_l > 85)
 face[..., :3] = np.where(_w[..., None], 255 - (255 - face[..., :3]) * 0.38, face[..., :3])
+# upper half of each opening: plain transparent skin. It is always hidden by the 3D eyeliner when the eye is open,
+# but texture filtering bleeds it onto the skin rim -> it would draw a thin dark/white line over the CLOSED lid
+upper = np.zeros((H, W), np.uint8)
+for side in 'RL':
+    poly = np.array(EYE_PX[side], np.float32)
+    m1 = np.zeros((H, W), np.uint8)
+    cv2.fillPoly(m1, [np.round(poly * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
+    m1 = cv2.dilate(m1, np.ones((5, 5), np.uint8))
+    cols = np.where(m1.any(0))[0]
+    for c in cols:
+        rows = np.where(m1[:, c] > 0)[0]
+        mid = (rows.min() + rows.max()) / 2
+        upper[rows[rows < mid], c] = 255
+up_s = cv2.remap(cv2.GaussianBlur(upper.astype(np.float32) / 255, (0, 0), 1.0), mx, my, cv2.INTER_LINEAR, borderValue=0)
+face[..., 3] *= 1 - np.clip(up_s * 1.5, 0, 1)
 atlas[fy:fy + fh, fx:fx + fw] = face
 
 # --- iris discs (full ellipse, hidden top rebuilt by mirroring the visible bottom) and sclera cups (iris removed)
