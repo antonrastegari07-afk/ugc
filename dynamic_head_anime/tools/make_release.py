@@ -8,7 +8,7 @@ VARIANTS = [('A_yeux_3D', ROOT)] + ([('B_yeux_plats', os.path.abspath(sys.argv[3
 OUT = os.path.join(ROOT, 'VERSION_ACTUELLE')
 if os.path.isdir(OUT):
     shutil.rmtree(OUT)
-files = ['AnimeDynamicHead_Blocky.fbx', 'HeadTexture.png', 'HeadTexture_Emissive.png', 'HeadTexture_Roughness.png',
+files = ['AnimeDynamicHead_HeadOnly.fbx', 'AnimeDynamicHead_Blocky.fbx', 'HeadTexture.png', 'HeadTexture_Emissive.png', 'HeadTexture_Roughness.png',
          'HeadTexture_Metalness.png', 'HeadTexture_Normal.png']
 IMGS = ('sheet_angles.png', 'sheet_angles_mobile.png', 'sheet_views.png', 'sheet_close.png', 'sheet_blink.png',
         'sheet_poses.png', 'sheet_mouth.png', 'sheet_brows.png', 'sheet_skins.png', 'sheet_weights.png')
@@ -66,7 +66,8 @@ if multi:
               'des yeux ne sont pas les mêmes d\'une variante à l\'autre).', '']
 lines += ['## À importer dans Roblox Studio (dans chaque dossier)',
           '| Fichier | Rôle |', '|---|---|',
-          '| `AnimeDynamicHead_Blocky.fbx` | la tête dynamique (avec le corps Blocky R15, cages, attachments) |',
+          '| `AnimeDynamicHead_HeadOnly.fbx` | **la tête seule** (pour l\'UGC tête) : tête animée + cage + attachments de la tête |',
+          '| `AnimeDynamicHead_Blocky.fbx` | la même tête posée sur le corps Blocky R15 (secours si Studio veut un personnage complet) |',
           '| `HeadTexture.png` | ColorMap du SurfaceAppearance (AlphaMode = Overlay → peau recoloriable) |',
           '| `HeadTexture_Emissive.png` | EmissiveMaskContent (EmissiveStrength ≈ 1) |',
           '| `HeadTexture_Roughness.png` / `_Metalness.png` / `_Normal.png` | RoughnessMap / MetalnessMap / NormalMap |', '',
