@@ -24,6 +24,8 @@ def mp4(name, dirs, layout):
     n = len(dirs)
     if n == 1:
         flt = '[0:v]format=yuv420p[v]'
+    elif layout == 'grid3x2':
+        flt = '[0:v][1:v][2:v]hstack=3[t];[3:v][4:v][5:v]hstack=3[b];[t][b]vstack=2,format=yuv420p[v]'
     elif layout == 'grid2':
         flt = '[0:v][1:v]hstack=2[t];[2:v][3:v]hstack=2[b];[t][b]vstack=2,format=yuv420p[v]'
     else:
@@ -44,6 +46,10 @@ def gif(src_mp4, name, width):
 
 
 have = lambda d: os.path.isdir(os.path.join(A, d))
+SIX = ('face', 'gauche35', 'droite35', 'profil', 'dessous', 'dessus')
+for clip, nm, w in (('eyes', 'yeux_6_angles', 1080), ('expressions', 'expressions_6_angles', 900)):
+    if clip in ONLY and all(have(f'{clip}_{a}') for a in SIX):
+        gif(mp4(nm, [f'{clip}_{a}' for a in SIX], 'grid3x2'), nm, w)
 if 'eyes' in ONLY and all(have(f'eyes_{a}') for a in ('face', 'gauche35', 'droite35', 'dessous')):
     m = mp4('yeux_4_angles', ['eyes_face', 'eyes_gauche35', 'eyes_droite35', 'eyes_dessous'], 'grid2')
     gif(m, 'yeux_4_angles', 720)

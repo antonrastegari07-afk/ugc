@@ -152,7 +152,7 @@ def timeline(segs):
 
 # ------------------------------------------------------------------ cameras
 ANG = {'face': (0, 0), 'gauche35': (35, 0), 'droite35': (-35, 0), 'dessous': (0, -28), 'dessus': (0, 22),
-       'gauche60': (60, 0)}
+       'gauche60': (60, 0), 'profil': (-72, 0)}
 if CLIP == 'eyes':
     segs, angles, res, dist, tz, lens = EYES, ['face', 'gauche35', 'droite35', 'dessous'], (480, 270), 0.03, -0.0002, 70
 elif CLIP == 'expressions':
@@ -177,6 +177,7 @@ for ang in angles:
             yaw = 65 * math.sin(2 * math.pi * u); pitch = 14 * math.sin(4 * math.pi * u + 0.6)
         else:
             yaw, pitch = ANG[ang]
+        os.environ['FOCUS_X'] = str(-0.2 if ang == 'profil' else 0.0)   # the profile camera looks at the near eye
         place(yaw, pitch, dist, tz); cam.data.lens = lens
         fn = os.path.join(od, f'{fi:04d}.png')
         scn.render.filepath = fn
@@ -185,7 +186,7 @@ for ang in angles:
         im = bg.convert('RGB'); d = ImageDraw.Draw(im)
         d.rectangle((0, 0, im.width, 26), fill=(20, 21, 25)); d.text((8, 4), label, fill=(235, 235, 235), font=font)
         tag = {'face': 'face', 'gauche35': '3/4 gauche', 'droite35': '3/4 droite', 'dessous': 'dessous',
-               'dessus': 'dessus', 'gauche60': 'profil', 'orbite': 'caméra en orbite'}[ang]
+               'dessus': 'dessus', 'gauche60': 'profil', 'profil': 'profil', 'orbite': 'caméra en orbite'}[ang]
         tw = d.textlength(tag, font=font); d.text((im.width - tw - 8, 4), tag, fill=(150, 160, 175), font=font)
         im.save(fn)
     print('done', CLIP, ang, len(frames))
