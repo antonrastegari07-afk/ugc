@@ -77,6 +77,7 @@ up_s = cv2.remap(cv2.GaussianBlur(upper.astype(np.float32) / 255, (0, 0), 1.0), 
 face[..., 3] *= 1 - np.clip(up_s * 1.5, 0, 1)
 atlas[fy:fy + fh, fx:fx + fw] = face
 
+IRIS_COL = {}
 # --- iris discs (full ellipse, hidden top rebuilt by mirroring the visible bottom) and sclera cups (iris removed)
 inside = (eye_mask > 127).astype(np.uint8)
 inner = cv2.erode(inside, np.ones((5, 5), np.uint8))
@@ -107,6 +108,7 @@ for side in 'RL':
     col = np.where(hlm, col, np.clip(col * 1.12 + 12, 0, 255))
     atlas[ryr:ryr + rh, rxr:rxr + rw, :3] = col
     atlas[ryr:ryr + rh, rxr:rxr + rw, 3] = 255
+    IRIS_COL[side] = col.copy()
 
 # sclera: exact pixels where visible, row-profile colour elsewhere (behind the iris / outside the opening)
 keep = (inside > 0) & (iris_d == 0)
@@ -142,6 +144,24 @@ for side in 'RL':
     atlas[ry - 2:ry + rh + 2, rx - 2:rx + rw + 2, :3] = (222, 222, 225)
     atlas[ry - 2:ry + rh + 2, rx - 2:rx + rw + 2, 3] = 255
 
+# --- the eye as drawn (the white with its shading and corner lines; the dark iris disc REMOVED: the black 3D ball at the
+#     centre of the eye sphere is the iris),
+#     painted on the inside of the eye sphere by a front projection
+SCLERA = np.array((222, 222, 225), np.float32)
+for side in 'RL':
+    x0, x1, z0, z1 = eye_tex_box(side)
+    rx, ry, rw, rh = eye_rect(side)
+    yy, xx = np.mgrid[0:rh, 0:rw]
+    xs_ = x0 + (xx - 1 + 0.5) / (rw - 2) * (x1 - x0); zs_ = z1 - (yy - 1 + 0.5) / (rh - 2) * (z1 - z0)
+    m_x = (CX + xs_ * SX).astype(np.float32); m_y = (CY - zs_ * SY).astype(np.float32)
+    base = cv2.remap(eye_img, m_x, m_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    inm = cv2.remap(cv2.dilate(eye_mask, np.ones((3, 3), np.uint8)).astype(np.float32) / 255, m_x, m_y, cv2.INTER_LINEAR)
+    tex = base * inm[..., None] + SCLERA * (1 - inm[..., None])          # drawing in the opening, white around it
+    # the dark iris disc of the drawing is NOT painted: the 3D black ball at the centre of the sphere is the iris
+    t8 = np.clip(tex, 0, 255).astype(np.uint8)
+    atlas[ry:ry + rh, rx:rx + rw, :3] = t8
+    atlas[ry:ry + rh, rx:rx + rw, 3] = 255
+
 # --- lids: skin (transparent) with the lash line along the closing edge
 for side in 'RL':
     rx, ry, rw, rh = LID_RECT[side]
@@ -158,9 +178,9 @@ x, y, w, h = LASH_RECT; atlas[y:y + h, x:x + w] = (16, 14, 17, 255)
 x, y, w, h = LASH_SIDE_RECT; atlas[y:y + h, x:x + w] = (52, 50, 55, 255)
 x, y, w, h = CLEAR_RECT; atlas[y:y + h, x:x + w] = (0, 0, 0, 0)
 # iris ball: one plain colour = the median of the drawn iris (highlights excluded)
-_ball = np.median(im[known_nohl], axis=0)
+_ball = np.array((4, 4, 5), np.float32)                 # the pupil ball: deep black (no reflection: roughness 1)
 x, y, w, h = BALL_RECT; atlas[y:y + h, x:x + w, :3] = _ball; atlas[y:y + h, x:x + w, 3] = 255
-print('iris ball colour', [int(c) for c in _ball])
+
 
 fa = atlas[fy:fy + fh, fx:fx + fw]
 fa[..., 3] = np.clip(fa[..., 3], 0, 1) * 255
@@ -179,6 +199,8 @@ def mark(rect):
 for side in 'RL':
     mark(cup_rect(side)); mark(iris_rect(side))
 mark(WALL_UP_RECT); mark(WALL_LO_RECT); mark(BALL_RECT)
+for side in 'RL':
+    mark(eye_rect(side))
 # the eye pixels kept on the face block around the rim (opaque image pixels inside the dilated opening)
 fem = cv2.remap(cv2.dilate(eye_mask, np.ones((5, 5), np.uint8)).astype(np.float32) / 255, mx, my, cv2.INTER_LINEAR)
 fl = lum[fy:fy + fh, fx:fx + fw]

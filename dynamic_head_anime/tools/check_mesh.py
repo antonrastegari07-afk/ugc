@@ -85,6 +85,8 @@ def category(p):
     if in_rect(px, py, WALL_UP_RECT) or in_rect(px, py, WALL_LO_RECT): return 'wall'
     if in_rect(px, py, BALL_RECT): return 'iris'
     for s in 'LR':
+        if in_rect(px, py, eye_rect(s), 0): return 'dish'
+    for s in 'LR':
         if in_rect(px, py, cup_rect(s)): return 'dish'
         if in_rect(px, py, iris_rect(s)): return 'iris'
     if in_rect(px, py, CLEAR_RECT) and all(any(groups[g.group].endswith('UpperEyelid') and g.weight > 0.99 for g in me.vertices[i].groups) for i in p.vertices):

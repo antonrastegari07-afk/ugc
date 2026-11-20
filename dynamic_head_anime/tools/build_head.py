@@ -360,6 +360,7 @@ print('shell tris after boolean', sum(len(f.verts) - 2 for f in bm.faces))
 # that sphere, the size of the drawn iris, the drawing projected on its front.  A ball stays round from every side, and
 # lying deep in the hollow eye it seems to turn towards whoever looks at it.  Gaze = the ball spins about its centre.
 IRIS_SEG = 28
+PUPIL_K = float(os.environ.get('PUPIL_K', 1.0))    # black ball radius / drawn iris radius (the ball IS the iris)
 cup_verts = {'L': [], 'R': []}
 iris_verts = {'L': [], 'R': []}
 def sph_dir(theta, phi, back=True):
@@ -389,7 +390,7 @@ for s in 'LR':
         f.normal_update()
         cen_ = sum((v.co for v in vs), Vector()) / len(vs)
         if f.normal.dot(C - cen_) < 0: f.normal_flip()                # inverted: faces the inside
-        for l in f.loops: l[uvl].uv = WHITE_UV
+        for l in f.loops: l[uvl].uv = eye_tex_uv(s, l.vert.co.x, l.vert.co.z)   # the drawn eye, front projection
     for k in range(WSEG):
         k2 = (k + 1) % WSEG
         wface((pole, rows[0][k], rows[0][k2]))
@@ -400,12 +401,13 @@ for s in 'LR':
     BALL_UV = rect_center_uv(BALL_RECT)
     def ball_uv(p_, al):
         return BALL_UV                                                 # one plain dark colour: nothing painted on it
-    fpole = bm.verts.new(C + sph_dir(0, 0, back=False) * r0); iris_verts[s].append(fpole)
+    rp = PUPIL_K * r0                                                  # the black ball = the dark iris of the drawing
+    fpole = bm.verts.new(C + sph_dir(0, 0, back=False) * rp); iris_verts[s].append(fpole)
     brows = []
     for al in AL_[1:]:
         row = []
         for k in range(IRIS_SEG):
-            p_ = C + sph_dir(math.radians(al), 2 * math.pi * k / IRIS_SEG, back=False) * r0
+            p_ = C + sph_dir(math.radians(al), 2 * math.pi * k / IRIS_SEG, back=False) * rp
             v = bm.verts.new(p_); row.append((v, al)); iris_verts[s].append(v)
         brows.append(row)
     def bface(vs_al):
@@ -416,14 +418,14 @@ for s in 'LR':
         if f.normal.dot(cen_ - C) < 0: f.normal_flip()                # convex: faces outwards
         for l, (v, al) in zip(f.loops, vs_al):
             l[uvl].uv = ball_uv(v.co, al)
-    bpole = bm.verts.new(C + sph_dir(0, 0, back=True) * r0); iris_verts[s].append(bpole)
+    bpole = bm.verts.new(C + sph_dir(0, 0, back=True) * rp); iris_verts[s].append(bpole)
     for k in range(IRIS_SEG):
         k2 = (k + 1) % IRIS_SEG
         bface(((fpole, 0.0), brows[0][k], brows[0][k2]))
         for j in range(len(brows) - 1):
             bface((brows[j][k], brows[j + 1][k], brows[j + 1][k2], brows[j][k2]))
         bface((brows[-1][k], (bpole, 180.0), brows[-1][k2]))
-    print('eye', s, 'ball radius %.3f, centre %.3f behind the face, white sphere radius %.3f' % (r0, EYE_DC, EYE_RE))
+    print('eye', s, 'pupil ball radius %.3f, centre %.3f behind the face, eye sphere radius %.3f' % (rp, EYE_DC, EYE_RE))
 bm.normal_update()
 
 # ---------------------------------------------------------------- eyelid: ONE rigid skin lid + the 3D eyeliner on ONE bone

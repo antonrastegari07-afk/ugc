@@ -49,7 +49,8 @@ WALL_LO_RECT = (870, 678, 150, 24)     # lower / side socket walls: sclera
 IRIS_RECT = {'R': (4, 790), 'L': (190, 790)}         # top-left; size from the iris ellipse
 MOUTH_RECT = (870, 706, 150, 50)       # mouth interior
 CLEAR_RECT = (990, 990, 30, 30)        # transparent (skin colour shows through)
-BALL_RECT = (952, 990, 30, 30)         # iris ball: one plain dark colour (the iris of the drawing)
+BALL_RECT = (952, 990, 30, 30)         # pupil ball: deep black
+EYE_TEX_UP = 0.14                      # the eye texture also covers the socket widened above the opening (seen from below)
 
 def eye_poly_studs(side):
     return [img2stud(*p) for p in EYE_PX[side]]
@@ -90,6 +91,22 @@ def iris_rect(side):
 def iris_uv(side, a, b):                 # a, b in [-1, 1]: ellipse-normalised offsets (x right, z up)
     rx_, ry_, rw, rh = iris_rect(side)
     return px2uv(rx_ + (a + 1) / 2 * rw, ry_ + (1 - b) / 2 * rh)
+
+def eye_tex_box(side):
+    x0, x1, z0, z1 = eye_bbox(side)
+    return (x0, x1, z0, z1 + EYE_TEX_UP)
+def eye_rect(side):
+    """the drawn eye (white + iris, pupil removed) painted on the inside of the eye sphere; R then L side by side"""
+    def size(sd):
+        x0, x1, z0, z1 = eye_tex_box(sd)
+        return int(round((x1 - x0) * PPS)), int(round((z1 - z0) * PPS))
+    wR, hR = size('R'); w, h = size(side)
+    return (4, 650, w, h) if side == 'R' else (4 + wR + 8, 650, w, h)
+def eye_tex_uv(side, x, z):
+    x0, x1, z0, z1 = eye_tex_box(side)
+    rx, ry, rw, rh = eye_rect(side)
+    u = min(max((x - x0) / (x1 - x0), 0.0), 1.0); v = min(max((z1 - z) / (z1 - z0), 0.0), 1.0)
+    return px2uv(rx + 1 + u * (rw - 2), ry + 1 + v * (rh - 2))
 
 WALL_DEPTH = 0.06                       # socket depth mapped over the wall gradient
 def wall_uv(rect, depth):

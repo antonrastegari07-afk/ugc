@@ -41,10 +41,13 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
   `Frame0 = Neutral`, os du visage sous `Head → DynamicHead`, clés uniquement sur les os du visage.
 
 ### Les yeux
-- **Œil 3D sphérique** : le blanc est **l'intérieur d'une vraie sphère** (mesh inversé, rayon 0,21) et l'iris est une
-  **vraie boule 3D** (mesh normal, convexe, 28 segments × 9 anneaux, fermée) de la taille de ton iris, d'un **gris-noir
-  uni** (la couleur de ton iris), placée **au centre de cette sphère**. Rien n'est peint sur la boule : elle reste ronde
-  sous tous les angles et, posée au fond du globe creux, elle semble se tourner vers celui qui regarde.
+- **Œil 3D sphérique** : le blanc est **l'intérieur d'une vraie sphère** (mesh inversé, rayon 0,21) sur lequel est
+  projetée **ta texture d'œil d'origine** (le blanc de la photo, son ombrage et ses traits), **sans le disque sombre de
+  l'iris** ; l'iris est une **vraie boule 3D noir profond** (mesh normal, convexe, 28 × 9, fermée) de la taille de ton
+  iris, placée **au centre de cette sphère**. Elle reste ronde sous tous les angles et, posée au fond du globe creux,
+  elle semble se tourner vers celui qui regarde.
+- **PBR** : tout le noir de l'œil est un noir profond sans reflet (rugosité 1, métal 0, aucune émission) ; le blanc est
+  émissif (blanc plat qui ne prend pas l'ombre).
 - **Creux évasé vers le haut et vers le bas** (comme une grotte plus grande que son entrée) : on voit **la boule ronde
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
