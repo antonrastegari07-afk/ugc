@@ -93,7 +93,8 @@ CAT = [category(p) for p in me.polygons]
 lid_v = {i for p, c in zip(me.polygons, CAT) if c == 'lid' for i in p.vertices}
 iris_v = {i for p, c in zip(me.polygons, CAT) if c == 'iris' for i in p.vertices}
 mouth_v = {i for p, c in zip(me.polygons, CAT) if c == 'mouth' for i in p.vertices}
-inner = lid_v | iris_v
+dish_v = {i for p, c in zip(me.polygons, CAT) if c == 'dish' for i in p.vertices}
+inner = lid_v | iris_v | dish_v                  # everything that moves inside the eye
 POLYS = [tuple(p.vertices) for p in me.polygons]
 tris = []
 for p, c in zip(me.polygons, CAT):

@@ -137,8 +137,9 @@ for side in 'RL':
     yy, xx = np.mgrid[0:rh, 0:rw]
     xs_ = x0 + (xx + 0.5) / rw * (x1 - x0); zs_ = z1 - (yy + 0.5) / rh * (z1 - z0)
     m_x = (CX + xs_ * SX).astype(np.float32); m_y = (CY - zs_ * SY).astype(np.float32)
-    c = cv2.remap(eye_img, m_x, m_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    atlas[ry - 2:ry + rh + 2, rx - 2:rx + rw + 2, :3] = cv2.copyMakeBorder(c, 2, 2, 2, 2, cv2.BORDER_REPLICATE)
+    # the sclera is the inside of an inverted eyeball that turns with the gaze: plain deep white, same tone as the
+    # socket walls (no drawn line on it that would slide around when the eye moves)
+    atlas[ry - 2:ry + rh + 2, rx - 2:rx + rw + 2, :3] = (222, 222, 225)
     atlas[ry - 2:ry + rh + 2, rx - 2:rx + rw + 2, 3] = 255
 
 # --- lids: skin (transparent) with the lash line along the closing edge

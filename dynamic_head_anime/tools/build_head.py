@@ -20,11 +20,12 @@ FACE = json.load(open(os.path.join(OUT, 'face_data.json')))
 
 # ---------------------------------------------------------------- parameters
 DISH_D = float(os.environ.get('DISH_D', 0.10))   # depth of the sclera dish behind the face at the iris centre (concave -> eyes follow the camera)
-DISH_RH, DISH_RV = 0.42, 0.26   # curvature radii of the dish (horizontal, vertical); centres of curvature are in front
+DISH_RH = float(os.environ.get('DISH_RH', 0.42))   # curvature radii of the dish (horizontal, vertical): the inside of
+DISH_RV = float(os.environ.get('DISH_RV', 0.26))   # an inverted eyeball; centres of curvature are in front
 DISH_MIN = 0.006          # the dish never comes closer than this to the face surface
 IRIS_OFF = 0.0025         # iris disc floats this much in front of the sclera dish
 CUP_STEP = 0.04
-SOCKET_EXTRA = 0.07       # cutter goes this much deeper than the deepest cup point
+SOCKET_EXTRA = 0.15       # cutter goes this much deeper than the deepest cup point
 CAVE_H = 0.105            # the socket widens UPWARDS inside the head (a cave larger than its entrance): seen from
                           # below, the whole round iris and the white around it are visible (no flat white ceiling)
 CAVE_D0, CAVE_D1 = 0.004, 0.05   # depth where the widening starts / is complete (the rim keeps the opening's shape)
@@ -102,7 +103,9 @@ def surf_nb(x, z):
 def dish_y(s, x, z):
     xi, zi = IRIS_C[s]
     y = DISH_B[s] - (x - xi) ** 2 / (2 * DISH_RH) - (z - zi) ** 2 / (2 * DISH_RV)
-    b = surf_y(x, z) + DISH_MIN
+    # the eyeball turns with the gaze: its edges swing forward by (gaze angle x distance to the iris), so the margin
+    # behind the skin grows with that distance
+    b = surf_nb(x, z) + DISH_MIN + 0.006 + 0.075 * math.hypot(x - xi, z - zi)
     return (y + b + math.sqrt((y - b) ** 2 + 0.012 ** 2)) / 2          # smooth max: no crease / step in the dish
 
 # mouth centre line: smooth polynomial through the extracted ink line
@@ -336,44 +339,84 @@ bm.normal_update()
 SHELL_N = len(bm.verts)
 print('shell tris after boolean', sum(len(f.verts) - 2 for f in bm.faces))
 
-# ---------------------------------------------------------------- sclera dishes (static, whole) + round concave iris discs (move)
-# The iris is a disc lying on the concave dish paraboloid, just in front of it; looking around = rotating it about the
-# dish's centre of curvature, so it always stays on the dish.  No hole, no skirt, no step: clean from every angle.
-IRIS_SEG = 24
+# ---------------------------------------------------------------- inverted eyeball: concave sclera + deep concave iris bowl
+# The eye is the INSIDE of an eyeball (an inverted mesh): a concave white sclera, and the iris is a deep round BOWL
+# (a hollow half-sphere) set into it, sharing its rim.  Seen from any side you look at the inner wall of the bowl that
+# faces you, so the iris stays round and seems to look at you (hollow-face illusion) - from the front, the sides, below.
+# Sclera + iris turn together with the gaze (rigid eyeball), the sclera is plain white so its motion is invisible.
+IRIS_SEG = 28
+IRIS_RB_K = float(os.environ.get('IRIS_RB_K', 1.03))   # iris bowl sphere radius / iris radius (1 = exact half-sphere)
 cup_verts = {'L': [], 'R': []}
 iris_verts = {'L': [], 'R': []}
 def para(s, x, z):
     xi, zi = IRIS_C[s]
     return DISH_B[s] - (x - xi) ** 2 / (2 * DISH_RH) - (z - zi) ** 2 / (2 * DISH_RV)
+def ray_to_poly(c, d, poly):
+    """distance from c along the unit 2D direction d to the polygon outline (largest hit)"""
+    best = 0.0
+    for i in range(len(poly)):
+        (ax, az), (bx, bz) = poly[i], poly[(i + 1) % len(poly)]
+        ex, ez = bx - ax, bz - az
+        den = d[0] * ez - d[1] * ex
+        if abs(den) < 1e-12: continue
+        t = ((ax - c[0]) * ez - (az - c[1]) * ex) / den
+        u = ((ax - c[0]) * d[1] - (az - c[1]) * d[0]) / den
+        if t > 0 and 0 <= u <= 1: best = max(best, t)
+    return best
+DISH_UV = {}
 for s in 'LR':
     xi, zi, r0, _ = IRIS[s]
-    x0, x1, z0, z1 = eye_bbox(s)
-    z1c = z1                                                   # top of the cup texture
-    z1 = max(z for _, z in CAVE_POLY[s]) + 0.012                # the dish fills the whole cave
-    nx = int(math.ceil((x1 - x0) / CUP_STEP)); nz = int(math.ceil((z1 - z0) / CUP_STEP))
-    grid = []
-    for j in range(nz + 1):
-        row = []
-        for i in range(nx + 1):
-            x = x0 + (x1 - x0) * i / nx; z = z0 + (z1 - z0) * j / nz
-            v = bm.verts.new((x, dish_y(s, x, z), z))
-            row.append(v); cup_verts[s].append(v)
-        grid.append(row)
-    for j in range(nz):
-        for i in range(nx):
-            f = bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i])); f.smooth = True
-            for l in f.loops: l[uvl].uv = cup_uv(s, l.vert.co.x, min(l.vert.co.z, z1c - 0.002))
+    rx_, ry_, rw_, rh_ = cup_rect(s)
+    DISH_UV[s] = px2uv(rx_ + rw_ / 2, ry_ + rh_ / 2)          # plain white sclera
+    # sclera rings around the iris rim, out past the cave outline in every direction (+ a margin for the gaze)
     rings = []
-    for rr in (0.40, 0.75, 1.0):
+    for k in range(IRIS_SEG):
+        t = 2 * math.pi * k / IRIS_SEG
+        d = (math.cos(t), math.sin(t))
+        reach = max(ray_to_poly((xi, zi), d, CAVE_POLY[s]), ray_to_poly((xi, zi), d, EYES[s])) + 0.045
+        xs_e = [p_[0] for p_ in EYES[s]]
+        if abs(d[0]) > 1e-6:                                   # not out towards the temple / nose: the head curves away
+            lim = ((max(xs_e) + 0.005) - xi) / d[0] if d[0] > 0 else ((min(xs_e) - 0.005) - xi) / d[0]
+            reach = min(reach, lim)
+        reach = max(reach, r0 + 0.035)
+        col = []
+        for f in (0.0, 0.35, 1.0):
+            r = r0 + (reach - r0) * f
+            x, z = xi + r * d[0], zi + r * d[1]
+            col.append((x, dish_y(s, x, z), z))
+        rings.append(col)
+    NR = len(rings[0])
+    sv = [[None] * NR for _ in range(IRIS_SEG)]
+    for k in range(IRIS_SEG):
+        for j in range(NR):
+            v = bm.verts.new(rings[k][j]); sv[k][j] = v
+            (iris_verts if j == 0 else cup_verts)[s].append(v)        # ring 0 = iris rim (shared)
+    def sface(vs):
+        f = bm.faces.new(vs); f.smooth = True
+        f.normal_update()
+        if f.normal.y > 0: f.normal_flip()                            # seen from the front (inside of the eyeball)
+        for l in f.loops: l[uvl].uv = DISH_UV[s]
+    for k in range(IRIS_SEG):
+        k2 = (k + 1) % IRIS_SEG
+        for j in range(NR - 1):
+            sface((sv[k][j], sv[k][j + 1], sv[k2][j + 1], sv[k2][j]))
+    # iris bowl: rim = sclera ring 0; inside it sinks like a sphere of radius IRIS_RB
+    IRIS_RB = IRIS_RB_K * r0
+    rim_sag = math.sqrt(max(IRIS_RB ** 2 - r0 ** 2, 0.0))
+    def bowl_y(x, z, rr):
+        """rr = r / r0; depth added below the rim surface"""
+        return dish_y(s, x, z) + (math.sqrt(max(IRIS_RB ** 2 - (rr * r0) ** 2, 0.0)) - rim_sag)
+    iring = [sv[k][0] for k in range(IRIS_SEG)]
+    irings = []
+    for rr in (0.42, 0.78):
         ring = []
         for k in range(IRIS_SEG):
             t = 2 * math.pi * k / IRIS_SEG
             x, z = xi + r0 * rr * math.cos(t), zi + r0 * rr * math.sin(t)
-            # full round disc lying on the dish (the part above the opening sits in the cave, seen from below)
-            y = dish_y(s, x, z) - IRIS_OFF
-            v = bm.verts.new((x, y, z)); ring.append(v); iris_verts[s].append(v)
-        rings.append(ring)
-    cen = bm.verts.new((xi, dish_y(s, xi, zi) - IRIS_OFF, zi)); iris_verts[s].append(cen)
+            v = bm.verts.new((x, bowl_y(x, z, rr), z)); ring.append(v); iris_verts[s].append(v)
+        irings.append(ring)
+    irings.append(iring)
+    cen = bm.verts.new((xi, bowl_y(xi, zi, 0.0), zi)); iris_verts[s].append(cen)
     def iuv(v): return iris_uv(s, (v.co.x - xi) / r0, (v.co.z - zi) / r0)
     def iface(vs):
         f = bm.faces.new(vs); f.smooth = True
@@ -382,9 +425,10 @@ for s in 'LR':
         for l in f.loops: l[uvl].uv = iuv(l.vert)
     for k in range(IRIS_SEG):
         k2 = (k + 1) % IRIS_SEG
-        iface((cen, rings[0][k], rings[0][k2]))
-        for a in range(len(rings) - 1):
-            iface((rings[a][k], rings[a + 1][k], rings[a + 1][k2], rings[a][k2]))
+        iface((cen, irings[0][k], irings[0][k2]))
+        for a_ in range(len(irings) - 1):
+            iface((irings[a_][k], irings[a_ + 1][k], irings[a_ + 1][k2], irings[a_][k2]))
+    print('eye', s, 'iris bowl depth %.3f' % (IRIS_RB - rim_sag))
 bm.normal_update()
 
 # ---------------------------------------------------------------- eyelid: ONE rigid skin lid + the 3D eyeliner on ONE bone
@@ -700,7 +744,7 @@ for idx, p in enumerate(REST):
         w[nm + 'UpperEyelid'] = 1.0 - wt
         if wt > 0.01: w[nm + 'LashTip'] = wt
     elif side and idx in CUP_IDX[side]:
-        pass                                             # sclera dish: static
+        w[nm + 'Eye'] = 1.0                              # sclera = inside of the eyeball: turns with the gaze
     else:
         x, y, z = p
         frontish = smoothstep(-0.15, -0.35, y)
