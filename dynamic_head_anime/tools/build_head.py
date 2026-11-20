@@ -436,12 +436,11 @@ for s in 'LR':
     xi, zi, r0, _ = IRIS[s]
     C = EYE_C[s]
     R_ = EYE_R[s]
-    # far half: the drawn iris (its outer ring sampled just inside the rim: no white border); near half (seen only
-    # from the side, from the inside): the iris' dark outer colour.  UVs per face (no interpolation across the atlas).
-    RIM_UV = eye_tex_uv(s, xi + 0.93 * r0, zi)                             # the dark side of the iris ring
+    # the whole sphere (seen from the inside) carries the drawn iris, projected from the front (its outer ring sampled
+    # just inside the rim: no white border)
     uv_sphere(C, R_, 20, [0, 30, 60, 90, 120, 150, 180], True,
-              lambda cen_, co: eye_tex_uv(s, xi + (co.x - C.x) * 0.93 * r0 / R_, zi + (co.z - C.z) * 0.93 * r0 / R_)
-              if cen_.y > C.y else RIM_UV, cup_verts[s])
+              lambda cen_, co: eye_tex_uv(s, xi + (co.x - C.x) * 0.93 * r0 / R_, zi + (co.z - C.z) * 0.93 * r0 / R_),
+              cup_verts[s])
     BALL_UV = rect_center_uv(BALL_RECT)
     rp = PUPIL_K * r0
     uv_sphere(C, rp, 18, [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180], False, lambda cen_, co: BALL_UV, iris_verts[s])
@@ -718,7 +717,6 @@ EC = {s: eye_c(s) for s in 'LR'}
 EYE_BOT = {s: min(p[1] for p in EYES[s]) for s in 'LR'}
 FACE_BONES = {}
 for s, nm in (('L', 'Left'), ('R', 'Right')):
-    FACE_BONES[nm + 'Eye'] = tuple(EYE_C[s])
     FACE_BONES[nm + 'UpperEyelid'] = tuple(lid_info[s]['pivot'])
     FACE_BONES[nm + 'LashTip'] = front(lid_info[s]['x1'] if s == 'L' else lid_info[s]['x0'], EC[s][1] + 0.04, -0.011)
     FACE_BONES[nm + 'UnderEye'] = front(EC[s][0], EYE_BOT[s] - 0.01)
@@ -753,7 +751,7 @@ for idx, p in enumerate(REST):
     side = next((s for s in 'LR' if idx in IRIS_IDX[s] or idx in LID_IDX[s] or idx in LASH_IDX[s] or idx in CUP_IDX[s]), None)
     nm = {'L': 'Left', 'R': 'Right'}.get(side or SOCK[idx] if (side or SOCK[idx]) in ('L', 'R') else None, '')
     if side and idx in IRIS_IDX[side]:
-        w[nm + 'Eye'] = 1.0                              # black pupil ball: on the eye joint, AT its pivot -> never moves
+        pass                                             # black pupil ball: fixed
     elif side and idx in LID_IDX[side]:
         w[nm + 'UpperEyelid'] = 1.0
     elif side and idx in LASH_IDX[side]:
@@ -761,7 +759,7 @@ for idx, p in enumerate(REST):
         w[nm + 'UpperEyelid'] = 1.0 - wt
         if wt > 0.01: w[nm + 'LashTip'] = wt
     elif side and idx in CUP_IDX[side]:
-        w[nm + 'Eye'] = 1.0                              # eye sphere (drawn iris): turns with the gaze
+        pass                                             # iris sphere: fixed (an eye does not spin)
     else:
         x, y, z = p
         frontish = smoothstep(-0.15, -0.35, y)
@@ -869,16 +867,9 @@ print('socket rim band vertices skinned like the rim:', n_band)
 def T(*d): return ('t', Vector(d))
 def ROT(piv, axis, ang): return ('r', Vector(piv), axis, ang)
 def eye_look(axis, dist):
-    """both eyes: the black pupil never moves (it sits at the pivot); the iris sphere turns so that the drawn iris slides
-    the OTHER way by `dist`: the pupil then sits towards the gaze side of the iris.  Z: +dist -> look towards +X ;
-    X: +dist -> look up"""
-    out = {}
-    for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
-        if axis == 'Z':
-            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'Z', math.asin(dist / EYE_R[s_]))     # drawn iris -> -X
-        else:
-            out[nm_ + 'Eye'] = ROT(tuple(EYE_C[s_]), 'X', -math.asin(dist / EYE_R[s_]))    # drawn iris -> down
-    return out
+    """the eye itself never moves nor turns (iris sphere and pupil are fixed: the hollow-eye illusion does the looking);
+    the gaze poses only move the eyelids"""
+    return {}
 def mirror(d):
     out = {}
     for k, v in d.items():
@@ -894,8 +885,6 @@ def mirror(d):
 P = {}
 P['EyesLookDown'] = eye_look('X', -LOOK_Z)
 P['EyesLookUp'] = eye_look('X', LOOK_Z)
-P['EyesLookLeft'] = eye_look('Z', LOOK_X)
-P['EyesLookRight'] = eye_look('Z', -LOOK_X)
 def lid_rot(s_, frac=1.0):
     """the lid slide (a pure translation): frac 1 = closed"""
     return ('t', Vector(lid_info[s_]['t']) * frac, 'lid', frac)

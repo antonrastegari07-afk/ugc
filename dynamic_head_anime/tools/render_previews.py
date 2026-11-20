@@ -166,7 +166,7 @@ if 'close' in args:
         place(yaw, pitch, 0.03, -0.0002)
         cam.data.lens = 85
         render(f'close_{n}.png')
-    for n, names in [('blink', ['LeftEyeClosed', 'RightEyeClosed']), ('lookleft', ['EyesLookLeft']), ('lookup', ['EyesLookUp']),
+    for n, names in [('blink', ['LeftEyeClosed', 'RightEyeClosed']), ('lookdown', ['EyesLookDown']), ('lookup', ['EyesLookUp']),
                      ('half', None), ('blinkside', ['LeftEyeClosed', 'RightEyeClosed']), ('squint', ['LeftCheekRaiser', 'RightCheekRaiser']),
                      ('m_jaw', ['JawDrop']), ('m_smile', ['LeftLipCornerPuller', 'RightLipCornerPuller']), ('m_down', ['LeftLipCornerDown', 'RightLipCornerDown', 'LeftLowerLipDepressor', 'RightLowerLipDepressor']),
                      ('m_pucker', ['Pucker']), ('m_talk', ['JawDrop', 'LeftLipCornerPuller', 'RightLipCornerPuller']), ('m_raise', ['LeftUpperLipRaiser', 'RightUpperLipRaiser', 'ChinRaiser'])]:
@@ -190,7 +190,7 @@ apply([])
 for n, yaw, pitch in views:
     place(yaw, pitch); render(f'view_{n}.png')
 if not args:
-    poses = [('sad', ['ChinRaiser', 'ChinRaiserUpperLip', 'LeftCheekRaiser', 'RightCheekRaiser', 'LeftInnerBrowRaiser', 'RightInnerBrowRaiser', 'LeftLipCornerDown', 'RightLipCornerDown', 'LeftLowerLipDepressor', 'RightLowerLipDepressor']), ('happy', ['Pucker', 'LeftLipCornerPuller', 'RightLipCornerPuller']), ('look_left', ['EyesLookLeft']), ('look_up', ['EyesLookUp']), ('blink', ['LeftEyeClosed', 'RightEyeClosed']),
+    poses = [('sad', ['ChinRaiser', 'ChinRaiserUpperLip', 'LeftCheekRaiser', 'RightCheekRaiser', 'LeftInnerBrowRaiser', 'RightInnerBrowRaiser', 'LeftLipCornerDown', 'RightLipCornerDown', 'LeftLowerLipDepressor', 'RightLowerLipDepressor']), ('happy', ['Pucker', 'LeftLipCornerPuller', 'RightLipCornerPuller']), ('look_down', ['EyesLookDown']), ('look_up', ['EyesLookUp']), ('blink', ['LeftEyeClosed', 'RightEyeClosed']),
              ('wink', ['LeftEyeClosed']), ('jaw', ['JawDrop']), ('smile', ['LeftLipCornerPuller', 'RightLipCornerPuller']),
              ('angry', ['LeftBrowLowerer', 'RightBrowLowerer', 'LeftLipStretcher', 'RightLipStretcher']),
              ('surprised', ['LeftInnerBrowRaiser', 'RightInnerBrowRaiser', 'LeftOuterBrowRaiser', 'RightOuterBrowRaiser', 'JawDrop']),

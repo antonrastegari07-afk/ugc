@@ -27,24 +27,24 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
 3. MeshPart : `Material` = **Plastic**, `Transparency` = 0, `VertexColor` = 1,1,1 (exigences Marketplace).
 4. Test : **Avatar → Animation Editor → Face Editor**, ou fais varier les curseurs de `Head → FaceControls`.
 
-## Ce qui est animé (36 frames : Neutral + 31 poses + 4 correctifs)
+## Ce qui est animé (34 frames : Neutral + 29 poses + 4 correctifs)
 
 - **Les 17 poses obligatoires Roblox** : LeftEyeClosed, RightEyeClosed, EyesLookDown, JawDrop, Pucker,
   Left/RightLipCornerPuller, ChinRaiser, ChinRaiserUpperLip, Left/RightCheekRaiser, Left/RightInnerBrowRaiser,
   Left/RightLipCornerDown, Left/RightLowerLipDepressor.
-- En plus : EyesLookLeft/Right/Up, LipsTogether, Left/RightLipStretcher, Left/RightUpperLipRaiser,
+- En plus : EyesLookUp, LipsTogether, Left/RightLipStretcher, Left/RightUpperLipRaiser,
   Left/RightBrowLowerer, Left/RightOuterBrowRaiser, Left/RightEyeUpperLidRaiser.
 - Correctifs (même nommage que la tête Blocky officielle) : `LeftEyeClosed_EyesLookDown`, `RightEyeClosed_EyesLookDown`,
   `LeftEyeClosed_EyesLookUp`, `RightEyeClosed_EyesLookUp` : l'œil fermé reste exactement fermé quand le regard bouge
   (la paupière suit un peu le regard vers le bas / le haut).
-- Mapping fait comme dans la doc Roblox : propriétés `RootFaceJoint = DynamicHead` et `Frame0 … Frame35` sur `Head_Geo`,
+- Mapping fait comme dans la doc Roblox : propriétés `RootFaceJoint = DynamicHead` et `Frame0 … Frame33` sur `Head_Geo`,
   `Frame0 = Neutral`, os du visage sous `Head → DynamicHead`, clés uniquement sur les os du visage.
 
 ### Les yeux
 - **Œil 3D sphérique** : dans le trou blanc, chaque œil n'a que **deux meshes** :
-  - **l'iris** : une **sphère complète vue de l'intérieur** (mesh inversé ; sa moitié avant, vue de dos, est
-    invisible), **de la taille de ton iris** (comme la grosse boule noire), avec **ton iris dessiné** projeté dessus
-    (anneaux, reflet ; la pupille dessinée retirée) ;
+  - **l'iris** : une **sphère complète vue de l'intérieur** (mesh inversé), **de la taille de ton iris** (comme la
+    grosse boule noire), **entièrement** recouverte de **ton iris dessiné** projeté de face (anneaux, reflet ; la
+    pupille dessinée retirée) ;
   - **la pupille** : une **vraie boule 3D noir profond** (mesh normal) **exactement au centre de la sphère-iris**.
     L'œil est descendu de 2,8 cm par rapport au centre de l'iris dessiné pour que la pupille (rayon 0,45 × l'iris) ne
     soit pas cachée sous l'eyeliner.
@@ -58,8 +58,9 @@ Roblox** (rig R15, cages, attachments). La tête reprend la forme du *white face
 - **Creux évasé vers le haut et vers le bas** (comme une grotte plus grande que son entrée) : on voit **la boule ronde
   en entier** avec le blanc tout autour, sans plafond plat qui le coupe. Le creux garde la forme exacte de l'ouverture
   sur les 4 premiers mm (paupière et eyeliner), puis s'élargit vers le haut derrière la peau.
-- **Regard** (EyesLook*) : la pupille noire **ne bouge jamais** ; seule la sphère-iris tourne, ton iris dessiné glisse
-  autour d'elle (3,5 cm sur les côtés, 2 cm en haut / en bas) et la pupille se retrouve du côté où l'œil regarde.
+- **L'œil ne bouge pas et ne tourne pas** (sphère-iris et pupille fixes) : c'est l'illusion du globe creux qui donne
+  l'impression qu'il regarde. Les poses `EyesLookUp` / `EyesLookDown` ne font que suivre avec les paupières (les poses
+  de regard gauche / droite, non obligatoires, ont été retirées).
 - **Cils du haut en vrai relief 3D** : ils dépassent de la peau et cachent le haut du trou.
 - **Clignement naturel** : une seule paupière de peau et le trait de cils 3D sont pilotés par **le même os**. Au repos
   la paupière est rangée derrière la peau au-dessus de l'œil ; en se fermant elle **glisse** vers le bas le long du
@@ -95,7 +96,7 @@ sourcils et l'intérieur de la bouche sont opaques, donc **non recoloriables**.
 - aucun triangle de peau qui se plie (> 35°) ;
 - pas de double couche de peau, pas de trou, aucune face qui prend une texture d'œil ou de bouche hors de sa place
   (ni à l'arrière de la tête), et l'arrière de la tête n'est piloté par aucun os du visage.
-**Résultat : 0 problème sur 151 cas + 7 tests globaux.** Mesh 100 % triangles (3982 / 4000 max), 4 influences d'os max,
+**Résultat : 0 problème sur 141 cas + 8 tests globaux.** Mesh 100 % triangles (3982 / 4000 max), 4 influences d'os max,
 aucun sommet sans poids, FBX aux mêmes axes / unités que le Blocky officiel de Roblox.
 
 ## Limites honnêtes

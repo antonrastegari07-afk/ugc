@@ -87,8 +87,7 @@ def mix(*ds):
     return out
 EYES = [
     ('Repos', N, 0.0, 0.5),
-    ('Regard à gauche', LOOK_L, 0.35, 0.45), ('Regard à droite', LOOK_R, 0.45, 0.45),
-    ('Regard en haut', LOOK_U, 0.4, 0.45), ('Regard en bas', LOOK_D, 0.45, 0.45),
+    ('Paupières : regard en haut', LOOK_U, 0.4, 0.45), ('Paupières : regard en bas', LOOK_D, 0.45, 0.45),
     ('Repos', N, 0.35, 0.3),
     ('Clignement', CLOSED, 0.12, 0.05), ('Clignement', N, 0.18, 0.35),
     ('Clignement lent', CLOSED, 0.45, 0.35), ('Clignement lent', N, 0.5, 0.3),

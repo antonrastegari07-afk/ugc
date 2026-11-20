@@ -284,7 +284,7 @@ for combo in (['LeftEyeClosed', 'EyesLookDown'], ['RightEyeClosed', 'EyesLookDow
               ['Pucker', 'LeftLipCornerPuller', 'RightLipCornerPuller'],
               ['ChinRaiser', 'ChinRaiserUpperLip', 'LeftCheekRaiser', 'RightCheekRaiser', 'LeftInnerBrowRaiser',
                'RightInnerBrowRaiser', 'LeftLipCornerDown', 'RightLipCornerDown', 'LeftLowerLipDepressor', 'RightLowerLipDepressor'],
-              ['LeftEyeClosed', 'EyesLookUp'], ['LeftEyeClosed', 'EyesLookLeft'], ['RightEyeClosed', 'EyesLookRight'],
+              ['LeftEyeClosed', 'EyesLookUp'], ['RightEyeClosed', 'EyesLookUp'],
               ['LeftEyeClosed', 'RightEyeClosed', 'LeftCheekRaiser', 'RightCheekRaiser'],
               ['JawDrop', 'LeftLipCornerPuller', 'RightLipCornerPuller'], ['JawDrop', 'Pucker'], ['JawDrop', 'LipsTogether']):
     for f in (0.5, 1.0):
