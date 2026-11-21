@@ -1247,17 +1247,10 @@ hbm = bmesh.new(); hbm.from_mesh(head.data); hbm.transform(AW)
 HB = BVHTree.FromBMesh(hbm)
 for v in cbm.verts:                                            # wrap: 1.2 cm outside this head along the ray from the centre
     d = (v.co - hc).normalized()
-    # over the eye / mouth openings the head mesh is deep inside: wrap around the closed BASE surface there (the cage
-    # must stay over the face, never sink into a socket), and around the real mesh where it stands out (eyeliner)
-    lb = radial((v.co - hc) / S)
-    cand = []
-    if lb is not None and (v.co - hc).length > 0.85 * (lb * S).length:
-        cand.append(hc + lb * S)                               # a surface vertex of the cage (not an inner socket loop)
+    # (same wrap as v1.3, which passed the eye-closing validation: around the real head mesh)
     loc, nrm, _, dist = HB.ray_cast(hc + d * 2.0, -d)
-    if loc is not None: cand.append(loc)
-    if cand:
-        far = max(cand, key=lambda p_: (p_ - hc).dot(d))
-        v.co = far + d * 0.012
+    if loc is not None:
+        v.co = loc + d * 0.012
 cbm.transform(cage.matrix_world.inverted()); cbm.to_mesh(cage.data); cbm.free(); hbm.free()
 
 # attachments: face front on the face surface
