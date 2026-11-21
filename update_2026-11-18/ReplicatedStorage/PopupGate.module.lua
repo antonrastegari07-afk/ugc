@@ -64,14 +64,16 @@ function Gate.Allowed(id)
 	if not Gate.Enabled(id) then return false end
 	local p = CFG.ById[id]
 	if not isAuto(p) then return true end
+	-- 🎠 le carrousel d'offres (petit, dans le coin, ne bloque rien) ne dépend PAS de
+	--    « seulement si inactif » ni de la pause mini : sinon il n'apparaissait plus du tout
+	--    en jeu (seulement quand le shop UGC était ouvert). Son propre interrupteur suffit.
+	if p.kind == "carousel" then return true end
 	if Gate.Get("_G", "IdleOnly") == true then
 		local need = (tonumber(Gate.Get("_G", "IdleMinutes")) or 5) * 60
 		if Gate.IdleSeconds() < need then return false end
 	end
-	if p.kind ~= "carousel" then   -- le carrousel défile en continu : pas concerné par la pause
-		local gap = tonumber(Gate.Get("_G", "MinGapSeconds")) or 0
-		if gap > 0 and os.clock() - lastAutoShown < gap then return false end
-	end
+	local gap = tonumber(Gate.Get("_G", "MinGapSeconds")) or 0
+	if gap > 0 and os.clock() - lastAutoShown < gap then return false end
 	return true
 end
 

@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v29) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v30) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v28** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v29** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v28).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v29).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v29.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v30.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v29.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v30.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v29… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v30… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v29`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v30`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,12 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v29
+## 🆕 NOUVEAU DANS LA v30
+- **Le carrousel d'offres (en haut à droite) réapparaît en jeu.**
+  - **Cause :** dans l'admin ▸ 🔔 POPUPS, le réglage général « Seulement si le joueur est inactif » s'appliquait aussi au carrousel. Un joueur qui joue n'est jamais inactif 5 minutes, donc le carrousel ne s'affichait plus que shop UGC ouvert (ce cas-là ignorait le réglage).
+  - **Correction :** le carrousel ne dépend plus que de **son propre interrupteur** (« 🎠 Carrousel d'offres »). « Seulement si inactif » et la pause mini continuent de s'appliquer aux vrais popups (offre VIP, skip obby…).
+
+## NOUVEAU DANS LA v29
 - **Filtre TYPE instantané.** Avant, CHAQUE joueur demandait à Roblox le type de chaque UGC (une quarantaine de demandes) au moment d'ouvrir FILTER, d'où l'attente.
   - Maintenant, le **serveur étiquette chaque UGC une seule fois** et garde la réponse en mémoire (DataStore). Les joueurs lisent ces étiquettes directement : TYPE est prêt avant même d'ouvrir le filtre.
   - Tu ajoutes un UGC ? Il est étiqueté automatiquement, une fois pour toutes. Ça marche aussi en pleine partie : il est vérifié toutes les 2 minutes.

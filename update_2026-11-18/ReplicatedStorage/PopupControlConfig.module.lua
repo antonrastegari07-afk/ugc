@@ -18,7 +18,7 @@ M.Global = {
 	{ key = "Enabled",       label = "Popups automatiques activés", type = "bool",   default = true,
 		help = "Interrupteur général. OFF = aucun popup automatique (les boutons des shops marchent toujours)." },
 	{ key = "IdleOnly",      label = "Seulement si le joueur est inactif", type = "bool", default = false,
-		help = "ON = un popup automatique attend que le joueur n'ait rien touché pendant X minutes." },
+		help = "ON = un popup automatique attend que le joueur n'ait rien touché pendant X minutes (sauf le carrousel d'offres, toujours visible s'il est activé)." },
 	{ key = "IdleMinutes",   label = "Minutes d'inactivité",       type = "number", default = 5, min = 1, max = 30, step = 1,
 		help = "Utilisé seulement si « Seulement si inactif » est ON." },
 	{ key = "MinGapSeconds", label = "Pause mini entre 2 popups (s)", type = "number", default = 0, min = 0, max = 1800, step = 30,
