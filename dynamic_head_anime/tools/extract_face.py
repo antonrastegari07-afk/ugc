@@ -106,6 +106,16 @@ _fill = ((_cls > 0) & (_sup == 0) & (lash_mask < 64)).astype(np.float32) * _zone
 _fill = cv2.GaussianBlur(_fill, (0, 0), 0.8)
 alpha = np.maximum(alpha, _fill)
 print('wing gap filled px', int((_fill > 0.5).sum()))
+# inner corners (nose side): remove the small drawn spikes just past the corner, under the end of the 3D eyeliner
+_kill = np.zeros((H, W), np.float32)
+for side in 'RL':
+    _e0, _e1 = min(p[0] for p in EYE_PX[side]), max(p[0] for p in EYE_PX[side])
+    _top = min(p[1] for p in EYE_PX[side])
+    if side == 'R': xa_, xb_ = int(_e1) + 1, int(_e1) + 34        # inner corner of the screen-left eye is on its right
+    else: xa_, xb_ = int(_e0) - 34, int(_e0) - 1
+    _kill[int(_top) - 2:int(_top) + 44, max(xa_, 0):xb_] = 1.0
+_kill = cv2.GaussianBlur(_kill, (0, 0), 1.5)
+alpha *= 1 - _kill
 
 # --- FACE block of the atlas: sample the image through the stud mapping
 fx, fy, fw, fh = FACE_RECT
