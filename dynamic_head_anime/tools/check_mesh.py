@@ -80,7 +80,8 @@ uvl = me.uv_layers[0].data
 def in_rect(px, py, r, m=2): return r[0] - m <= px <= r[0] + r[2] + m and r[1] - m <= py <= r[1] + r[3] + m
 def category(p):
     u, v = uvl[p.loop_indices[0]].uv; px, py = u * ATLAS, (1 - v) * ATLAS
-    if in_rect(px, py, LASH_RECT) or in_rect(px, py, LASH_SIDE_RECT): return 'lash'
+    if in_rect(px, py, LASH_RECT) or in_rect(px, py, LASH_SIDE_RECT) or in_rect(px, py, LASH_CLEAR_RECT): return 'lash'
+    if FACE_STYLE == 'girl2' and any(in_rect(px, py, r) for r in LINER_RECT.values()): return 'lash'
     if in_rect(px, py, MOUTH_RECT): return 'mouth'
     if in_rect(px, py, WALL_UP_RECT) or in_rect(px, py, WALL_LO_RECT): return 'wall'
     if in_rect(px, py, BALL_RECT): return 'iris'
@@ -91,6 +92,8 @@ def category(p):
         if in_rect(px, py, iris_rect(s)): return 'iris'
     if in_rect(px, py, CLEAR_RECT) and all(any(groups[g.group].endswith('UpperEyelid') and g.weight > 0.99 for g in me.vertices[i].groups) for i in p.vertices):
         return 'lid'
+    if py < FACE_RECT[1] + FACE_RECT[3] and all(sum(g.weight for g in me.vertices[i].groups if groups[g.group].endswith(('UpperEyelid', 'LashTip'))) > 0.99 for i in p.vertices):
+        return 'lash'                                     # a drawn 3D eyeliner (face-texture UVs)
     return 'skin'
 CAT = [category(p) for p in me.polygons]
 lid_v = {i for p, c in zip(me.polygons, CAT) if c == 'lid' for i in p.vertices}

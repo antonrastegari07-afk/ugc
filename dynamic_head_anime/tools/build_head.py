@@ -530,7 +530,8 @@ def skin_y(x, z):
     return max(loc.y, sy)                # the deeper of the two (chords of the shell lie behind the base surface)
 LID_DOME = 0.004
 LID_COLS, LID_ROWS = 12, 7     # columns: one tucked beyond each corner, one right at the outline, 12 across
-LASH_T = 0.011            # eyeliner thickness in front of the face
+LASH_T = 0.005 if FACE_STYLE == 'girl2' else 0.011   # eyeliner thickness in front of the face
+DRAWN_LASH = FACE_STYLE == 'girl2'   # the 3D eyeliner carries the drawing itself (front faces use the face texture)
 LASH_OVER = 0.0055        # eyeliner overhang below the opening's top rim
 def smoothstep(a, b, x):
     t = max(0.0, min(1.0, (x - a) / (b - a)))
@@ -547,7 +548,7 @@ def inside_d(s, x, z):
     return d if pip((x, z), EYES[s]) else -d
 lid_info = {}
 PULL = {}
-LID_D = float(os.environ.get('LID_D', 0.0025))   # how far behind the skin the lid slides back up
+LID_D = 0.0065 if FACE_STYLE != 'boy' else float(os.environ.get('LID_D', 0.0025))   # how far behind the skin the lid slides back up
 for s in 'LR':
     x0, x1 = eye_xr(s)
     xc = (x0 + x1) / 2
@@ -562,7 +563,7 @@ for s in 'LR':
         """lower edge of the closed lid: the lower rim, but kept low in the corners (where the almond outline rises)
         so that the lid never uncovers a corner of the opening while it slides; the extra part stays under the skin"""
         line = bq0 + (bq1 - bq0) * (x - xq0) / (xq1 - xq0)
-        return min(span_c(s, x)[1], line) - (0.004 if FACE_STYLE == 'girl' else 0.001)
+        return min(span_c(s, x)[1], line) - (0.004 if FACE_STYLE != 'boy' else 0.001)
     def lift(dz, f):           # rest (parked) = closed + lift(dz, 1)
         return Vector((0.0, LID_D * f, dz * f))
     def real_y(x, z):
@@ -577,7 +578,7 @@ for s in 'LR':
     def closed_pt(x, t, dz):
         tp, bt = span_c(s, x)
         r_ = round(t * LID_ROWS)                                        # row 0 above the top rim, row 1 right at it, then down
-        z = (tp + (0.010 if FACE_STYLE == 'girl' else 0.005)) if r_ == 0 else (tp - 0.001) + (lid_bottom(x) - (tp - 0.001)) * (r_ - 1) / (LID_ROWS - 1)
+        z = (tp + (0.010 if FACE_STYLE != 'boy' else 0.005)) if r_ == 0 else (tp - 0.001) + (lid_bottom(x) - (tp - 0.001)) * (r_ - 1) / (LID_ROWS - 1)
         sy = surf_y(x, z)
         # tucked under the skin only if the point is never over the opening during the slide
         sd = max(inside_d(s, x, z + dz * f / 10) for f in range(11))
@@ -594,7 +595,7 @@ for s in 'LR':
         c.y += need
         PULL[(s, round(x, 3), round(z, 3))] = (inside_d(s, x, z), z - bt, need)
         return c
-    xa, xb = (x0 - 0.02, x1 + 0.02) if FACE_STYLE == 'girl' else (x0 - 0.008, x1 + 0.008)
+    xa, xb = (x0 - 0.02, x1 + 0.02) if FACE_STYLE != 'boy' else (x0 - 0.008, x1 + 0.008)
     lid_xs = [xa] + [x0 + 0.0015 + (x1 - x0 - 0.003) * (0.5 - 0.5 * math.cos(math.pi * k / (LID_COLS - 2))) for k in range(LID_COLS - 1)] + [xb]   # dense in the corners
     def parked_margin(grid, dz):
         """worst clearance of the parked lid: behind the skin where there is skin, under the eyeliner overhang where
@@ -691,7 +692,7 @@ def resample(chain, n):
         u = (t - L[i - 1]) / max(L[i] - L[i - 1], 1e-9)
         out.append((chain[i - 1][0] + (chain[i][0] - chain[i - 1][0]) * u, chain[i - 1][1] + (chain[i][1] - chain[i - 1][1]) * u))
     return out
-LASH_COLS = 22
+LASH_COLS = 48 if DRAWN_LASH else 22
 for s in 'LR':
     poly = lash_poly_studs(s)
     i0 = min(range(len(poly)), key=lambda i: poly[i][0]); i1 = max(range(len(poly)), key=lambda i: poly[i][0])
@@ -730,7 +731,7 @@ for s in 'LR':
         f = bm.faces.new(vs); f.smooth = True
         f.normal_update()
         if f.normal.y > 0: f.normal_flip()
-        for l in f.loops: l[uvl].uv = LASH_UV
+        for l in f.loops: l[uvl].uv = liner_uv(s, l.vert.co.x, l.vert.co.z) if DRAWN_LASH else LASH_UV
     loop = T_ + B_[-2:0:-1]                                        # outline (front, back pairs)
     # outward direction of each outline edge from the outline's winding (the hooked inner end is concave: a
     # "away from the centroid" test flipped some underside faces inwards -> invisible in Roblox, white showed through)
@@ -743,8 +744,23 @@ for s in 'LR':
         ex_, ez_ = fb.co.x - fa.co.x, fb.co.z - fa.co.z
         out_ = (ez_, -ex_) if area2 > 0 else (-ez_, ex_)            # right-hand normal of a CCW outline points out
         if f.normal.x * out_[0] + f.normal.z * out_[1] < 0: f.normal_flip()
-        for l in f.loops: l[uvl].uv = LASH_SIDE_UV
+        side_uv = LASH_SIDE_UV if (not DRAWN_LASH or f.normal.z < -0.3) else rect_center_uv(LASH_CLEAR_RECT)   # drawn: skin-coloured edges
+        for l in f.loops: l[uvl].uv = side_uv
 bm.normal_update()
+if False:
+    # the drawing of the eyeliner now lives on the 3D eyeliner: the skin under it is plain skin (when the eye closes
+    # and the eyeliner slides down, no copy of it is left on the skin)
+    _lash_set = set(v for s_ in 'LR' for v in lash_verts[s_])
+    _polys = {s_: lash_poly_studs(s_) for s_ in 'LR'}
+    n_clr = 0
+    for f in bm.faces:
+        if any(v in _lash_set for v in f.verts): continue
+        u_, v_ = f.loops[0][uvl].uv
+        if (1 - v_) * ATLAS > FACE_RECT[1] + FACE_RECT[3]: continue       # not a face-texture (skin) face
+        if any(all(v.co.y < (surf_y(v.co.x, v.co.z) or 9) + 0.01 and pip((v.co.x, v.co.z), _polys[s_]) for v in f.verts) for s_ in 'LR'):
+            for l in f.loops: l[uvl].uv = CLEAR_UV
+            n_clr += 1
+    print('skin faces under the drawn eyeliner set to plain skin:', n_clr)
 
 # every n-gon -> clean triangles (the boolean leaves concave n-gons around the eyes; a naive fan would fold)
 ng = [f for f in bm.faces if len(f.verts) > 3]                      # quads too: best diagonal, no sliver
@@ -1115,6 +1131,9 @@ P['LipsTogether'] = {'LeftLowerLip': T(0, -0.002, 0.004), 'RightLowerLip': T(0, 
 P['Pucker'] = {'LeftLipCorner': T(-0.022, -0.012, 0.002), 'RightLipCorner': T(0.022, -0.012, 0.002),
                'LeftUpperLip': T(-0.006, -0.012, -0.002), 'RightUpperLip': T(0.006, -0.012, -0.002),
                'LeftLowerLip': T(-0.006, -0.012, 0.003), 'RightLowerLip': T(0.006, -0.012, 0.003)}
+if FACE_STYLE != 'boy':                     # the eyes sit lower / closer to the cheeks: a gentler cheek raise
+    for _s in ('Left', 'Right'):
+        P[_s + 'CheekRaiser'] = {k: T(v[1].x * 0.65, v[1].y * 0.65, v[1].z * 0.65) for k, v in P[_s + 'CheekRaiser'].items()}
 # a narrower mouth (girl face): sideways lip moves scale with the mouth width (the boy mouth is the reference)
 MOUTH_K = min(1.0, (MX1 - MX0) / 0.163)
 if MOUTH_K < 0.999:
@@ -1332,7 +1351,16 @@ for poly in me.polygons:
     for li in poly.loop_indices:
         vi = me.loops[li].vertex_index
         lid_side = next((s_ for s_ in 'LR' if vi in LID_IDX[s_]), None)
-        if lid_side:
+        if DRAWN_LASH and any(vi in LASH_IDX[s_] for s_ in 'LR'):
+            # the drawn 3D eyeliner is lit like the skin behind it (it must look like the flat drawing, no sheen)
+            pm = Minv @ me.vertices[vi].co
+            loc, _, fi, _ = TB.find_nearest(pm)
+            f = tri_base.faces[fi]
+            a, b, c = [x.co for x in f.verts]
+            na, nb, nc = [x.normal for x in f.verts]
+            w = barycentric_transform(loc, a, b, c, Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)))
+            newn.append((R3 @ (na * w.x + nb * w.y + nc * w.z).normalized()).normalized()); nset += 1
+        elif lid_side:
             Lf = lid_info[lid_side]
             pr = Minv @ me.vertices[vi].co                         # rest position (mask studs)
             # the lid only slides (no rotation): its normal is the skin normal where it lies when closed

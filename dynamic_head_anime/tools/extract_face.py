@@ -6,7 +6,7 @@ from layout import *
 SRC, OUT = sys.argv[1], sys.argv[2]
 im = cv2.cvtColor(cv2.imread(SRC), cv2.COLOR_BGR2RGB).astype(np.float32)
 H, W, _ = im.shape
-if MIRROR_EYES:                        # the left eye + brow = mirror image of the right ones (screen left) (see layout.MIRROR_EYES)
+if MIRROR_EYES and FACE_STYLE != 'girl2':   # the left eye + brow = mirror image of the right ones (screen left) (see layout.MIRROR_EYES)
     _r0, _r1 = MIRROR_ROWS
     _xs = np.arange(W, dtype=np.float32)
     _mir = cv2.remap(im, np.tile(2 * CX - _xs, (H, 1)).astype(np.float32),
@@ -20,7 +20,7 @@ if MIRROR_EYES:                        # the left eye + brow = mirror image of t
 # the gap grew towards the nose); the brows come down a little to fill the space.  A smooth vertical displacement field,
 # zero on and below the eyeliner (the 3D band and the eyes don't move); symmetric for both eyes.
 CREASE_GAP, BROW_DOWN = 13.0, float(os.environ.get("BROW_DOWN", 9.0))
-if os.environ.get('CREASE_FOLLOW', '1') == '1' and FACE_STYLE != 'girl':   # boy drawing fixes only
+if os.environ.get('CREASE_FOLLOW', '1') == '1' and FACE_STYLE == 'boy':   # boy drawing fixes only
     _poly = LASH_PX['R']
     def _top(x):
         ys = []
@@ -86,6 +86,11 @@ for side in 'RL':
 # --- skin estimate: inpaint everything that is darker than the local skin, plus the eyes
 blur = cv2.GaussianBlur(g, (0, 0), 25)
 feat = ((g < blur - 6) | (eye_mask > 0)).astype(np.uint8)
+COLOR_FACE = FACE_STYLE == 'girl2'     # the drawing has coloured / light features (blush, sparkles): keep their colour
+if COLOR_FACE:
+    _bl3 = cv2.GaussianBlur(im, (0, 0), 25)
+    feat |= ((np.abs(im - _bl3).max(2) > 7) | (g > blur + 5) | ((im.max(2) - im.min(2)) > 6)).astype(np.uint8)   # + any tint (the skin is grey)
+    feat = cv2.dilate(feat, np.ones((11, 11), np.uint8))
 feat = cv2.dilate(feat, np.ones((7, 7), np.uint8))
 small = cv2.resize(im, (W // 2, H // 2), interpolation=cv2.INTER_AREA).astype(np.uint8)
 fsmall = cv2.resize(feat, (W // 2, H // 2), interpolation=cv2.INTER_NEAREST)
@@ -109,16 +114,28 @@ _keep = np.zeros((H, W), np.float32)
 _keep[:690, :] = 1.0                                   # forehead, brows, eyes, lower lashes
 _keep[725:790, 455:620] = 1.0                          # the mouth line
 _keep = cv2.GaussianBlur(_keep, (0, 0), 4)
-alpha *= _keep
+if not COLOR_FACE:
+    alpha *= _keep
 INK = np.array([14, 12, 15], np.float32)
+INKCOL = None
+if COLOR_FACE:
+    # premultiplied separation against the skin estimate: works for black ink, pink blush and white sparkles alike
+    _d = im - skin
+    _a = np.clip(np.abs(_d).max(2) / 115.0, 0, 1)
+    _a[_a < 0.05] = 0
+    _win = np.zeros((H, W), np.float32); _win[380:800, 228:836] = 1.0       # the face only (not the lit head edges)
+    _a = np.clip((_a - 0.05) / 0.95, 0, 1) * cv2.GaussianBlur(head.astype(np.float32), (0, 0), 3) * cv2.GaussianBlur(_win, (0, 0), 6)
+    INKCOL = np.clip(skin + _d / np.maximum(_a, 0.05)[..., None], 0, 255)
+    INKCOL = np.where((g < 60)[..., None], INK, INKCOL)
+    alpha = _a
 # the upper eyeliner is real 3D geometry (it moves down when the eye closes): remove its ink from the face layer
 lash_mask = np.zeros((H, W), np.uint8)
 for side in 'RL':
     cv2.fillPoly(lash_mask, [np.round(np.array(LASH_PX[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
-for side in 'RL':                      # the drawn eyeliner is a little thicker upwards than the traced band:
+for side in ('RL' if FACE_STYLE == 'boy' else ''):   # the drawn eyeliner is a little thicker upwards than the traced band:
     _p = np.array(LASH_PX[side], np.float32); _p[:, 1] -= 4            # erase 4 px more above it (no grey sliver left
     cv2.fillPoly(lash_mask, [np.round(_p * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)   # over the 3D band)
-lash_mask = cv2.dilate(lash_mask, np.ones((7, 7), np.uint8))
+lash_mask = cv2.dilate(lash_mask, np.ones((7, 7) if FACE_STYLE == 'boy' else (3, 3), np.uint8))
 # beyond the eye corners (the wings), keep the drawn ink of the bottom 6 px of the band: it lies under the 3D eyeliner
 # (hidden from the front) and joins the 3D wing to the drawn lower strokes from every angle (no parallax gap)
 wing_mask = np.zeros((H, W), np.uint8)
@@ -132,6 +149,7 @@ for side in 'RL':
     _x = np.arange(W, dtype=np.float32)
     _wz = np.maximum(_wz, np.clip(np.maximum(_e0 + 2 - _x, _x - _e1 - 2) / 6, 0, 1) * ((_x > _e0 - 90) & (_x < _e1 + 90)))
 lash_mask = (lash_mask * (1 - _wz[None, :]) + np.minimum(lash_mask, wing_mask) * _wz[None, :]).astype(np.uint8)
+ALPHA_FULL = alpha.copy()                              # (girl2: copied onto the 3D eyeliner before erasing)
 alpha *= 1 - cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
 # outer wing: the drawn lower stroke and the 3D eyeliner meet at the tip with a thin wedge of skin between them; fill
 # that wedge with ink (closing of ink + eyeliner band + opening, only beyond the outer corners) -> one solid wing
@@ -151,7 +169,7 @@ for side in 'RL':
     else: x0_, x1_ = int(_e1 - 0.25 * (_e1 - _e0)), int(_l1) + 2
     _zone[max(y0_, 0):y1_, max(x0_, 0):x1_] = 1.0
 _fill = ((_cls > 0) & (_sup == 0) & (lash_mask < 64)).astype(np.float32) * _zone   # never back over the 3D band
-if FACE_STYLE == 'girl': _fill[:] = 0                  # (boy drawing fix: would merge the girl's lash flicks)
+if FACE_STYLE != 'boy': _fill[:] = 0                  # (boy drawing fix: would merge the girl's lash flicks)
 _fill = cv2.GaussianBlur(_fill, (0, 0), 0.8)
 alpha = np.maximum(alpha, _fill)
 print('wing gap filled px', int((_fill > 0.5).sum()))
@@ -164,7 +182,7 @@ for side in 'RL':
     else: xa_, xb_ = int(_e0) - 34, int(_e0) - 1
     _kill[int(_top) - 2:int(_top) + 44, max(xa_, 0):xb_] = 1.0
 _kill = cv2.GaussianBlur(_kill, (0, 0), 1.5)
-if FACE_STYLE != 'girl': alpha *= 1 - _kill
+if FACE_STYLE == 'boy': alpha *= 1 - _kill
 
 # --- FACE block of the atlas: sample the image through the stud mapping
 fx, fy, fw, fh = FACE_RECT
@@ -177,7 +195,7 @@ a_s = cv2.remap(alpha.astype(np.float32), mx, my, cv2.INTER_LINEAR, borderValue=
 rgb_s = cv2.remap(im, mx, my, cv2.INTER_LINEAR, borderValue=0)
 em_s = cv2.remap(eye_mask.astype(np.float32) / 255, mx, my, cv2.INTER_LINEAR, borderValue=0)
 face = np.zeros((fh, fw, 4), np.float32)
-face[..., :3] = INK
+face[..., :3] = INK if INKCOL is None else cv2.remap(INKCOL.astype(np.float32), mx, my, cv2.INTER_LINEAR, borderValue=0)
 face[..., 3] = a_s
 # around/inside the openings keep the exact image pixels (no skin-coloured sliver at the rim)
 face[..., :3] = face[..., :3] * (1 - em_s[..., None]) + rgb_s * em_s[..., None]
@@ -226,6 +244,10 @@ for side in 'RL':
     col = np.where(ok[..., None], cv2.remap(im, px_, py_, cv2.INTER_LINEAR),
                    np.where(okq[..., None], cv2.remap(im, qx, qy, cv2.INTER_LINEAR), 0))
     have = (ok | okq).astype(np.uint8)
+    if FACE_STYLE == 'girl2':          # the drawn iris is black at the top, under the eyeliner: keep it black
+        okq[:] = False; have = ok.astype(np.uint8)
+        col = np.where(ok[..., None], col, 0)
+        col = np.where((have == 0)[..., None] & (b_ > -0.2)[..., None], 10.0, col); have = np.maximum(have, ((b_ > -0.2)).astype(np.uint8))
     col = cv2.inpaint(np.clip(col, 0, 255).astype(np.uint8), 1 - have, 7, cv2.INPAINT_TELEA).astype(np.float32)
     hl = look(px_, py_, highlight)
     col = np.where(hl[..., None], cv2.remap(im, px_, py_, cv2.INTER_LINEAR), col)
@@ -244,6 +266,7 @@ if os.environ.get('IRIS_SRC'):
         yy, xx = np.mgrid[0:ih_, 0:iw_]
         a0 = (xx + 0.5) / iw_ * 2 - 1; b0 = 1 - (yy + 0.5) / ih_ * 2
         kill = (((a0 / 0.27) ** 2 + (b0 / 0.76) ** 2) <= 1.0) | (c0.mean(2) > 135)
+        if os.environ.get('IRIS_SRC_RAW'): kill[:] = False            # a ready-made iris (girl_iris.py): used as is
         kill = cv2.dilate(kill.astype(np.uint8), np.ones((5, 5), np.uint8))
         c1 = cv2.inpaint(np.clip(c0, 0, 255).astype(np.uint8), kill, 9, cv2.INPAINT_TELEA).astype(np.float32)
         rxr, ryr, rw, rh = iris_rect(side)
@@ -328,6 +351,9 @@ for side in 'RL':
         soft = pup & ~hl_ & ~dark
         f8[soft] = f8[soft] * 0.35
         t8 = np.clip(f8, 0, 255).astype(np.uint8)
+    if FACE_STYLE == 'girl2':          # the drawn eye white is shaded grey under the eyeliner
+        shade = np.clip((zs_ - (zi - 0.25 * irz)) / (0.9 * irz), 0, 1)[..., None] * (rr >= 1.0)[..., None]
+        t8 = np.clip(t8.astype(np.float32) * (1 - 0.30 * shade), 0, 255).astype(np.uint8)
     atlas[ry:ry + rh, rx:rx + rw, :3] = t8
     atlas[ry:ry + rh, rx:rx + rw, 3] = 255
 
@@ -356,6 +382,19 @@ fa[..., 3] = np.clip(fa[..., 3], 0, 1) * 255
 atlas[fy:fy + fh, fx:fx + fw] = fa
 os.makedirs(OUT, exist_ok=True)
 out = np.clip(atlas, 0, 255).astype(np.uint8)
+if FACE_STYLE == 'girl2':
+    # the drawn eyeliner + lashes (+ eyeshadow between them) -> LINER_RECT, for the 3D eyeliner's front faces; inside the
+    # opening (the eyeliner's lower edge overhangs it a few mm) it is solid ink
+    for side in 'RL':
+        x0, x1, y0, y1 = liner_box_px(side); rx, ry, rw, rh = LINER_RECT[side]; k = liner_scale(side)
+        yy_, xx_ = np.mgrid[0:rh, 0:rw]
+        sx_ = (x0 + (xx_ + 0.5) / k).astype(np.float32); sy_ = (y0 + (yy_ + 0.5) / k).astype(np.float32)
+        a_c = cv2.remap(ALPHA_FULL.astype(np.float32), sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
+        c_c = cv2.remap((INKCOL if INKCOL is not None else np.broadcast_to(INK, im.shape)).astype(np.float32), sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
+        e_c = cv2.remap(eye_mask.astype(np.float32) / 255, sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
+        c_c = c_c * (1 - e_c[..., None]) + INK * e_c[..., None]; a_c = np.maximum(a_c, e_c)
+        atlas[ry:ry + rh, rx:rx + rw, :3] = c_c; atlas[ry:ry + rh, rx:rx + rw, 3] = a_c * 255
+    out = np.clip(atlas, 0, 255).astype(np.uint8)
 cv2.imwrite(f'{OUT}/HeadTexture.png', cv2.cvtColor(out, cv2.COLOR_RGBA2BGRA))
 # SurfaceAppearance companions
 # emissive mask: the inside of the eye (sclera, socket walls, iris) glows with its own grey value -> flat "deep white",

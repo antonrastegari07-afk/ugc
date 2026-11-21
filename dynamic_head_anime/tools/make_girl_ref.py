@@ -60,12 +60,15 @@ def bez(p0, p1, p2, n=40):
 top, bot = girl_eye_chains(48)                             # (fine sampling for the drawing only)
 # 2) eyeliner band (it becomes the 3D eyeliner; drawn too so the outline reads in the drawing)
 fill(LASH_PX['R'])
-# lash flicks at the outer upper corner (stay as texture, outside the 3D band)
-for (x0, y0, ang, L) in ((314, 528, 210, 17), (298, 532, 205, 22), (282, 538, 198, 25), (266, 545, 190, 24), (250, 550, 183, 18)):
-    a = math.radians(ang)
-    p0 = np.array((x0, y0)); p2 = p0 + L * np.array((math.cos(a), -abs(math.sin(a)) - 0.55))
-    p1 = (p0 + p2) / 2 + np.array((0, -3))
-    c = bez(p0, p1, p2, 24); stroke(c, list(np.linspace(2.4, 0.1, 24)))
+# lash flicks along the outer part of the upper lid (stay as texture, just above the 3D band), curving up-outwards
+for u0, L, tilt in ((-0.30, 13, 0.25), (-0.50, 17, 0.45), (-0.68, 20, 0.7), (-0.84, 21, 0.95), (-0.97, 17, 1.2)):
+    i = int(round((u0 + 1) / 2 * (len(top) - 1)))
+    x0, y0 = top[i]
+    th = 6 + 13 * (1 - (u0 + 1) / 2) ** 0.8
+    p0 = np.array((x0, y0 - th + 2.0))
+    d = np.array((-math.sin(tilt), -math.cos(tilt)))
+    p2 = p0 + L * d; p1 = p0 + 0.55 * L * d + np.array((-2.5, 0.5))
+    c = bez(p0, p1, p2, 24); stroke(c, list(np.linspace(2.2, 0.1, 24)))
 # inner corner hook: the eyeliner turns down along the short inner edge of the eye
 _ti = top[-1]; _bi = [p for p in bot if p[0] > top[-1][0] - 22]
 hook = [(_ti[0] + 3, _ti[1] + 1), (_ti[0] + 4.5, (_ti[1] + _bi[0][1]) / 2 + 2), (_bi[0][0] - 2, _bi[0][1] + 1)]
@@ -76,7 +79,7 @@ lb = [(x, y + 2.5) for x, y in bot if x < 400][::-1]       # outer -> towards th
 lb = np.array(lb)
 hw = np.interp(np.arange(len(lb)), [0, len(lb) * 0.3, len(lb) - 1], [1.6, 1.1, 0.15])
 stroke(lb, list(hw))
-for (x0, ang, L) in ((288, 230, 10), (304, 245, 9), (322, 255, 8)):
+for (x0, ang, L) in ((290, 228, 8), (306, 242, 7), (323, 252, 6)):
     y0 = np.interp(x0, lb[:, 0], lb[:, 1]) + 0.5
     a = math.radians(ang)
     c = bez((x0, y0), (x0 + L * 0.5 * math.cos(a), y0 - L * 0.5 * math.sin(a)), (x0 + L * math.cos(a), y0 - L * math.sin(a)), 12)
@@ -87,15 +90,15 @@ for i, (x, y) in enumerate(top):
     u = -1 + 2 * i / (len(top) - 1)
     if -0.62 <= u <= 0.72:
         th = 6 + 13 * (1 - (u + 1) / 2) ** 0.8
-        crease.append((x, y - th - 8))
+        crease.append((x, y - th - 7))
 crease = np.array(crease)
 uu = np.linspace(0, 1, len(crease))
 stroke(crease, list(1.25 * np.sin(np.pi * uu) ** 0.6 + 0.1))
 # 5) thin arched brows (inner -> outer), thicker near the inner end, pointed outer end
 (ix, iy), (ox, oy) = BROW_PX['R']
-br = bez((ix, iy), (378, 452), (ox, oy), 60)
+br = bez((ix, iy), (380, 486), (ox, oy), 60)
 tb = np.linspace(0, 1, 60)
-stroke(br, list(3.4 * (1 - tb) ** 0.7 * np.clip(tb / 0.06, 0, 1) ** 0.5 + 0.15))
+stroke(br, list(2.9 * (1 - tb) ** 0.8 * np.clip(tb / 0.06, 0, 1) ** 0.5 + 0.15))
 # 6) small mouth line (centred), slight curve, tapered ends
 mx = np.linspace(CX - 36, CX + 36, 48)
 my = 761 + 2.6 * ((mx - CX) / 36) ** 2
