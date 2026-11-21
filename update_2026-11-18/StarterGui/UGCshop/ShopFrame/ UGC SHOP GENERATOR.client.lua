@@ -2189,54 +2189,9 @@ local function buildFilterUI()
 		return btn, lbl, slot, recolor
 	end
 
-	-- 👒 types Roblox → catégorie affichée dans TYPE (un mot). Plus de « Other » : chaque UGC
-	--    va dans SA catégorie, et le filtre ne montre QUE les catégories présentes dans ton shop.
-	--    Tu ajoutes un nouveau genre d'UGC ? Sa catégorie apparaît toute seule.
-	local TYPE_NAME = {
-		[8] = "Hat", [41] = "Hair", [43] = "Neck", [44] = "Shoulder",
-		[45] = "Front", [46] = "Back", [47] = "Waist", [19] = "Gear",
-		[17] = "Head", [79] = "Head",                                   -- tête classique / dynamique
-		[18] = "Face", [42] = "Face", [76] = "Face", [77] = "Face",     -- visage, sourcils, cils
-		[88] = "Makeup", [89] = "Makeup", [90] = "Makeup",
-		[2] = "Clothing", [11] = "Clothing", [12] = "Clothing",
-		[64] = "Clothing", [65] = "Clothing", [66] = "Clothing", [67] = "Clothing",
-		[68] = "Clothing", [69] = "Clothing", [72] = "Clothing",
-		[70] = "Shoes", [71] = "Shoes",
-		[27] = "Body", [28] = "Body", [29] = "Body", [30] = "Body", [31] = "Body",
-		[48] = "Animation", [50] = "Animation", [51] = "Animation", [52] = "Animation",
-		[53] = "Animation", [54] = "Animation", [55] = "Animation", [56] = "Animation",
-		[78] = "Animation", [61] = "Emote", [32] = "Bundle",
-	}
-	local TYPE_ORDER = { "Hat", "Hair", "Head", "Face", "Makeup", "Neck", "Shoulder", "Front", "Back", "Waist",
-		"Clothing", "Shoes", "Body", "Animation", "Emote", "Bundle", "Gear" }
-	-- type inconnu de cette liste (nouveauté Roblox) → son nom officiel, ex. « EarAccessory » → « Ear »
-	local function typeNameOf(typeId)
-		if type(typeId) ~= "number" then return nil end
-		if TYPE_NAME[typeId] then return TYPE_NAME[typeId] end
-		for _, e in ipairs(Enum.AssetType:GetEnumItems()) do
-			if e.Value == typeId then
-				local n = e.Name:gsub("Accessory$", ""):gsub("Animation$", "")
-				TYPE_NAME[typeId] = n ~= "" and n or e.Name
-				return TYPE_NAME[typeId]
-			end
-		end
-		return nil
-	end
-	-- objet porté par un avatar ? (accessoire, tête, corps, animation…) — sinon ce n'est pas un vrai type d'UGC
-	local function isWearable(typeId)
-		for _, e in ipairs(Enum.AssetType:GetEnumItems()) do
-			if e.Value == typeId then
-				local n = e.Name
-				return n:find("Accessory$") ~= nil or n:find("Animation$") ~= nil or n:find("Head") ~= nil
-					or n:find("Makeup$") ~= nil
-			end
-		end
-		return false
-	end
-	-- bundles → catégorie
-	local AssetService = game:GetService("AssetService")
-	local BUNDLE_TYPE = { DynamicHead = "Head", DynamicHeadAvatar = "Head", Shoes = "Shoes",
-		Animations = "Animation", BodyParts = "Body" }
+	-- 👒 catégories du filtre TYPE : décidées par le module UGCTypeInfo et étiquetées UNE fois
+	--    par le serveur (UGCTypeTagger) → plus d'attente, plus de « Other ».
+	local TypeInfo, TYPE_ORDER = nil, {}   -- chargés par loadTypes (sans bloquer le shop)
 	-- catégories PRÉSENTES dans le shop, dans l'ordre ci-dessus (les nouvelles à la fin)
 	local function presentTypes()
 		local present, list, extra = {}, {}, {}
@@ -2295,43 +2250,46 @@ local function buildFilterUI()
 	local function loadTypes()
 		if typesState ~= "idle" then return end
 		typesState = "loading"
-		runPool(UGC_CONFIG.Items, function(ugc)
-			local id, assetType, assetErr = ugc.AssetId, nil, nil
-			for try = 1, 3 do   -- Roblox répond parfois en erreur : on réessaie
-				local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id, Enum.InfoType.Asset)
-				if ok and type(info) == "table" then assetType = info.AssetTypeId ; break end
-				assetErr = info
-				if try < 3 then task.wait(1.5) end
+		task.spawn(function()
+			local mod = ReplicatedStorage:WaitForChild("UGCTypeInfo", 10)
+			if mod then
+				local ok, m = pcall(require, mod)
+				if ok and type(m) == "table" then TypeInfo, TYPE_ORDER = m, m.ORDER end
 			end
-			-- objet d'avatar connu → sa catégorie
-			if assetType and (TYPE_NAME[assetType] or isWearable(assetType)) then
-				SF.typeOf[id] = typeNameOf(assetType)
-				return
+			local tags = ReplicatedStorage:WaitForChild("UGCTypes", 5)   -- étiquettes du serveur
+			local function readTags()
+				for _, ugc in ipairs(UGC_CONFIG.Items) do
+					local forced = TypeInfo and TypeInfo.forced(ugc)   -- Type = "…" dans UGC_CONFIG
+					local v = forced or (tags and tags:GetAttribute("T_" .. tostring(ugc.AssetId)))
+					if type(v) == "string" then SF.typeOf[ugc.AssetId] = v end
+				end
 			end
-			-- 📦 sinon c'est peut-être un BUNDLE (ex. une tête dynamique vendue en bundle)
-			local okB, b = pcall(AssetService.GetBundleDetailsAsync, AssetService, id)
-			if okB and type(b) == "table" and b.BundleType then
-				SF.typeOf[id] = BUNDLE_TYPE[tostring(b.BundleType)] or "Bundle"
-			elseif assetType then
-				SF.typeOf[id] = typeNameOf(assetType)
-			end
-			-- 🔍 pour comprendre une catégorie bizarre : regarde l'Output (F9 en jeu)
-			print(string.format("[UGC filtre] %s (%s) → type Roblox %s%s → catégorie « %s »",
-				tostring(ugc.Name), tostring(id), tostring(assetType),
-				okB and type(b) == "table" and (" / bundle " .. tostring(b.BundleType)) or "",
-				tostring(SF.typeOf[id] or "AUCUNE (" .. tostring(assetErr) .. ")")))
-		end, function()
-			typesState = "done"
-			-- 🔍 résumé dans l'Output : combien d'UGC dans chaque catégorie
-			local count, parts = {}, {}
-			for _, ugc in ipairs(UGC_CONFIG.Items) do
-				local t = SF.typeOf[ugc.AssetId] or "AUCUNE"
-				count[t] = (count[t] or 0) + 1
-			end
-			for t, c in pairs(count) do table.insert(parts, t .. " " .. c) end
-			table.sort(parts)
-			print("[UGC filtre] catégories : " .. table.concat(parts, " · "))
+			readTags()
+			typesState = "done"   -- ⚡ instantané : tout ce que le serveur connaît déjà
 			if onTypesLoaded then onTypesLoaded() end
+			if tags then
+				-- un UGC vient d'être étiqueté par le serveur → le filtre se met à jour
+				local pending = false
+				tags.AttributeChanged:Connect(function(name)
+					if name:sub(1, 2) ~= "T_" or pending then return end
+					pending = true
+					task.delay(0.3, function()
+						pending = false
+						readTags()
+						if onTypesLoaded then onTypesLoaded() end
+					end)
+				end)
+			elseif TypeInfo then
+				-- 🛟 pas de script serveur : le shop demande lui-même à Roblox (plus lent)
+				local missing = {}
+				for _, ugc in ipairs(UGC_CONFIG.Items) do
+					if not SF.typeOf[ugc.AssetId] then table.insert(missing, ugc) end
+				end
+				runPool(missing, function(ugc)
+					local cat = TypeInfo.lookup(ugc.AssetId)
+					if cat then SF.typeOf[ugc.AssetId] = cat end
+				end, function() if onTypesLoaded then onTypesLoaded() end end)
+			end
 		end)
 	end
 	local function loadOwned()
@@ -2802,5 +2760,6 @@ local function buildFilterUI()
 	ShopFrame:GetPropertyChangedSignal("Visible"):Connect(onShopVisible)
 	task.defer(onShopVisible)
 	paintButton()
+	task.defer(loadTypes)   -- ⚡ catégories prêtes AVANT que le joueur ouvre le filtre
 end
 buildFilterUI()

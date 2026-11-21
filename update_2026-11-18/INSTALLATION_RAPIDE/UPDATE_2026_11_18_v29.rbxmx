@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
 	<Item class="Folder" referent="RBX1">
 		<Properties>
-			<string name="Name">UPDATE_2026_11_18_v28</string>
+			<string name="Name">UPDATE_2026_11_18_v29</string>
 		</Properties>
 		<Item class="ModuleScript" referent="RBX2">
 			<Properties>
@@ -10,14 +10,14 @@
 -- 🚀 INSTALLATION AUTOMATIQUE — mise à jour du 18/11/2026
 --
 --  À lancer depuis la BARRE DE COMMANDE de Studio (Affichage ▸ Barre de commande) :
---      require(workspace.UPDATE_2026_11_18_v28.INSTALL)()
+--      require(workspace.UPDATE_2026_11_18_v29.INSTALL)()
 --
---  v28 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
---       la v2 à v27 (les versions remplacées vont dans sa propre copie de secours).
+--  v29 : contient TOUS les scripts → marche sur un jeu jamais mis à jour ET par-dessus
+--       la v2 à v28 (les versions remplacées vont dans sa propre copie de secours).
 --
 --  Ce que ça fait, dans l'ordre :
 --   1. Une copie de CHAQUE script remplacé est rangée dans
---      ServerStorage ▸ BACKUP_avant_maj_v28 (pour revenir en arrière).
+--      ServerStorage ▸ BACKUP_avant_maj_v29 (pour revenir en arrière).
 --   2. Chaque script existant est ÉCHANGÉ contre sa nouvelle version : même nom,
 --      même place, même état activé/désactivé, mêmes attributs / tags, et ses
 --      objets enfants passent dans la nouvelle version. (On échange le script entier
@@ -33,8 +33,8 @@
 --  Rien n'est publié : vérifie, teste, puis publie toi-même.
 --════════════════════════════════════════════════════════════════════════════
 return function()
-	print("🚀 Installateur v28 (échange des scripts entiers) — démarrage…")
-	local BACKUP_NAME = "BACKUP_avant_maj_v28"
+	print("🚀 Installateur v29 (échange des scripts entiers) — démarrage…")
+	local BACKUP_NAME = "BACKUP_avant_maj_v29"
 	local root = script.Parent
 	local ServerStorage = game:GetService("ServerStorage")
 	local CHS = game:GetService("ChangeHistoryService")
@@ -43,15 +43,15 @@ return function()
 	local old = ServerStorage:FindFirstChild(BACKUP_NAME)
 	if old then
 		if old:GetAttribute("Complete") then
-			warn("⚠️ v28 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
+			warn("⚠️ v29 déjà installée (ServerStorage ▸ " .. BACKUP_NAME .. " existe). Rien n'a été fait.")
 		else
-			warn("⚠️ Une installation v28 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
-				.. "« Avant la mise à jour v28 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
+			warn("⚠️ Une installation v29 s'est arrêtée en cours de route. Fais Ctrl+Z jusqu'à "
+				.. "« Avant la mise à jour v29 » (ou supprime le dossier " .. BACKUP_NAME .. " s'il est vide), puis relance.")
 		end
 		return
 	end
 
-	pcall(function() CHS:SetWaypoint("Avant la mise à jour v28") end)
+	pcall(function() CHS:SetWaypoint("Avant la mise à jour v29") end)
 
 	local backup = Instance.new("Folder")
 	backup.Name = BACKUP_NAME
@@ -163,7 +163,7 @@ return function()
 
 	backup:SetAttribute("Complete", true)
 	root.Parent = nil   -- le dossier d'installation n'a plus rien à faire dans le jeu
-	pcall(function() CHS:SetWaypoint("Mise à jour v28 installée") end)
+	pcall(function() CHS:SetWaypoint("Mise à jour v29 installée") end)
 
 	print(("✅ INSTALLATION TERMINÉE : %d scripts remplacés, %d créés%s.")
 		:format(#replaced, #created, dn and ", « daily notification » retiré" or ""))
@@ -10408,16 +10408,113 @@ return Gate
 ]]></ProtectedString>
 				</Properties>
 			</Item>
+			<Item class="ModuleScript" referent="RBX13">
+				<Properties>
+					<string name="Name">UGCTypeInfo</string>
+					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 👒 UGCTypeInfo — ModuleScript dans ReplicatedStorage   (NOUVEAU)
+--
+--  Décide dans quelle catégorie du filtre TYPE va chaque UGC (Hat, Hair, Head…).
+--  Utilisé par le SERVEUR (UGCTypeTagger, qui étiquette chaque UGC une seule fois et
+--  le garde en mémoire) et par le shop du joueur (secours si le serveur n'a pas encore
+--  répondu).
+--
+--  ✏️ Forcer une catégorie à la main : dans UGC_CONFIG, ajoute  Type = "Head"  à l'UGC.
+--════════════════════════════════════════════════════════════════════════════
+local MarketplaceService = game:GetService("MarketplaceService")
+local AssetService       = game:GetService("AssetService")
+
+local M = {}
+
+-- types Roblox → catégorie affichée (un mot)
+M.TYPE_NAME = {
+	[8] = "Hat", [41] = "Hair", [43] = "Neck", [44] = "Shoulder",
+	[45] = "Front", [46] = "Back", [47] = "Waist", [19] = "Gear",
+	[17] = "Head", [79] = "Head",                                   -- tête classique / dynamique
+	[18] = "Face", [42] = "Face", [76] = "Face", [77] = "Face",     -- visage, sourcils, cils
+	[88] = "Makeup", [89] = "Makeup", [90] = "Makeup",
+	[2] = "Clothing", [11] = "Clothing", [12] = "Clothing",
+	[64] = "Clothing", [65] = "Clothing", [66] = "Clothing", [67] = "Clothing",
+	[68] = "Clothing", [69] = "Clothing", [72] = "Clothing",
+	[70] = "Shoes", [71] = "Shoes",
+	[27] = "Body", [28] = "Body", [29] = "Body", [30] = "Body", [31] = "Body",
+	[48] = "Animation", [50] = "Animation", [51] = "Animation", [52] = "Animation",
+	[53] = "Animation", [54] = "Animation", [55] = "Animation", [56] = "Animation",
+	[78] = "Animation", [61] = "Emote", [32] = "Bundle",
+}
+-- ordre des boutons dans le filtre (une catégorie inconnue va à la fin)
+M.ORDER = { "Hat", "Hair", "Head", "Face", "Makeup", "Neck", "Shoulder", "Front", "Back", "Waist",
+	"Clothing", "Shoes", "Body", "Animation", "Emote", "Bundle", "Gear" }
+-- bundles → catégorie
+M.BUNDLE_TYPE = { DynamicHead = "Head", DynamicHeadAvatar = "Head", Shoes = "Shoes",
+	Animations = "Animation", BodyParts = "Body" }
+
+local function enumName(typeId)
+	for _, e in ipairs(Enum.AssetType:GetEnumItems()) do
+		if e.Value == typeId then return e.Name end
+	end
+	return nil
+end
+
+-- objet porté par un avatar ? (accessoire, tête, corps, animation…)
+function M.isWearable(typeId)
+	if M.TYPE_NAME[typeId] then return true end
+	local n = enumName(typeId)
+	return n ~= nil and (n:find("Accessory$") ~= nil or n:find("Animation$") ~= nil
+		or n:find("Head") ~= nil or n:find("Makeup$") ~= nil)
+end
+
+-- type Roblox → catégorie ; type ajouté plus tard par Roblox → son nom (« EarAccessory » → « Ear »)
+function M.fromAssetType(typeId)
+	if type(typeId) ~= "number" then return nil end
+	if M.TYPE_NAME[typeId] then return M.TYPE_NAME[typeId] end
+	local n = enumName(typeId)
+	if not n then return nil end
+	local short = n:gsub("Accessory$", ""):gsub("Animation$", "")
+	M.TYPE_NAME[typeId] = short ~= "" and short or n
+	return M.TYPE_NAME[typeId]
+end
+
+-- catégorie forcée dans UGC_CONFIG (Type = "Head")
+function M.forced(ugc)
+	local t = type(ugc) == "table" and ugc.Type
+	if type(t) == "string" and t ~= "" and #t <= 20 then return t end
+	return nil
+end
+
+-- ⏳ demande à Roblox (peut prendre 1 à 5 s) → catégorie, ou nil + raison
+function M.lookup(assetId)
+	local assetType, err
+	for try = 1, 3 do   -- Roblox répond parfois en erreur : on réessaie
+		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, assetId, Enum.InfoType.Asset)
+		if ok and type(info) == "table" then assetType = info.AssetTypeId ; break end
+		err = info
+		if try < 3 then task.wait(1.5) end
+	end
+	if assetType and M.isWearable(assetType) then return M.fromAssetType(assetType) end
+	-- 📦 pas un objet d'avatar : c'est peut-être un BUNDLE (ex. une tête dynamique)
+	local okB, b = pcall(AssetService.GetBundleDetailsAsync, AssetService, assetId)
+	if okB and type(b) == "table" and b.BundleType then
+		return M.BUNDLE_TYPE[tostring(b.BundleType)] or "Bundle"
+	end
+	if assetType then return M.fromAssetType(assetType) end
+	return nil, tostring(err)
+end
+
+return M
+]]></ProtectedString>
+				</Properties>
+			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX13">
+		<Item class="Folder" referent="RBX14">
 			<Properties>
 				<string name="Name">ServerScriptService</string>
 			</Properties>
-			<Item class="Folder" referent="RBX14">
+			<Item class="Folder" referent="RBX15">
 				<Properties>
 					<string name="Name">CombatSystem</string>
 				</Properties>
-				<Item class="Script" referent="RBX15">
+				<Item class="Script" referent="RBX16">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">CombatServer</string>
@@ -11223,7 +11320,7 @@ print(("✅ CombatSystem serveur prêt (respawn géré : %s, temps normal %.1f s
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="Script" referent="RBX16">
+			<Item class="Script" referent="RBX17">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">10 died = offer 2500 points</string>
@@ -11314,7 +11411,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX17">
+			<Item class="Script" referent="RBX18">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">DAILY TOOLs</string>
@@ -11881,7 +11978,7 @@ print("✅ DailyRewards SERVEUR v4 chargé (7 jours, fixes #1-4 appliqués)")
 -- Commandes admin: /resetdaily, /unlockday2]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX18">
+			<Item class="Script" referent="RBX19">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">FriendsBoard_Server</string>
@@ -12011,7 +12108,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX19">
+			<Item class="Script" referent="RBX20">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">PLAYER UGC STATS</string>
@@ -12571,7 +12668,7 @@ end)
 print("✅ PLAYER UGC STATS chargé" .. (READ_ONLY and " (🧪 Studio : lecture seule)" or ""))]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX20">
+			<Item class="Script" referent="RBX21">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">PopupControl_Server</string>
@@ -12780,7 +12877,7 @@ print("✅ PopupControl chargé")
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX21">
+			<Item class="Script" referent="RBX22">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">Presence_Server</string>
@@ -12863,7 +12960,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX22">
+			<Item class="Script" referent="RBX23">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">STATS</string>
@@ -13448,7 +13545,132 @@ print("✅ STATS v2 chargé (achats par provenance, popups, 1re UGC gratuite, in
 	.. (READ_ONLY and " — Studio : lecture seule" or ""))]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX23">
+			<Item class="Script" referent="RBX24">
+				<Properties>
+					<bool name="Disabled">true</bool>
+					<string name="Name">UGCTypeTagger</string>
+					<ProtectedString name="Source"><![CDATA[--════════════════════════════════════════════════════════════════════════════
+-- 🏷️ UGCTypeTagger — Script dans ServerScriptService   (NOUVEAU)
+--
+--  Étiquette chaque UGC du shop avec sa catégorie (Hat, Hair, Head…) UNE SEULE FOIS,
+--  et la garde en mémoire (DataStore) : le filtre TYPE du shop apparaît alors
+--  INSTANTANÉMENT pour les joueurs, au lieu que chaque joueur redemande à Roblox
+--  le type de chaque UGC.
+--
+--  • Démarrage d'un serveur : 1 seule lecture DataStore → toutes les catégories connues
+--    sont publiées tout de suite (attributs de ReplicatedStorage ▸ UGCTypes).
+--  • UGC ajouté (même en cours de partie) : demandé à Roblox UNE fois, puis enregistré.
+--  • Catégorie forcée : dans UGC_CONFIG, ajoute  Type = "Head"  à l'UGC.
+--  • Sécurité : seul le serveur écrit ; les joueurs ne font que lire. 1 lecture DataStore
+--    par serveur + 1 écriture seulement quand un nouvel UGC est étiqueté.
+--  ↩️ Pour revenir à avant : supprime ce script (le shop refait alors le travail lui-même).
+--════════════════════════════════════════════════════════════════════════════
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DataStoreService  = game:GetService("DataStoreService")
+
+local UGC_CONFIG = require(ReplicatedStorage:WaitForChild("UGC_CONFIG"))
+local TypeInfo   = require(ReplicatedStorage:WaitForChild("UGCTypeInfo"))
+
+local STORE_NAME, KEY = "UGCTypeCache", "types_v1"
+local RECHECK = 120   -- s : vérifie s'il y a de nouveaux UGC à étiqueter
+
+local tags = ReplicatedStorage:FindFirstChild("UGCTypes")
+if not tags then
+	tags = Instance.new("Configuration")
+	tags.Name = "UGCTypes"
+	tags.Parent = ReplicatedStorage
+end
+local function attrName(id) return "T_" .. tostring(id) end
+local function publish(id, cat)
+	if tags:GetAttribute(attrName(id)) ~= cat then tags:SetAttribute(attrName(id), cat) end
+end
+
+-- 1) mémoire : lue UNE fois
+local store
+pcall(function() store = DataStoreService:GetDataStore(STORE_NAME) end)
+local cache = {}
+if store then
+	local ok, data = pcall(function() return store:GetAsync(KEY) end)
+	if ok and type(data) == "table" then
+		for k, v in pairs(data) do
+			if type(k) == "string" and type(v) == "string" then cache[k] = v end
+		end
+	elseif not ok then
+		warn("[UGCTypeTagger] mémoire illisible (" .. tostring(data) .. ") → étiquetage sans mémoire")
+	end
+end
+
+-- 2) publie tout ce qu'on sait déjà (instantané)
+local function publishKnown()
+	for _, ugc in ipairs(UGC_CONFIG.Items) do
+		local id = tonumber(ugc.AssetId)
+		if id and id > 0 then
+			local cat = TypeInfo.forced(ugc) or cache[tostring(id)]
+			if cat then publish(id, cat) end
+		end
+	end
+end
+publishKnown()
+tags:SetAttribute("Ready", true)   -- le shop sait que le serveur s'en occupe
+
+-- 3) étiquette les UGC encore inconnus (4 à la fois), puis enregistre UNE fois
+local busy = false
+local function tagMissing()
+	if busy then return end
+	busy = true
+	local todo = {}
+	for _, ugc in ipairs(UGC_CONFIG.Items) do
+		local id = tonumber(ugc.AssetId)
+		if id and id > 0 and not TypeInfo.forced(ugc) and not cache[tostring(id)] then table.insert(todo, id) end
+	end
+	if #todo > 0 then
+		local added, idx, running = {}, 0, 0
+		for _ = 1, math.min(4, #todo) do
+			running += 1
+			task.spawn(function()
+				while true do
+					idx += 1
+					local id = todo[idx]
+					if not id then break end
+					local cat, why = TypeInfo.lookup(id)
+					if cat then
+						cache[tostring(id)] = cat
+						added[tostring(id)] = cat
+						publish(id, cat)
+					else
+						warn(string.format("[UGCTypeTagger] catégorie introuvable pour %d (%s) → réessai plus tard", id, tostring(why)))
+					end
+				end
+				running -= 1
+			end)
+		end
+		while running > 0 do task.wait(0.2) end
+		if store and next(added) then
+			pcall(function()
+				store:UpdateAsync(KEY, function(old)
+					local t = type(old) == "table" and old or {}
+					for k, v in pairs(added) do t[k] = v end
+					return t
+				end)
+			end)
+			local n = 0
+			for _ in pairs(added) do n += 1 end
+			print(string.format("[UGCTypeTagger] %d nouvel(s) UGC étiqueté(s) et enregistré(s)", n))
+		end
+	end
+	busy = false
+end
+
+task.spawn(tagMissing)
+while true do
+	task.wait(RECHECK)
+	publishKnown()   -- catégorie forcée ajoutée / changée dans UGC_CONFIG
+	tagMissing()
+end
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="Script" referent="RBX25">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">anti fly/tp server</string>
@@ -17360,7 +17582,7 @@ task.spawn(function()
 end)]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX24">
+			<Item class="Script" referent="RBX26">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">ask favorite game</string>
@@ -17539,7 +17761,7 @@ print("✅ Demande de favori v2 chargée")
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX25">
+			<Item class="Script" referent="RBX27">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">checkpoints system</string>
@@ -18667,7 +18889,7 @@ end)
 print("✅ Système Checkpoint chargé - VERSION DÉFINITIVE + NOTIFICATIONS SKIP")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX26">
+			<Item class="Script" referent="RBX28">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">datastore alr ask favorite game</string>
@@ -18746,7 +18968,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX27">
+			<Item class="Script" referent="RBX29">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">leave popup</string>
@@ -18926,7 +19148,7 @@ end)
 print("✅ Système Popup de départ chargé")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX28">
+			<Item class="Script" referent="RBX30">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">new donation board server</string>
@@ -19908,7 +20130,7 @@ end
 print("✅ TopDonators Server v3 chargé — UI/ProcessReceipt inchangés")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX29">
+			<Item class="Script" referent="RBX31">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">notif chat </string>
@@ -20269,7 +20491,7 @@ end
 print("✅ CHAT NOTIF SERVER chargé (purchases + gifts points + gifts objets + UGC + donations)")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX30">
+			<Item class="Script" referent="RBX32">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">server referal friend invite</string>
@@ -20884,7 +21106,7 @@ print("   _G.SetReferralCap(n)")
 print("   _G.SetReferralMinAccountAge(n)")]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="Script" referent="RBX31">
+			<Item class="Script" referent="RBX33">
 				<Properties>
 					<bool name="Disabled">true</bool>
 					<string name="Name">time</string>
@@ -28349,15 +28571,15 @@ print("✅ SYSTÈME DE PARAMÈTRES JOUEUR CHARGÉ (persistés dans PlayerData_v1
 				</Properties>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX32">
+		<Item class="Folder" referent="RBX34">
 			<Properties>
 				<string name="Name">ServerStorage</string>
 			</Properties>
-			<Item class="Folder" referent="RBX33">
+			<Item class="Folder" referent="RBX35">
 				<Properties>
 					<string name="Name">AdminClientScripts.</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX34">
+				<Item class="LocalScript" referent="RBX36">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Admin client</string>
@@ -54353,23 +54575,23 @@ print("✅ ADMIN PANEL CLIENT chargé (Mobile: " .. tostring(IS_MOBILE) .. ")")]
 				</Item>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX35">
+		<Item class="Folder" referent="RBX37">
 			<Properties>
 				<string name="Name">StarterGui</string>
 			</Properties>
-			<Item class="Folder" referent="RBX36">
+			<Item class="Folder" referent="RBX38">
 				<Properties>
 					<string name="Name">Bouton hide</string>
 				</Properties>
-				<Item class="Folder" referent="RBX37">
+				<Item class="Folder" referent="RBX39">
 					<Properties>
 						<string name="Name">Frame</string>
 					</Properties>
-					<Item class="Folder" referent="RBX38">
+					<Item class="Folder" referent="RBX40">
 						<Properties>
 							<string name="Name">TextButton</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX39">
+						<Item class="LocalScript" referent="RBX41">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">gestion hide</string>
@@ -54561,19 +54783,19 @@ end)]]></ProtectedString>
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX40">
+			<Item class="Folder" referent="RBX42">
 				<Properties>
 					<string name="Name">Daily tool</string>
 				</Properties>
-				<Item class="Folder" referent="RBX41">
+				<Item class="Folder" referent="RBX43">
 					<Properties>
 						<string name="Name">open button</string>
 					</Properties>
-					<Item class="Folder" referent="RBX42">
+					<Item class="Folder" referent="RBX44">
 						<Properties>
 							<string name="Name">ImageButton</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX43">
+						<Item class="LocalScript" referent="RBX45">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">animation daily</string>
@@ -54594,19 +54816,19 @@ HL.Hover(button, frame)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX44">
+			<Item class="Folder" referent="RBX46">
 				<Properties>
 					<string name="Name">PointsShop</string>
 				</Properties>
-				<Item class="Folder" referent="RBX45">
+				<Item class="Folder" referent="RBX47">
 					<Properties>
 						<string name="Name">Frame</string>
 					</Properties>
-					<Item class="Folder" referent="RBX46">
+					<Item class="Folder" referent="RBX48">
 						<Properties>
 							<string name="Name">PointToggle</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX47">
+						<Item class="LocalScript" referent="RBX49">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">animation Points</string>
@@ -54627,19 +54849,19 @@ HL.Hover(button, frame)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX48">
+			<Item class="Folder" referent="RBX50">
 				<Properties>
 					<string name="Name">Quest</string>
 				</Properties>
-				<Item class="Folder" referent="RBX49">
+				<Item class="Folder" referent="RBX51">
 					<Properties>
 						<string name="Name">Frame</string>
 					</Properties>
-					<Item class="Folder" referent="RBX50">
+					<Item class="Folder" referent="RBX52">
 						<Properties>
 							<string name="Name">ShopToggle1</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX51">
+						<Item class="LocalScript" referent="RBX53">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">animation quest</string>
@@ -54660,19 +54882,19 @@ HL.Hover(button, frame)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX52">
+			<Item class="Folder" referent="RBX54">
 				<Properties>
 					<string name="Name">Rebirth</string>
 				</Properties>
-				<Item class="Folder" referent="RBX53">
+				<Item class="Folder" referent="RBX55">
 					<Properties>
 						<string name="Name">Frame</string>
 					</Properties>
-					<Item class="Folder" referent="RBX54">
+					<Item class="Folder" referent="RBX56">
 						<Properties>
 							<string name="Name">ShopToggle1</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX55">
+						<Item class="LocalScript" referent="RBX57">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">animation rebirth</string>
@@ -54693,15 +54915,15 @@ HL.Hover(button, frame)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX56">
+			<Item class="Folder" referent="RBX58">
 				<Properties>
 					<string name="Name">ShiftLockButton</string>
 				</Properties>
-				<Item class="Folder" referent="RBX57">
+				<Item class="Folder" referent="RBX59">
 					<Properties>
 						<string name="Name">ImageButton</string>
 					</Properties>
-					<Item class="LocalScript" referent="RBX58">
+					<Item class="LocalScript" referent="RBX60">
 						<Properties>
 							<bool name="Disabled">true</bool>
 							<string name="Name">ShiftGUI</string>
@@ -54842,19 +55064,19 @@ setImage(false)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX59">
+			<Item class="Folder" referent="RBX61">
 				<Properties>
 					<string name="Name">Shop</string>
 				</Properties>
-				<Item class="Folder" referent="RBX60">
+				<Item class="Folder" referent="RBX62">
 					<Properties>
 						<string name="Name">Frame</string>
 					</Properties>
-					<Item class="Folder" referent="RBX61">
+					<Item class="Folder" referent="RBX63">
 						<Properties>
 							<string name="Name">PointToggle</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX62">
+						<Item class="LocalScript" referent="RBX64">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">animation shop</string>
@@ -54875,19 +55097,19 @@ HL.Hover(button, frame)
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX63">
+			<Item class="Folder" referent="RBX65">
 				<Properties>
 					<string name="Name">UGCshop</string>
 				</Properties>
-				<Item class="Folder" referent="RBX64">
+				<Item class="Folder" referent="RBX66">
 					<Properties>
 						<string name="Name">Frame</string>
 					</Properties>
-					<Item class="Folder" referent="RBX65">
+					<Item class="Folder" referent="RBX67">
 						<Properties>
 							<string name="Name">ShopToggle1</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX66">
+						<Item class="LocalScript" referent="RBX68">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">animation ugc</string>
@@ -54907,11 +55129,11 @@ HL.Hover(button, frame)
 						</Item>
 					</Item>
 				</Item>
-				<Item class="Folder" referent="RBX67">
+				<Item class="Folder" referent="RBX69">
 					<Properties>
 						<string name="Name">ShopFrame</string>
 					</Properties>
-					<Item class="LocalScript" referent="RBX68">
+					<Item class="LocalScript" referent="RBX70">
 						<Properties>
 							<bool name="Disabled">true</bool>
 							<string name="Name"> UGC SHOP GENERATOR</string>
@@ -57106,54 +57328,9 @@ local function buildFilterUI()
 		return btn, lbl, slot, recolor
 	end
 
-	-- 👒 types Roblox → catégorie affichée dans TYPE (un mot). Plus de « Other » : chaque UGC
-	--    va dans SA catégorie, et le filtre ne montre QUE les catégories présentes dans ton shop.
-	--    Tu ajoutes un nouveau genre d'UGC ? Sa catégorie apparaît toute seule.
-	local TYPE_NAME = {
-		[8] = "Hat", [41] = "Hair", [43] = "Neck", [44] = "Shoulder",
-		[45] = "Front", [46] = "Back", [47] = "Waist", [19] = "Gear",
-		[17] = "Head", [79] = "Head",                                   -- tête classique / dynamique
-		[18] = "Face", [42] = "Face", [76] = "Face", [77] = "Face",     -- visage, sourcils, cils
-		[88] = "Makeup", [89] = "Makeup", [90] = "Makeup",
-		[2] = "Clothing", [11] = "Clothing", [12] = "Clothing",
-		[64] = "Clothing", [65] = "Clothing", [66] = "Clothing", [67] = "Clothing",
-		[68] = "Clothing", [69] = "Clothing", [72] = "Clothing",
-		[70] = "Shoes", [71] = "Shoes",
-		[27] = "Body", [28] = "Body", [29] = "Body", [30] = "Body", [31] = "Body",
-		[48] = "Animation", [50] = "Animation", [51] = "Animation", [52] = "Animation",
-		[53] = "Animation", [54] = "Animation", [55] = "Animation", [56] = "Animation",
-		[78] = "Animation", [61] = "Emote", [32] = "Bundle",
-	}
-	local TYPE_ORDER = { "Hat", "Hair", "Head", "Face", "Makeup", "Neck", "Shoulder", "Front", "Back", "Waist",
-		"Clothing", "Shoes", "Body", "Animation", "Emote", "Bundle", "Gear" }
-	-- type inconnu de cette liste (nouveauté Roblox) → son nom officiel, ex. « EarAccessory » → « Ear »
-	local function typeNameOf(typeId)
-		if type(typeId) ~= "number" then return nil end
-		if TYPE_NAME[typeId] then return TYPE_NAME[typeId] end
-		for _, e in ipairs(Enum.AssetType:GetEnumItems()) do
-			if e.Value == typeId then
-				local n = e.Name:gsub("Accessory$", ""):gsub("Animation$", "")
-				TYPE_NAME[typeId] = n ~= "" and n or e.Name
-				return TYPE_NAME[typeId]
-			end
-		end
-		return nil
-	end
-	-- objet porté par un avatar ? (accessoire, tête, corps, animation…) — sinon ce n'est pas un vrai type d'UGC
-	local function isWearable(typeId)
-		for _, e in ipairs(Enum.AssetType:GetEnumItems()) do
-			if e.Value == typeId then
-				local n = e.Name
-				return n:find("Accessory$") ~= nil or n:find("Animation$") ~= nil or n:find("Head") ~= nil
-					or n:find("Makeup$") ~= nil
-			end
-		end
-		return false
-	end
-	-- bundles → catégorie
-	local AssetService = game:GetService("AssetService")
-	local BUNDLE_TYPE = { DynamicHead = "Head", DynamicHeadAvatar = "Head", Shoes = "Shoes",
-		Animations = "Animation", BodyParts = "Body" }
+	-- 👒 catégories du filtre TYPE : décidées par le module UGCTypeInfo et étiquetées UNE fois
+	--    par le serveur (UGCTypeTagger) → plus d'attente, plus de « Other ».
+	local TypeInfo, TYPE_ORDER = nil, {}   -- chargés par loadTypes (sans bloquer le shop)
 	-- catégories PRÉSENTES dans le shop, dans l'ordre ci-dessus (les nouvelles à la fin)
 	local function presentTypes()
 		local present, list, extra = {}, {}, {}
@@ -57212,43 +57389,46 @@ local function buildFilterUI()
 	local function loadTypes()
 		if typesState ~= "idle" then return end
 		typesState = "loading"
-		runPool(UGC_CONFIG.Items, function(ugc)
-			local id, assetType, assetErr = ugc.AssetId, nil, nil
-			for try = 1, 3 do   -- Roblox répond parfois en erreur : on réessaie
-				local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id, Enum.InfoType.Asset)
-				if ok and type(info) == "table" then assetType = info.AssetTypeId ; break end
-				assetErr = info
-				if try < 3 then task.wait(1.5) end
+		task.spawn(function()
+			local mod = ReplicatedStorage:WaitForChild("UGCTypeInfo", 10)
+			if mod then
+				local ok, m = pcall(require, mod)
+				if ok and type(m) == "table" then TypeInfo, TYPE_ORDER = m, m.ORDER end
 			end
-			-- objet d'avatar connu → sa catégorie
-			if assetType and (TYPE_NAME[assetType] or isWearable(assetType)) then
-				SF.typeOf[id] = typeNameOf(assetType)
-				return
+			local tags = ReplicatedStorage:WaitForChild("UGCTypes", 5)   -- étiquettes du serveur
+			local function readTags()
+				for _, ugc in ipairs(UGC_CONFIG.Items) do
+					local forced = TypeInfo and TypeInfo.forced(ugc)   -- Type = "…" dans UGC_CONFIG
+					local v = forced or (tags and tags:GetAttribute("T_" .. tostring(ugc.AssetId)))
+					if type(v) == "string" then SF.typeOf[ugc.AssetId] = v end
+				end
 			end
-			-- 📦 sinon c'est peut-être un BUNDLE (ex. une tête dynamique vendue en bundle)
-			local okB, b = pcall(AssetService.GetBundleDetailsAsync, AssetService, id)
-			if okB and type(b) == "table" and b.BundleType then
-				SF.typeOf[id] = BUNDLE_TYPE[tostring(b.BundleType)] or "Bundle"
-			elseif assetType then
-				SF.typeOf[id] = typeNameOf(assetType)
-			end
-			-- 🔍 pour comprendre une catégorie bizarre : regarde l'Output (F9 en jeu)
-			print(string.format("[UGC filtre] %s (%s) → type Roblox %s%s → catégorie « %s »",
-				tostring(ugc.Name), tostring(id), tostring(assetType),
-				okB and type(b) == "table" and (" / bundle " .. tostring(b.BundleType)) or "",
-				tostring(SF.typeOf[id] or "AUCUNE (" .. tostring(assetErr) .. ")")))
-		end, function()
-			typesState = "done"
-			-- 🔍 résumé dans l'Output : combien d'UGC dans chaque catégorie
-			local count, parts = {}, {}
-			for _, ugc in ipairs(UGC_CONFIG.Items) do
-				local t = SF.typeOf[ugc.AssetId] or "AUCUNE"
-				count[t] = (count[t] or 0) + 1
-			end
-			for t, c in pairs(count) do table.insert(parts, t .. " " .. c) end
-			table.sort(parts)
-			print("[UGC filtre] catégories : " .. table.concat(parts, " · "))
+			readTags()
+			typesState = "done"   -- ⚡ instantané : tout ce que le serveur connaît déjà
 			if onTypesLoaded then onTypesLoaded() end
+			if tags then
+				-- un UGC vient d'être étiqueté par le serveur → le filtre se met à jour
+				local pending = false
+				tags.AttributeChanged:Connect(function(name)
+					if name:sub(1, 2) ~= "T_" or pending then return end
+					pending = true
+					task.delay(0.3, function()
+						pending = false
+						readTags()
+						if onTypesLoaded then onTypesLoaded() end
+					end)
+				end)
+			elseif TypeInfo then
+				-- 🛟 pas de script serveur : le shop demande lui-même à Roblox (plus lent)
+				local missing = {}
+				for _, ugc in ipairs(UGC_CONFIG.Items) do
+					if not SF.typeOf[ugc.AssetId] then table.insert(missing, ugc) end
+				end
+				runPool(missing, function(ugc)
+					local cat = TypeInfo.lookup(ugc.AssetId)
+					if cat then SF.typeOf[ugc.AssetId] = cat end
+				end, function() if onTypesLoaded then onTypesLoaded() end end)
+			end
 		end)
 	end
 	local function loadOwned()
@@ -57719,6 +57899,7 @@ local function buildFilterUI()
 	ShopFrame:GetPropertyChangedSignal("Visible"):Connect(onShopVisible)
 	task.defer(onShopVisible)
 	paintButton()
+	task.defer(loadTypes)   -- ⚡ catégories prêtes AVANT que le joueur ouvre le filtre
 end
 buildFilterUI()
 ]]></ProtectedString>
@@ -57726,11 +57907,11 @@ buildFilterUI()
 					</Item>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX69">
+			<Item class="Folder" referent="RBX71">
 				<Properties>
 					<string name="Name">VIP offer</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX70">
+				<Item class="LocalScript" referent="RBX72">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">make pop th add</string>
@@ -57855,19 +58036,19 @@ hideFrame()]]></ProtectedString>
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX71">
+			<Item class="Folder" referent="RBX73">
 				<Properties>
 					<string name="Name">dailyspin</string>
 				</Properties>
-				<Item class="Folder" referent="RBX72">
+				<Item class="Folder" referent="RBX74">
 					<Properties>
 						<string name="Name">Frame</string>
 					</Properties>
-					<Item class="Folder" referent="RBX73">
+					<Item class="Folder" referent="RBX75">
 						<Properties>
 							<string name="Name">PointToggle</string>
 						</Properties>
-						<Item class="LocalScript" referent="RBX74">
+						<Item class="LocalScript" referent="RBX76">
 							<Properties>
 								<bool name="Disabled">true</bool>
 								<string name="Name">animation shop</string>
@@ -57888,15 +58069,15 @@ HL.Hover(button, frame)
 				</Item>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX75">
+		<Item class="Folder" referent="RBX77">
 			<Properties>
 				<string name="Name">StarterPlayer</string>
 			</Properties>
-			<Item class="Folder" referent="RBX76">
+			<Item class="Folder" referent="RBX78">
 				<Properties>
 					<string name="Name">StarterCharacterScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX77">
+				<Item class="LocalScript" referent="RBX79">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ask favorite game</string>
@@ -57967,11 +58148,11 @@ waitForDeath()]]></ProtectedString>
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="Folder" referent="RBX78">
+			<Item class="Folder" referent="RBX80">
 				<Properties>
 					<string name="Name">StarterPlayerScripts</string>
 				</Properties>
-				<Item class="LocalScript" referent="RBX79">
+				<Item class="LocalScript" referent="RBX81">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name"> ADMIN ABUSE — DÉGRADÉ SUR LE BOOST DU BILLBOARD</string>
@@ -58196,7 +58377,7 @@ Players.PlayerAdded:Connect(function(p)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX80">
+				<Item class="LocalScript" referent="RBX82">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">1v1 cross server local</string>
@@ -59215,7 +59396,7 @@ end
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX81">
+				<Item class="LocalScript" referent="RBX83">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ArenaViewKeeper</string>
@@ -59633,7 +59814,7 @@ refresh()
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX82">
+				<Item class="LocalScript" referent="RBX84">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">DeathCam</string>
@@ -61902,7 +62083,7 @@ end)
 print("✅ DeathCam prêt")]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX83">
+				<Item class="LocalScript" referent="RBX85">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">EmptyArenaPrompt</string>
@@ -62163,7 +62344,7 @@ if inArena(player) then onArenaChanged() end
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX84">
+				<Item class="LocalScript" referent="RBX86">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">EngageTrack</string>
@@ -62257,7 +62438,7 @@ playerGui.ChildAdded:Connect(function(g)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX85">
+				<Item class="LocalScript" referent="RBX87">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre achat speedcoil</string>
@@ -62282,7 +62463,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX86">
+				<Item class="LocalScript" referent="RBX88">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">Fenetre dachat fusion coil</string>
@@ -62308,7 +62489,7 @@ end)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX87">
+				<Item class="LocalScript" referent="RBX89">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">HudLayoutClient</string>
@@ -62643,7 +62824,7 @@ task.delay(6, relayout)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX88">
+				<Item class="LocalScript" referent="RBX90">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">PlayerProfileHover</string>
@@ -64267,7 +64448,7 @@ UserInputService.TouchTapInWorld:Connect(function(pos, processedByUI)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX89">
+				<Item class="LocalScript" referent="RBX91">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">ScrollTapGuard</string>
@@ -64355,7 +64536,7 @@ end)
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX90">
+				<Item class="LocalScript" referent="RBX92">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">achat x2coin</string>
@@ -64373,7 +64554,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX91">
+				<Item class="LocalScript" referent="RBX93">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">fenetre dachat gravity coil</string>
@@ -64398,7 +64579,7 @@ remote.OnClientEvent:Connect(function(gamepassId)
 end)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX92">
+				<Item class="LocalScript" referent="RBX94">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">offers on screen</string>
@@ -65352,7 +65533,7 @@ end
 print("✅ OffersDisplay + Referral chargé —", #OFFERS, "offre(s)")]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX93">
+				<Item class="LocalScript" referent="RBX95">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">rebirth offer notify event</string>
@@ -65586,7 +65767,7 @@ end)
 log("Actif pour " .. player.Name)]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="LocalScript" referent="RBX94">
+				<Item class="LocalScript" referent="RBX96">
 					<Properties>
 						<bool name="Disabled">true</bool>
 						<string name="Name">script proposer achat skip obby</string>
