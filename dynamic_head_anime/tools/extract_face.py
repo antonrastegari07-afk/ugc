@@ -240,6 +240,8 @@ if SRCMAP is not None:
 # around/inside the openings keep the exact image pixels (no skin-coloured sliver at the rim)
 face[..., :3] = face[..., :3] * (1 - em_s[..., None]) + rgb_s * em_s[..., None]
 face[..., 3] = np.maximum(face[..., 3], em_s)
+if FACE_STYLE == 'girl2':      # inside the openings the skin shows nothing (the rising lower lid must not carry eye white)
+    face[..., 3] *= 1 - np.clip(cv2.remap(cv2.erode(eye_mask, np.ones((3, 3), np.uint8)).astype(np.float32) / 255, mx, my, cv2.INTER_LINEAR, borderValue=0) * 1.5, 0, 1)
 _l = rgb_s.mean(2)
 _w = (em_s > 0.5) & (_l > 85)
 face[..., :3] = np.where(_w[..., None], 255 - (255 - face[..., :3]) * 0.38, face[..., :3])
@@ -489,6 +491,7 @@ if FACE_STYLE == 'girl2':
         c_c = cv2.remap(SRCMAP['c'], _qx, _qy, cv2.INTER_LINEAR, borderValue=0)
         _lum = c_c.mean(2)
         a_c = a_c * (1 - np.clip((_lum - 70) / 40, 0, 1))            # keep the ink only: no grey haze behind the lashes
+        a_c = np.clip((a_c - 0.35) / 0.3, 0, 1)                      # (the haze is ink at low opacity: dropped too)
         e_c = cv2.remap(eye_mask.astype(np.float32) / 255, sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
         c_c = c_c * (1 - e_c[..., None]) + INK * e_c[..., None]; a_c = np.maximum(a_c, e_c)
         atlas[ry:ry + rh, rx:rx + rw, :3] = c_c; atlas[ry:ry + rh, rx:rx + rw, 3] = a_c * 255

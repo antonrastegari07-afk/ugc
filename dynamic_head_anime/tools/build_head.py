@@ -1069,6 +1069,31 @@ for i in range(SHELL_N):
             if d_ < 0.004:
                 weights[i] = dict(weights[_rim[k]]); n_band += 1
 print('socket rim band vertices skinned like the rim:', n_band)
+if BLINK_MID:
+    # the lower lid rises: the whole LOWER wall of the socket rises with it (same weight as the nearest lower-rim
+    # vertex, fading with depth), so no wall face turns towards the camera above the risen rim
+    n_lw = 0
+    for i in range(SHELL_N):
+        s_ = SOCK[i]
+        if s_ not in ('L', 'R'): continue
+        p_ = REST[i]
+        sp_ = span_c(s_, min(max(p_.x, eye_xr(s_)[0] + 0.002), eye_xr(s_)[1] - 0.002))
+        if sp_ is None or p_.z > (sp_[0] + sp_[1]) / 2: continue
+        sy_ = surf_y(p_.x, p_.z) or p_.y
+        dep = p_.y - sy_
+        co_, k, d_ = _kd.find(Vector((p_.x, 0.0, sp_[1])))
+        wr = weights[_rim[k]].get(('Left' if s_ == 'L' else 'Right') + 'UnderEye', 0.0)
+        f_ = max(0.0, min(1.0, 1.0 - (dep - 0.006) / 0.05))
+        wu = wr * f_
+        if wu > 0.01:
+            w_ = {k_: v_ for k_, v_ in weights[i].items() if not k_.endswith('UnderEye')}
+            tot_ = sum(v_ for k_, v_ in w_.items() if k_ != 'DynamicHead')
+            w_ = {k_: v_ * (1 - wu) for k_, v_ in w_.items() if k_ != 'DynamicHead'}
+            w_[('Left' if s_ == 'L' else 'Right') + 'UnderEye'] = wu
+            rest_ = 1 - sum(w_.values())
+            if rest_ > 0.001: w_['DynamicHead'] = rest_
+            weights[i] = w_; n_lw += 1
+    print('lower socket wall vertices following the lower lid:', n_lw)
 
 # ---------------------------------------------------------------- FACS poses (in mask studs; rigid transforms)
 def T(*d): return ('t', Vector(d))
@@ -1184,7 +1209,7 @@ if BLINK_MID:
         travel = -lid_info[s_]['t'].z
         zmeet = zb_ + 0.42 * (zt_ - zb_)
         LK[s_] = max(0.2, min(1.0, (zt_ - zmeet) / travel + 0.04))
-        UPZ[s_] = 0.022
+        UPZ[s_] = 0.012
     print('blink in the middle: eyeliner travel', {k: round(v, 3) for k, v in LK.items()})
     for pn, pd in P.items():
         for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
