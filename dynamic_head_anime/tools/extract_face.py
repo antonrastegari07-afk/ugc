@@ -67,6 +67,9 @@ INK = np.array([14, 12, 15], np.float32)
 lash_mask = np.zeros((H, W), np.uint8)
 for side in 'RL':
     cv2.fillPoly(lash_mask, [np.round(np.array(LASH_PX[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
+for side in 'RL':                      # the drawn eyeliner is a little thicker upwards than the traced band:
+    _p = np.array(LASH_PX[side], np.float32); _p[:, 1] -= 4            # erase 4 px more above it (no grey sliver left
+    cv2.fillPoly(lash_mask, [np.round(_p * 8).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)   # over the 3D band)
 lash_mask = cv2.dilate(lash_mask, np.ones((7, 7), np.uint8))
 # beyond the eye corners (the wings), keep the drawn ink of the bottom 6 px of the band: it lies under the 3D eyeliner
 # (hidden from the front) and joins the 3D wing to the drawn lower strokes from every angle (no parallax gap)
@@ -99,7 +102,7 @@ for side in 'RL':
     if side == 'R': x0_, x1_ = int(_l0) - 2, int(_e0 + 0.25 * (_e1 - _e0))      # outer corner is on the screen-left
     else: x0_, x1_ = int(_e1 - 0.25 * (_e1 - _e0)), int(_l1) + 2
     _zone[max(y0_, 0):y1_, max(x0_, 0):x1_] = 1.0
-_fill = ((_cls > 0) & (_sup == 0)).astype(np.float32) * _zone
+_fill = ((_cls > 0) & (_sup == 0) & (lash_mask < 64)).astype(np.float32) * _zone   # never back over the 3D band
 _fill = cv2.GaussianBlur(_fill, (0, 0), 0.8)
 alpha = np.maximum(alpha, _fill)
 print('wing gap filled px', int((_fill > 0.5).sum()))
