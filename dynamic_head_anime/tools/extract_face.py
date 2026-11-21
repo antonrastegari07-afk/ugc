@@ -55,6 +55,13 @@ head = lab == lab[int(CY), int(CX)]
 head = ndi.binary_fill_holes(head)
 head = cv2.erode(head.astype(np.uint8), np.ones((25, 25), np.uint8))
 alpha *= cv2.GaussianBlur(head.astype(np.float32), (0, 0), 3)
+# keep only the face's real lines: eyes / brows band and the mouth. The drawing's soft cheek shading (a grey smudge
+# beside the mouth) is not ink: removed, the skin there is the plain recolourable skin
+_keep = np.zeros((H, W), np.float32)
+_keep[:690, :] = 1.0                                   # forehead, brows, eyes, lower lashes
+_keep[725:790, 455:620] = 1.0                          # the mouth line
+_keep = cv2.GaussianBlur(_keep, (0, 0), 4)
+alpha *= _keep
 INK = np.array([14, 12, 15], np.float32)
 # the upper eyeliner is real 3D geometry (it moves down when the eye closes): remove its ink from the face layer
 lash_mask = np.zeros((H, W), np.uint8)
