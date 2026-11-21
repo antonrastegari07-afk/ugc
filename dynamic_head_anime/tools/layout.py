@@ -199,8 +199,8 @@ def iris_uv(side, a, b):                 # a, b in [-1, 1]: ellipse-normalised o
 
 def eye_tex_box(side):
     x0, x1, z0, z1 = eye_bbox(side)
-    return (x0, x1, z0, z1 + EYE_TEX_UP)
-EYE_RECT_K = 0.8 if FACE_STYLE == 'girl2' else 1.0      # girl2: eye texture a little smaller (room for the liner copy)
+    return (x0, x1, z0 - (0.03 if FACE_STYLE == 'girl2' else 0.0), z1 + EYE_TEX_UP)
+EYE_RECT_K = 0.74 if FACE_STYLE == 'girl2' else 1.0      # girl2: eye texture a little smaller (room for the liner copy)
 # girl2: the drawn eyeliner + lashes are copied here; the 3D eyeliner's front uses this copy (the skin under it is
 # erased, so nothing is left on the skin when the eye closes)
 LINER_RECT = {'R': (4, 888, 470, 134), 'L': (480, 888, 470, 134)}

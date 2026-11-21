@@ -692,7 +692,7 @@ def resample(chain, n):
         u = (t - L[i - 1]) / max(L[i] - L[i - 1], 1e-9)
         out.append((chain[i - 1][0] + (chain[i][0] - chain[i - 1][0]) * u, chain[i - 1][1] + (chain[i][1] - chain[i - 1][1]) * u))
     return out
-LASH_COLS = 34 if DRAWN_LASH else 22
+LASH_COLS = 14 if DRAWN_LASH else 22
 for s in 'LR':
     poly = lash_poly_studs(s)
     i0 = min(range(len(poly)), key=lambda i: poly[i][0]); i1 = max(range(len(poly)), key=lambda i: poly[i][0])
@@ -704,11 +704,20 @@ for s in 'LR':
         ch = sorted(chain)
         for i in range(1, len(ch)):
             if ch[i][0] >= x:
-                u = (x - ch[i - 1][0]) / max(ch[i][0] - ch[i - 1][0], 1e-9)
+                if ch[i][0] - ch[i - 1][0] < 1e-7: return ch[i][1]
+                u = (x - ch[i - 1][0]) / (ch[i][0] - ch[i - 1][0])
                 return ch[i - 1][1] + (ch[i][1] - ch[i - 1][1]) * u
         return ch[-1][1]
     xl, xr = poly[i0][0], poly[i1][0]
     xsl = [xl + (xr - xl) * (0.5 - 0.5 * math.cos(math.pi * k / LASH_COLS)) for k in range(LASH_COLS + 1)]
+    if DRAWN_LASH:                 # also a column at every point of the eye's outline (steep corners followed exactly)
+        _ex = sorted({round(p_[0], 5) for p_ in EYES[s] if xl + 1e-4 < p_[0] < xr - 1e-4})
+        _m = sorted(set([round(v, 5) for v in xsl]) | set(_ex))
+        xsl = [_m[0]]
+        for v in _m[1:]:
+            if v - xsl[-1] > 0.006: xsl.append(v)
+        if xsl[-1] < xr - 1e-6: xsl.append(xr)
+    NCOL = len(xsl) - 1
     top = [(x, at_x(top, x)) for x in xsl]; bot = [(x, at_x(bot, x)) for x in xsl]
     bot = [(x, min(zb, zt - 0.002)) for (x, zb), (_, zt) in zip(bot, top)]
     # overhang below the rim: full on the rim, fading out smoothly where the band leaves it towards the tips (a binary
@@ -721,24 +730,25 @@ for s in 'LR':
     bot = [(x, min(zb, zt - 0.002)) for (x, zb), (_, zt) in zip(bot, top)]
     def mk(x, z):
         loc, nrm, _, _ = BVH.ray_cast(Vector((x, -3.0, z)), Vector((0, 1, 0)))
+        if loc is None: print('   lash ray miss', s, round(x, 4), round(z, 4)); loc, nrm, _, _ = BVH.find_nearest(Vector((x, -0.6, z)))
         return bm.verts.new(loc + nrm * LASH_T), bm.verts.new(loc - nrm * 0.004)
     T_ = [mk(*p) for p in top]; B_ = [mk(*p) for p in bot[1:-1]]
     B_ = [T_[0]] + B_ + [T_[-1]]                                   # tips shared
     for v in {v for pair in T_ + B_ for v in pair}: lash_verts[s].append(v)
     # front: rows between the top and bottom chains, each point projected on the head surface (the band follows the
     # curve of the head at the eye corners instead of cutting across it)
-    NR = 3 if DRAWN_LASH else 1
+    NR = 2 if DRAWN_LASH else 1
     rows_ = [[v[0] for v in T_]]
     for r_ in range(1, NR):
         t_ = r_ / NR; row = []
-        for i in range(LASH_COLS + 1):
-            if i in (0, LASH_COLS): row.append(T_[i][0]); continue
+        for i in range(NCOL + 1):
+            if i in (0, NCOL): row.append(T_[i][0]); continue
             x_ = top[i][0] + (bot[i][0] - top[i][0]) * t_; z_ = top[i][1] + (bot[i][1] - top[i][1]) * t_
             fv, bv = mk(x_, z_); bm.verts.remove(bv); row.append(fv); lash_verts[s].append(fv)
         rows_.append(row)
     rows_.append([v[0] for v in B_])
     for r_ in range(NR):
-        for i in range(LASH_COLS):
+        for i in range(NCOL):
             vs = [rows_[r_][i], rows_[r_][i + 1], rows_[r_ + 1][i + 1], rows_[r_ + 1][i]]
             vs = list(dict.fromkeys(vs))
             if len(vs) < 3: continue

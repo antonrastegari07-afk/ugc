@@ -395,32 +395,59 @@ for side in 'RL':
     atlas[ry:ry + rh, rx:rx + rw, :3] = t8
     atlas[ry:ry + rh, rx:rx + rw, 3] = 255
 
+EYE_WHITE = np.array((238, 238, 241), np.float32)
 if SRCMAP is not None:
-    # the inside of the eyes = the drawing itself (every white dot, the shaded white, the iris as drawn), sampled at
-    # full resolution; the parts hidden under the skin / eyeliner are filled by extending the drawn eye outwards
+    # the eye painted at the back of the white hole: PURE WHITE everywhere (the hole is white, also on the sides and
+    # above the opening) + the drawn iris as a FULL ROUND disc (its part hidden under the eyeliner rebuilt from the
+    # visible part: dark at the top, like the drawing).  The iris keeps every drawn detail (heart, sparkles, dots).
     _src = SRCMAP['img']
     _om = np.zeros(_src.shape[:2], np.uint8)
     for side in 'RL':
         _ps = np.array([img2src(*p) for p in EYE_PX[side]], np.float32)
         cv2.fillPoly(_om, [np.round(_ps * 8).astype(np.int32)], 255, cv2.LINE_AA, 3)
-    _om = cv2.erode((_om > 127).astype(np.uint8), np.ones((5, 5), np.uint8))
-    _y0, _y1, _x0, _x1 = 380, 900, 120, 1140
-    _crop = _src[_y0:_y1, _x0:_x1]
-    _sc = 0.5
-    _cs_ = cv2.resize(_crop, None, fx=_sc, fy=_sc, interpolation=cv2.INTER_AREA).astype(np.uint8)
-    _ms_ = cv2.resize(1 - _om[_y0:_y1, _x0:_x1], (_cs_.shape[1], _cs_.shape[0]), interpolation=cv2.INTER_NEAREST)
-    _fill = cv2.inpaint(_cs_, _ms_, 6, cv2.INPAINT_TELEA).astype(np.float32)
-    _fill = cv2.resize(_fill, (_x1 - _x0, _y1 - _y0), interpolation=cv2.INTER_CUBIC)
-    _inside = cv2.GaussianBlur(_om[_y0:_y1, _x0:_x1].astype(np.float32), (0, 0), 0.8)[..., None]
-    _eyeimg = np.array(_src, copy=True)
-    _eyeimg[_y0:_y1, _x0:_x1] = _crop * _inside + _fill * (1 - _inside)
+    _vis = cv2.erode((_om > 127).astype(np.uint8), np.ones((7, 7), np.uint8))       # surely visible drawing pixels
+    _ksx = (GIRL2_SRC['sx1'] - GIRL2_SRC['sx0']) / (GIRL2_SRC['dx1'] - GIRL2_SRC['dx0'])
     for side in 'RL':
+        (icx, icy), (irx_, iry_) = IRIS_PX[side], IRIS_R_PX[side]
+        scx, scy = img2src(icx, icy); srx, sry = irx_ * _ksx, iry_ * _ksx
+        # iris disc in src space: visible pixels kept, hidden ones inpainted (from the dark top rows of the drawing)
+        R0 = int(max(srx, sry) + 12)
+        x0_, y0_ = int(scx - R0), int(scy - R0)
+        crop = _src[y0_:y0_ + 2 * R0, x0_:x0_ + 2 * R0].copy()
+        yy_, xx_ = np.mgrid[0:2 * R0, 0:2 * R0]
+        aa = (xx_ + x0_ - scx) / srx; bb = (yy_ + y0_ - scy) / sry
+        disc = np.sqrt(aa ** 2 + bb ** 2) < 1.2           # (the two light ovals sit on the iris edge)
+        known = disc & (_vis[y0_:y0_ + 2 * R0, x0_:x0_ + 2 * R0] > 0)
+        fill_m = (disc & ~known).astype(np.uint8)
+        # the hidden top of the drawn iris is black (as drawn just under the eyeliner); a soft transition into it
+        crop_i = crop.copy()
+        crop_i[fill_m > 0] = (13, 11, 15)
+        kb = cv2.GaussianBlur(known.astype(np.float32), (0, 0), 2.5)[..., None]
+        crop_i = crop * kb + crop_i * (1 - kb) if False else np.where(known[..., None], crop, crop_i)
+        _kb = cv2.GaussianBlur(known.astype(np.float32), (0, 0), 3.0)[..., None]       # soft seam drawing -> rebuilt top
+        _kb = np.where(known[..., None], np.clip(_kb * 2 - 0.0, 0, 1), 0)
+        crop_i = crop * _kb + np.array((13, 11, 15), np.float32) * (1 - _kb)
         x0, x1, z0, z1 = eye_tex_box(side); rx, ry, rw, rh = eye_rect(side)
         yy, xx = np.mgrid[0:rh, 0:rw]
         xs_ = x0 + (xx - 1 + 0.5) / (rw - 2) * (x1 - x0); zs_ = z1 - (yy - 1 + 0.5) / (rh - 2) * (z1 - z0)
         _qx, _qy = src_coords((CX + xs_ * SX), (CY - zs_ * SY))
-        atlas[ry:ry + rh, rx:rx + rw, :3] = cv2.remap(_eyeimg, _qx, _qy, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE).clip(0, 255)
+        col = cv2.remap(crop_i, _qx - x0_, _qy - y0_, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        ra = np.sqrt(((_qx - scx) / srx) ** 2 + ((_qy - scy) / sry) ** 2)
+        ia = np.clip((1.0 - ra) / 0.02, 0, 1)                                       # crisp iris edge
+        _vq = cv2.remap(_vis[y0_:y0_ + 2 * R0, x0_:x0_ + 2 * R0].astype(np.float32), _qx - x0_, _qy - y0_, cv2.INTER_LINEAR) > 0.5
+        # the two light ovals the drawing puts on the lower iris edge (left and right), redrawn crisp
+        _au = (_qx - scx) / srx; _bu = (_qy - scy) / sry
+        _ovm = np.zeros_like(ra)
+        for _oa, _ob in ((-0.80, 0.60), (0.80, 0.62)):
+            _ovm = np.maximum(_ovm, np.clip((1 - np.sqrt(((_au - _oa) / 0.13) ** 2 + ((_bu - _ob) / 0.07) ** 2)) / 0.15, 0, 1))
+        col = col * (1 - _ovm[..., None]) + 246 * _ovm[..., None]
+        ia = np.maximum(ia, _ovm)
+        ia = ia[..., None]
+        atlas[ry:ry + rh, rx:rx + rw, :3] = np.clip(EYE_WHITE * (1 - ia) + col * ia, 0, 255)
         atlas[ry:ry + rh, rx:rx + rw, 3] = 255
+    _rR, _rL = eye_rect('R'), eye_rect('L')                                          # gap between the two blocks: white
+    _g0, _g1 = _rR[0] + _rR[2], _rL[0]
+    atlas[_rR[1]:_rR[1] + _rR[3], _g0:_g1, :3] = EYE_WHITE
 
 # --- lids: skin (transparent) with the lash line along the closing edge
 for side in 'RL':
@@ -431,7 +458,8 @@ for side in 'RL':
         atlas[ry + y, rx:rx + rw, :3] = INK
         atlas[ry + y, rx:rx + rw, 3] = a * 255
 # --- socket walls + mouth interior
-for rect, tone in ((WALL_UP_RECT, (236, 236, 238)), (WALL_LO_RECT, (222, 222, 225))):
+for rect, tone in (((WALL_UP_RECT, (238, 238, 241)), (WALL_LO_RECT, (238, 238, 241))) if FACE_STYLE == 'girl2' else
+                   ((WALL_UP_RECT, (236, 236, 238)), (WALL_LO_RECT, (222, 222, 225)))):
     x, y, w, h = rect; atlas[y:y + h, x:x + w, :3] = tone; atlas[y:y + h, x:x + w, 3] = 255
 x, y, w, h = MOUTH_RECT; atlas[y:y + h, x:x + w] = (46, 20, 24, 255)
 x, y, w, h = LASH_RECT; atlas[y:y + h, x:x + w] = (16, 14, 17, 255)
