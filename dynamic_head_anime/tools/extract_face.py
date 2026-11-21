@@ -36,26 +36,34 @@ if os.environ.get('CREASE_FOLLOW', '1') == '1':
     Db = BROW_DOWN * np.clip((_ys - 430) / 15, 0, 1) * np.clip((510 - _ys) / 8, 0, 1)
     _mx, _my = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
     im = cv2.remap(im, _mx, _my - Db[:, None], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    # 2) only the crease line moves: in its band (rows 512 .. just above the eyeliner) each column is shifted down by
-    #    dc(x) and the vacated rows get the plain skin tone
+    # 2) a CLEAN crease line: the drawn one is erased and redrawn as one smooth tapered stroke that follows the curve
+    #    of the top of the eye (constant gap above the eyeliner), thin at both ends, a bit thicker in the middle
     _skin = np.median(im[512:528, 300:360].reshape(-1, 3), axis=0)
-    for x in range(int(CX) + 1):
+    XS, XE = 284.0, 474.0
+    for x in range(232, 490):
         ty = _top(x)
-        if ty is None or not (262 <= x <= 482): continue
-        dc = min(16.0, max(0.0, (ty - CREASE_GAP) - _CY0)) if x <= 440 else 16.0
-        dc *= _sst(262, 285, x) * (1 - _sst(440, 482, x))
-        if dc < 0.05: continue
-        y0, y1 = 512, int(ty - 2)
+        y1 = int((ty - 2) if ty is not None else 548)
         for xx in (x, int(round(2 * CX - x))):
-            if not (0 <= xx < W) or y1 <= y0: continue
-            seg = im[y0:y1, xx].copy()
-            src = np.arange(y0, y1, dtype=np.float32) - dc
-            lo = np.floor(src).astype(int); fr = (src - lo)[:, None]
-            ok = lo >= y0
-            lo_c = np.clip(lo, y0, y1 - 1); hi_c = np.clip(lo + 1, y0, y1 - 1)
-            moved = im[lo_c, xx] * (1 - fr) + im[hi_c, xx] * fr
-            seg[ok] = moved[ok]; seg[~ok] = _skin
-            im[y0:y1, xx] = seg
+            if 0 <= xx < W and y1 > 506: im[506:y1, xx] = _skin
+    def _yc(x):
+        ty = _top(x)
+        ty = min(ty if ty is not None else 550.0, 550.0)
+        return ty - CREASE_GAP - 1.0
+    _xs = np.linspace(XS, XE, 240)
+    _yy = np.array([_yc(x) for x in _xs])
+    _yy = np.convolve(np.pad(_yy, 6, mode='edge'), np.ones(13) / 13, mode='valid')   # smooth curve
+    _u = (_xs - XS) / (XE - XS)
+    _hw = 1.7 * np.sin(np.pi * np.clip(_u, 0, 1)) ** 0.55 * (1 - 0.3 * _u)             # half width: pointed ends
+    _up = np.stack([_xs, _yy - _hw], 1); _dn = np.stack([_xs, _yy + _hw], 1)[::-1]
+    _pol = np.concatenate([_up, _dn])
+    SS = 4                                                   # drawn at 4x then reduced: a smooth, even stroke
+    _mask = np.zeros((H * SS, W * SS), np.uint8)
+    for P in (_pol, np.stack([2 * CX - _pol[:, 0], _pol[:, 1]], 1)):
+        cv2.fillPoly(_mask, [np.round((P + 0.5) * SS * 8 - 4).astype(np.int32)], 255, lineType=cv2.LINE_AA, shift=3)
+    _m = cv2.resize(_mask.astype(np.float32) / 255, (W, H), interpolation=cv2.INTER_AREA)
+    _m = cv2.GaussianBlur(_m, (0, 0), 0.45)[..., None]
+    im = im * (1 - _m) + np.array([34, 32, 38], np.float32) * _m
+
 # shorten the drawn eyeliner strokes beyond the eye corners like the 3D eyeliner (see layout.lash_corners)
 _mx, _my = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
 _src = _mx.copy()
