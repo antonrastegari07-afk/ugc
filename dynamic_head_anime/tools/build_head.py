@@ -1136,11 +1136,7 @@ for poly in me.polygons:
     for li in poly.loop_indices:
         vi = me.loops[li].vertex_index
         lid_side = next((s_ for s_ in 'LR' if vi in LID_IDX[s_]), None)
-        if any(vi in IRIS_IDX[s_] for s_ in 'LR'):
-            # pupil ball: every normal faces the front -> no rim sheen / reflection gradient in Roblox, a uniform
-            # deepest black from every angle (the ball keeps its 3D shape and silhouette)
-            newn.append((R3 @ Vector((0, -1, 0))).normalized()); nset += 1
-        elif lid_side:
+        if lid_side:
             Lf = lid_info[lid_side]
             pr = Minv @ me.vertices[vi].co                         # rest position (mask studs)
             # the lid only slides (no rotation): its normal is the skin normal where it lies when closed
