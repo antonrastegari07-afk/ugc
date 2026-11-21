@@ -711,6 +711,87 @@ ng = [f for f in bm.faces if len(f.verts) > 3]                      # quads too:
 bmesh.ops.triangulate(bm, faces=ng, quad_method='BEAUTY', ngon_method='EAR_CLIP')
 bm.normal_update()
 
+# no degenerate (sliver / zero-area) triangles: the boolean's concave n-gons left a few on the socket walls, which
+# Roblox validation rejects ("Head_Geo has x% degenerate triangles").  Rotate the long edge of each sliver with its
+# neighbour of the same kind (wall/wall, skin/skin); positions don't move, UVs are recomputed from the same formulas.
+WALL_LO_UV_RECT = WALL_LO_RECT
+def _cat(f):
+    u, v = f.loops[0][uvl].uv; px, py = u * ATLAS, (1 - v) * ATLAS
+    x, y, w, h = WALL_LO_RECT
+    if x <= px <= x + w and y <= py <= y + h: return 'wall'
+    x, y, w, h = FACE_RECT
+    if x <= px <= x + w and y <= py <= y + h: return 'skin'
+    x, y, w, h = CLEAR_RECT
+    if x <= px <= x + w and y <= py <= y + h: return 'clear'
+    return None
+def _set_uv(f, cat):
+    if cat == 'wall':
+        for l in f.loops:
+            co = l.vert.co; sy_ = surf_y(co.x, co.z)
+            l[uvl].uv = wall_uv(WALL_LO_RECT, co.y - sy_) if sy_ is not None else rect_center_uv(WALL_LO_RECT)
+    elif cat == 'skin':
+        set_skin_uv(f)
+    elif cat == 'clear':
+        for l in f.loops: l[uvl].uv = CLEAR_UV
+def _minang(f):
+    return min(l.calc_angle() for l in f.loops)
+def _bad(f):
+    return len(f.verts) == 3 and (f.calc_area() < 1e-7 or _minang(f) < math.radians(2.0))
+n_fix = 0
+for _it in range(6):
+    bad_ = [f for f in bm.faces if _bad(f)]
+    if not bad_: break
+    for f in bad_:
+        if not f.is_valid or not _bad(f): continue
+        for e in sorted(f.edges, key=lambda e: -e.calc_length()):
+            if len(e.link_faces) != 2 or e.seam: continue
+            g = e.link_faces[0] if e.link_faces[1] == f else e.link_faces[1]
+            cf, cg = _cat(f), _cat(g)
+            if cf is None or cf != cg or len(g.verts) != 3: continue
+            n0 = (f.normal * f.calc_area() + g.normal * g.calc_area()).normalized()
+            q0 = min(_minang(f), _minang(g))
+            ne = bmesh.utils.edge_rotate(e, True)
+            if ne is None: continue
+            nf = list(ne.link_faces)
+            for x_ in nf: x_.normal_update()
+            if len(nf) == 2 and all(x_.normal.dot(n0) > 0.3 for x_ in nf) and min(_minang(x_) for x_ in nf) > q0:
+                for x_ in nf:
+                    x_.smooth = True; _set_uv(x_, cf)
+                n_fix += 1
+                break
+            back = bmesh.utils.edge_rotate(ne, False)                  # worse: undo
+            if back is not None:
+                for x_ in back.link_faces: x_.normal_update(); _set_uv(x_, cf)
+            break                                                      # f no longer exists after a rotation
+# needles (one ~1 mm edge) can't be fixed by a rotation: collapse their short edge (shell only, never a vertex of
+# the eyes, lids, eyeliner or mouth patch); the shell vertex count (SHELL_N) is updated
+bm.verts.ensure_lookup_table()
+_shell = set(bm.verts[:SHELL_N])
+_prot = set()
+for s_ in 'LR':
+    _prot |= set(lid_info[s_]['verts']) | set(cup_verts[s_]) | set(iris_verts[s_]) | set(lash_verts[s_])
+for a_, b_ in BAG_PAIRS: _prot |= {a_, b_}
+n_col = 0
+for _it in range(6):
+    bad_ = [f for f in bm.faces if _bad(f)]
+    if not bad_: break
+    for f in bad_:
+        if not f.is_valid or not _bad(f): continue
+        e = min(f.edges, key=lambda e: e.calc_length())
+        a_, b_ = e.verts
+        if a_ in _prot or b_ in _prot or a_ not in _shell or b_ not in _shell: continue
+        if e.calc_length() > 0.006: continue
+        aff = {x_: _cat(x_) for x_ in set(a_.link_faces) | set(b_.link_faces)}
+        if any(c_ is None for c_ in aff.values()): continue
+        bmesh.ops.collapse(bm, edges=[e], uvs=True)
+        for x_, c_ in aff.items():
+            if x_.is_valid:
+                x_.normal_update(); _set_uv(x_, c_)
+        n_col += 1
+bm.verts.index_update(); bm.verts.ensure_lookup_table()
+SHELL_N = sum(1 for v in bm.verts if v in _shell)
+print('degenerate triangles fixed', n_fix, 'collapsed', n_col, 'left', sum(1 for f in bm.faces if _bad(f)))
+
 # sharp edges at the socket rims / mouth / eyeliner
 for e in bm.edges:
     if len(e.link_faces) == 2:
@@ -947,7 +1028,7 @@ for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
                                          **eye_look('X', -LOOK_Z)}
 P['LeftEyeUpperLidRaiser'] = {'LeftUpperEyelid': lid_rot('L', -0.07), 'LeftLashTip': tip(-0.07), 'LeftOuterBrow': T(0, 0, 0.006), 'LeftInnerBrow': T(0, 0, 0.004)}
 P['LeftLipCornerPuller'] = {'LeftLipCorner': T(0.014, 0.006, 0.020), 'LeftCheek': T(0, -0.002, 0.005), 'LeftUnderEye': T(0, -0.001, 0.003)}
-P['LeftLipCornerDown'] = {'LeftLipCorner': T(0.004, 0.0, -0.018)}
+P['LeftLipCornerDown'] = {'LeftLipCorner': T(0.004, 0.0, -0.024)}
 P['LeftLipStretcher'] = {'LeftLipCorner': T(0.024, 0.002, -0.006)}
 P['LeftLowerLipDepressor'] = {'LeftLowerLip': T(0.004, 0, -0.024)}
 P['LeftUpperLipRaiser'] = {'LeftUpperLip': T(0, -0.003, 0.018)}
@@ -957,12 +1038,13 @@ P['LeftOuterBrowRaiser'] = {'LeftOuterBrow': T(0, 0, 0.028)}
 for k in list(P):
     if k.startswith('Left') and 'Right' + k[4:] not in P and '_' not in k:
         P['Right' + k[4:]] = mirror(P[k])
-P['JawDrop'] = {'Jaw': T(0, 0.012, -0.095)}
-P['ChinRaiser'] = {'Jaw': T(0, -0.010, 0.006), 'LeftLowerLip': T(0, -0.004, 0.0), 'RightLowerLip': T(0, -0.004, 0.0)}
+P['JawDrop'] = {'Jaw': T(0, 0.014, -0.120)}
+P['ChinRaiser'] = {'Jaw': T(0, -0.020, 0.005), 'LeftLowerLip': T(0, -0.014, 0.003), 'RightLowerLip': T(0, -0.014, 0.003),
+                   'LeftUpperLip': T(0, -0.010, 0.004), 'RightUpperLip': T(0, -0.010, 0.004)}   # chin pushed up/forward (pout)
 # chin raiser pushing the upper lip up too (mouth shrug): clearly visible, Studio flags tiny poses as "identical to Neutral"
 P['ChinRaiserUpperLip'] = {'LeftUpperLip': T(0, -0.010, 0.016), 'RightUpperLip': T(0, -0.010, 0.016),
                            'LeftLowerLip': T(0, -0.010, 0.012), 'RightLowerLip': T(0, -0.010, 0.012),
-                           'LeftLipCorner': T(0, -0.004, 0.008), 'RightLipCorner': T(0, -0.004, 0.008),
+                           'LeftLipCorner': T(0, -0.004, 0.0), 'RightLipCorner': T(0, -0.004, 0.0),
                            'Jaw': T(0, -0.012, 0.012)}
 # extra Roblox base poses (no tongue, the eyes never move): more expressions available in Studio / with face tracking
 P['JawLeft'] = {'Jaw': T(0.022, 0, 0)}
@@ -1099,13 +1181,83 @@ for v in cbm.verts:
             disp += wgt * (my_feat[k] - ref_feat[k]); wsum += wgt
         q2 = q + disp * min(1.0, wsum)
         v.co.x, v.co.z = q2.x, q2.y
+# the cage MOUTH landmarks (the hole of the cage mouth and its second loop) must lie on THIS mouth, which is much
+# narrower than the Blocky one: Roblox validation projects them on the head and checks that they move for "mouth
+# open" (JawDrop) and the sad expression.  Scale the cage mouth area onto the mouth (same centre, mouth width, a lip
+# height), fading out smoothly around it (no fold).
+_bnd = [e for e in cbm.edges if e.is_boundary]
+_adj = {}
+for e in _bnd:
+    a_, b_ = e.verts; _adj.setdefault(a_, []).append(b_); _adj.setdefault(b_, []).append(a_)
+_seen = set(); _loops = []
+for v0 in _adj:
+    if v0 in _seen: continue
+    st = [v0]; comp = []
+    while st:
+        x_ = st.pop()
+        if x_ in _seen: continue
+        _seen.add(x_); comp.append(x_); st += _adj[x_]
+    _loops.append(comp)
+_front = [L for L in _loops if sum(v.co.y for v in L) / len(L) < hc.y - 0.25]
+_mloop = min(_front, key=lambda L: sum(v.co.z for v in L) / len(L))      # lowest front hole = the mouth
+_mx = [v.co.x for v in _mloop]; _mz = [v.co.z for v in _mloop]
+mc_c = Vector(((min(_mx) + max(_mx)) / 2, (min(_mz) + max(_mz)) / 2)); hw_c = (max(_mx) - min(_mx)) / 2
+_qc = np.polyfit([v.co.x for v in _mloop], [v.co.z for v in _mloop], 2)          # Blocky's (smile) slit
+_tx = [MX0 + (MX1 - MX0) * k / 20 for k in range(21)]
+_tw = [MP((x_, 0, mouth_z(x_))) for x_ in _tx]
+_qt = np.polyfit([p_.x for p_ in _tw], [p_.z for p_ in _tw], 2)                  # this mouth's line (world)
+mc_t_x = (_tw[0].x + _tw[-1].x) / 2; hw_t = (_tw[-1].x - _tw[0].x) / 2 + 0.006
+# lip landmark colours of Roblox's cage template: green = upper lip, purple = lower lip
+_ccol = cage.data.color_attributes[0]
+_vcol = {}
+for li_, dd_ in enumerate(_ccol.data):
+    _vcol.setdefault(cage.data.loops[li_].vertex_index, set()).add(tuple(round(x_, 2) for x_ in dd_.color[:3]))
+cbm.verts.ensure_lookup_table()
+LIP_UP, LIP_LO = 0.018, 0.018
+targets = {}
+for v in cbm.verts:
+    cs = _vcol.get(v.index, set())
+    up = (0.05, 0.35, 0.05) in cs; lo = (0.1, 0.02, 0.1) in cs
+    on_hole = v in set(_mloop)
+    if not (up or lo or on_hole) or v.co.y > hc.y - 0.25: continue
+    u = max(-1.15, min(1.15, (v.co.x - mc_c.x) / hw_c))
+    x2 = mc_t_x + u * hw_t; z0 = float(np.polyval(_qt, x2))
+    above = v.co.z >= float(np.polyval(_qc, v.co.x))
+    if on_hole and not (up or lo):
+        z2 = z0 + (0.003 if above else -0.003)
+    else:
+        taper = max(0.35, 1.0 - 0.55 * u * u)                    # lips thinner towards the corners
+        if on_hole: z2 = z0 + (0.004 if up else -0.004)
+        else: z2 = z0 + (LIP_UP if up else -LIP_LO) * taper
+    targets[v] = Vector((x2, z2))
+_disp = [(Vector((v.co.x, v.co.z)), t_ - Vector((v.co.x, v.co.z))) for v, t_ in targets.items()]
+for v in cbm.verts:
+    if v.co.y > hc.y - 0.25: continue
+    q = Vector((v.co.x, v.co.z))
+    if v in targets:
+        v.co.x, v.co.z = targets[v].x, targets[v].y; continue
+    dmin = min((q - p_).length for p_, _ in _disp)
+    fall = max(0.0, min(1.0, (0.09 - dmin) / 0.07)); fall = fall * fall * (3 - 2 * fall)
+    if fall <= 0: continue
+    ws = [1.0 / ((q - p_).length ** 2 + 1e-4) for p_, _ in _disp]
+    dsp = sum((d_ * w_ for (_, d_), w_ in zip(_disp, ws)), Vector((0, 0))) / sum(ws)
+    v.co.x += dsp.x * fall; v.co.z += dsp.y * fall
+print('cage mouth landmarks: %d placed on the mouth (upper lip +%.3f, lower lip -%.3f, half-width %.3f)' % (len(targets), LIP_UP, LIP_LO, hw_t))
 hbm = bmesh.new(); hbm.from_mesh(head.data); hbm.transform(AW)
 HB = BVHTree.FromBMesh(hbm)
 for v in cbm.verts:                                            # wrap: 1.2 cm outside this head along the ray from the centre
     d = (v.co - hc).normalized()
+    # over the eye / mouth openings the head mesh is deep inside: wrap around the closed BASE surface there (the cage
+    # must stay over the face, never sink into a socket), and around the real mesh where it stands out (eyeliner)
+    lb = radial((v.co - hc) / S)
+    cand = []
+    if lb is not None and (v.co - hc).length > 0.85 * (lb * S).length:
+        cand.append(hc + lb * S)                               # a surface vertex of the cage (not an inner socket loop)
     loc, nrm, _, dist = HB.ray_cast(hc + d * 2.0, -d)
-    if loc is not None:
-        v.co = loc + d * 0.012
+    if loc is not None: cand.append(loc)
+    if cand:
+        far = max(cand, key=lambda p_: (p_ - hc).dot(d))
+        v.co = far + d * 0.012
 cbm.transform(cage.matrix_world.inverted()); cbm.to_mesh(cage.data); cbm.free(); hbm.free()
 
 # attachments: face front on the face surface

@@ -82,6 +82,27 @@ for side in 'RL':
     _wz = np.maximum(_wz, np.clip(np.maximum(_e0 + 2 - _x, _x - _e1 - 2) / 6, 0, 1) * ((_x > _e0 - 90) & (_x < _e1 + 90)))
 lash_mask = (lash_mask * (1 - _wz[None, :]) + np.minimum(lash_mask, wing_mask) * _wz[None, :]).astype(np.uint8)
 alpha *= 1 - cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
+# outer wing: the drawn lower stroke and the 3D eyeliner meet at the tip with a thin wedge of skin between them; fill
+# that wedge with ink (closing of ink + eyeliner band + opening, only beyond the outer corners) -> one solid wing
+_solid = np.maximum((alpha > 0.45).astype(np.uint8) * 255, 0)
+_band = np.zeros((H, W), np.uint8)
+for side in 'RL':
+    cv2.fillPoly(_band, [np.round(np.array(LASH_PX[side]) * 8).astype(np.int32)], 255, lineType=cv2.LINE_8, shift=3)
+_sup = np.maximum(np.maximum(_solid, _band), eye_mask)
+_cls = cv2.morphologyEx(_sup, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17)))
+_zone = np.zeros((H, W), np.float32)
+for side in 'RL':
+    _e0, _e1 = min(p[0] for p in EYE_PX[side]), max(p[0] for p in EYE_PX[side])
+    _l0, _l1 = min(p[0] for p in LASH_PX[side]), max(p[0] for p in LASH_PX[side])
+    _ys = [p[1] for p in EYE_PX[side]]
+    y0_, y1_ = int(min(p[1] for p in LASH_PX[side])) - 2, int(max(_ys)) + 4
+    if side == 'R': x0_, x1_ = int(_l0) - 2, int(_e0 + 0.25 * (_e1 - _e0))      # outer corner is on the screen-left
+    else: x0_, x1_ = int(_e1 - 0.25 * (_e1 - _e0)), int(_l1) + 2
+    _zone[max(y0_, 0):y1_, max(x0_, 0):x1_] = 1.0
+_fill = ((_cls > 0) & (_sup == 0)).astype(np.float32) * _zone
+_fill = cv2.GaussianBlur(_fill, (0, 0), 0.8)
+alpha = np.maximum(alpha, _fill)
+print('wing gap filled px', int((_fill > 0.5).sum()))
 
 # --- FACE block of the atlas: sample the image through the stud mapping
 fx, fy, fw, fh = FACE_RECT
@@ -272,7 +293,21 @@ cv2.imwrite(f'{OUT}/HeadTexture_Emissive.png', np.clip(emis, 0, 255).astype(np.u
 a = out[..., 3].astype(np.float32) / 255
 rough = (0.6 * (1 - a) + 1.0 * a) * 255
 cv2.imwrite(f'{OUT}/HeadTexture_Roughness.png', np.clip(rough, 0, 255).astype(np.uint8))
-cv2.imwrite(f'{OUT}/HeadTexture_Metalness.png', np.zeros((ATLAS, ATLAS), np.uint8))
+# metalness: 0 everywhere except the PUPIL (white = metal): the 3D black ball (style 'sphere') or the drawn pupil oval
+# (style 'flat'); a black metal reflects (almost) nothing straight on -> the deepest black
+_metal = np.zeros((ATLAS, ATLAS), np.uint8)
+if os.environ.get('EYE_STYLE', 'sphere') == 'flat':
+    for side in 'RL':
+        x0, x1, z0, z1 = eye_tex_box(side); rx, ry, rw, rh = eye_rect(side)
+        yy, xx = np.mgrid[0:rh, 0:rw]
+        xs_ = x0 + (xx - 1 + 0.5) / (rw - 2) * (x1 - x0); zs_ = z1 - (yy - 1 + 0.5) / (rh - 2) * (z1 - z0)
+        xi, zi, irx, irz = iris_studs(side)
+        lens = (((xs_ - xi) / irx / 0.24) ** 2 + ((zs_ - zi) / irz / 0.70) ** 2) <= 1.0
+        lens &= atlas[ry:ry + rh, rx:rx + rw, :3].mean(2) < 140          # not the white highlight
+        _metal[ry:ry + rh, rx:rx + rw][lens] = 255
+else:
+    x, y, w, h = BALL_RECT; _metal[y:y + h, x:x + w] = 255
+cv2.imwrite(f'{OUT}/HeadTexture_Metalness.png', _metal)
 cv2.imwrite(f'{OUT}/HeadTexture_Normal.png', np.full((ATLAS, ATLAS, 3), (255, 128, 128), np.uint8))   # BGR of (128,128,255)
 
 # --- mouth centre line (studs) from the ink

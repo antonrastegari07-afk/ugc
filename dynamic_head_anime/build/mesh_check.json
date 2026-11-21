@@ -1,24 +1,24 @@
 {
  "ChinRaiser@25": {
-  "moved": 76,
+  "moved": 135,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "ChinRaiser@50": {
-  "moved": 85,
+  "moved": 144,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "ChinRaiser@75": {
-  "moved": 86,
+  "moved": 144,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "ChinRaiser@100": {
-  "moved": 89,
+  "moved": 144,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -48,25 +48,25 @@
   "stretched": 0
  },
  "EyesLookDown@25": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookDown@50": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookDown@75": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookDown@100": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -78,19 +78,19 @@
   "stretched": 0
  },
  "EyesLookUp@50": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookUp@75": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "EyesLookUp@100": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -216,49 +216,49 @@
   "stretched": 0
  },
  "LeftCheekPuff@25": {
-  "moved": 77,
+  "moved": 75,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftCheekPuff@50": {
-  "moved": 89,
+  "moved": 87,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftCheekPuff@75": {
-  "moved": 89,
+  "moved": 87,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftCheekPuff@100": {
-  "moved": 96,
+  "moved": 94,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftCheekRaiser@25": {
-  "moved": 62,
+  "moved": 60,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftCheekRaiser@50": {
-  "moved": 65,
+  "moved": 63,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftCheekRaiser@75": {
-  "moved": 65,
+  "moved": 63,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftCheekRaiser@100": {
-  "moved": 65,
+  "moved": 63,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -288,49 +288,49 @@
   "stretched": 0
  },
  "LeftEyeClosed@25": {
-  "moved": 228,
+  "moved": 226,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@50": {
-  "moved": 228,
+  "moved": 226,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@75": {
-  "moved": 228,
+  "moved": 226,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@100": {
-  "moved": 228,
+  "moved": 226,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeUpperLidRaiser@25": {
-  "moved": 298,
+  "moved": 296,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeUpperLidRaiser@50": {
-  "moved": 311,
+  "moved": 309,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeUpperLidRaiser@75": {
-  "moved": 313,
+  "moved": 311,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeUpperLidRaiser@100": {
-  "moved": 316,
+  "moved": 314,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -360,7 +360,7 @@
   "stretched": 0
  },
  "LeftLipCornerDown@25": {
-  "moved": 27,
+  "moved": 33,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -384,25 +384,25 @@
   "stretched": 0
  },
  "LeftLipCornerPuller@25": {
-  "moved": 86,
+  "moved": 84,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftLipCornerPuller@50": {
-  "moved": 92,
+  "moved": 90,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftLipCornerPuller@75": {
-  "moved": 95,
+  "moved": 93,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftLipCornerPuller@100": {
-  "moved": 95,
+  "moved": 93,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -456,25 +456,25 @@
   "stretched": 0
  },
  "LeftNoseWrinkler@25": {
-  "moved": 133,
+  "moved": 131,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftNoseWrinkler@50": {
-  "moved": 149,
+  "moved": 147,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftNoseWrinkler@75": {
-  "moved": 154,
+  "moved": 152,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftNoseWrinkler@100": {
-  "moved": 157,
+  "moved": 155,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -696,49 +696,49 @@
   "stretched": 0
  },
  "RightCheekPuff@25": {
-  "moved": 77,
+  "moved": 74,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightCheekPuff@50": {
-  "moved": 89,
+  "moved": 85,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightCheekPuff@75": {
-  "moved": 89,
+  "moved": 85,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightCheekPuff@100": {
-  "moved": 96,
+  "moved": 92,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightCheekRaiser@25": {
-  "moved": 62,
+  "moved": 58,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightCheekRaiser@50": {
-  "moved": 65,
+  "moved": 61,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightCheekRaiser@75": {
-  "moved": 65,
+  "moved": 61,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightCheekRaiser@100": {
-  "moved": 65,
+  "moved": 61,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -768,49 +768,49 @@
   "stretched": 0
  },
  "RightEyeClosed@25": {
-  "moved": 228,
+  "moved": 224,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@50": {
-  "moved": 228,
+  "moved": 224,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@75": {
-  "moved": 228,
+  "moved": 224,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@100": {
-  "moved": 228,
+  "moved": 224,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeUpperLidRaiser@25": {
-  "moved": 295,
+  "moved": 292,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeUpperLidRaiser@50": {
-  "moved": 309,
+  "moved": 305,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeUpperLidRaiser@75": {
-  "moved": 313,
+  "moved": 309,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeUpperLidRaiser@100": {
-  "moved": 317,
+  "moved": 313,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -840,7 +840,7 @@
   "stretched": 0
  },
  "RightLipCornerDown@25": {
-  "moved": 27,
+  "moved": 31,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -864,25 +864,25 @@
   "stretched": 0
  },
  "RightLipCornerPuller@25": {
-  "moved": 86,
+  "moved": 83,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightLipCornerPuller@50": {
-  "moved": 92,
+  "moved": 89,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightLipCornerPuller@75": {
-  "moved": 95,
+  "moved": 91,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightLipCornerPuller@100": {
-  "moved": 95,
+  "moved": 91,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -936,25 +936,25 @@
   "stretched": 0
  },
  "RightNoseWrinkler@25": {
-  "moved": 128,
+  "moved": 125,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightNoseWrinkler@50": {
-  "moved": 142,
+  "moved": 138,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightNoseWrinkler@75": {
-  "moved": 148,
+  "moved": 144,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightNoseWrinkler@100": {
-  "moved": 152,
+  "moved": 148,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
@@ -1032,97 +1032,97 @@
   "stretched": 0
  },
  "LeftEyeClosed@50+EyesLookDown@50": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@100+EyesLookDown@100": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@50+EyesLookDown@50": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@100+EyesLookDown@100": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "Pucker@50+LeftLipCornerPuller@50+RightLipCornerPuller@50": {
-  "moved": 238,
+  "moved": 233,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "Pucker@100+LeftLipCornerPuller@100+RightLipCornerPuller@100": {
-  "moved": 244,
+  "moved": 238,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "ChinRaiser@50+ChinRaiserUpperLip@50+LeftCheekRaiser@50+RightCheekRaiser@50+LeftInnerBrowRaiser@50+RightInnerBrowRaiser@50+LeftLipCornerDown@50+RightLipCornerDown@50+LeftLowerLipDepressor@50+RightLowerLipDepressor@50": {
-  "moved": 379,
+  "moved": 373,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "ChinRaiser@100+ChinRaiserUpperLip@100+LeftCheekRaiser@100+RightCheekRaiser@100+LeftInnerBrowRaiser@100+RightInnerBrowRaiser@100+LeftLipCornerDown@100+RightLipCornerDown@100+LeftLowerLipDepressor@100+RightLowerLipDepressor@100": {
-  "moved": 379,
+  "moved": 373,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@50+EyesLookUp@50": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@100+EyesLookUp@100": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@50+EyesLookUp@50": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "RightEyeClosed@100+EyesLookUp@100": {
-  "moved": 456,
+  "moved": 450,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@50+RightEyeClosed@50+LeftCheekRaiser@50+RightCheekRaiser@50": {
-  "moved": 580,
+  "moved": 569,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "LeftEyeClosed@100+RightEyeClosed@100+LeftCheekRaiser@100+RightCheekRaiser@100": {
-  "moved": 580,
+  "moved": 569,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "JawDrop@50+LeftLipCornerPuller@50+RightLipCornerPuller@50": {
-  "moved": 237,
+  "moved": 232,
   "poke": 0,
   "flipped": 0,
   "stretched": 0
  },
  "JawDrop@100+LeftLipCornerPuller@100+RightLipCornerPuller@100": {
-  "moved": 243,
+  "moved": 237,
   "poke": 0,
   "flipped": 0,
   "stretched": 0

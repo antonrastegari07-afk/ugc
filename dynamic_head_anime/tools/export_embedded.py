@@ -35,6 +35,23 @@ emi = tex('HeadTexture_Emissive.png', False)
 L.new(emi.outputs['Color'], bsdf.inputs['Emission Color']); bsdf.inputs['Emission Strength'].default_value = 1.0
 head.data.materials.clear(); head.data.materials.append(mat)
 
+# body parts: a fully transparent colour map (AlphaMode Overlay -> the body colour shows) so that every body part gets
+# a VALID SurfaceAppearance on import (Avatar Setup otherwise generated ones with an invalid TexturePack URL)
+import numpy as np
+from PIL import Image
+body_png = os.path.join(ROOT, 'BodyTexture.png')
+Image.fromarray(np.zeros((256, 256, 4), np.uint8), 'RGBA').save(body_png)
+bmat = bpy.data.materials.new('BodySurface'); bmat.use_nodes = True
+bn = bmat.node_tree.nodes; bl = bmat.node_tree.links
+for n in list(bn): bn.remove(n)
+bo = bn.new('ShaderNodeOutputMaterial'); bb = bn.new('ShaderNodeBsdfPrincipled'); bl.new(bb.outputs['BSDF'], bo.inputs['Surface'])
+bt = bn.new('ShaderNodeTexImage'); bt.image = img('BodyTexture.png', True)
+bl.new(bt.outputs['Color'], bb.inputs['Base Color']); bl.new(bt.outputs['Alpha'], bb.inputs['Alpha'])
+bb.inputs['Roughness'].default_value = 0.6; bb.inputs['Metallic'].default_value = 0.0
+for o in bpy.data.objects:
+    if o.type == 'MESH' and o.name.endswith('_Geo') and o.name != 'Head_Geo':
+        o.data.materials.clear(); o.data.materials.append(bmat)
+
 bpy.ops.object.select_all(action='DESELECT')
 arm = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
 for o in bpy.data.objects:
