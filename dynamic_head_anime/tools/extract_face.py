@@ -16,6 +16,46 @@ if MIRROR_EYES:                        # the left eye + brow = mirror image of t
     _wx = np.clip((_xs[None, :] - CX - 2) / 4, 0, 1)                       # only the screen-right half, soft seam
     _w = (_wy * _wy * (3 - 2 * _wy) * _wx)[..., None]
     im = im * (1 - _w) + _mir * _w
+# the eyelid crease line (between the brow and the eyeliner) follows the curve of the top of the eye (it was almost flat:
+# the gap grew towards the nose); the brows come down a little to fill the space.  A smooth vertical displacement field,
+# zero on and below the eyeliner (the 3D band and the eyes don't move); symmetric for both eyes.
+CREASE_GAP, BROW_DOWN = 13.0, 6.0
+if os.environ.get('CREASE_FOLLOW', '1') == '1':
+    _poly = LASH_PX['R']
+    def _top(x):
+        ys = []
+        for i in range(len(_poly)):
+            (x1, y1), (x2, y2) = _poly[i], _poly[(i + 1) % len(_poly)]
+            if (x1 - x) * (x2 - x) <= 0 and x1 != x2: ys.append(y1 + (x - x1) * (y2 - y1) / (x2 - x1))
+        return min(ys) if ys else None
+    _CY0 = 520.0                                              # the drawn crease line (almost flat)
+    def _sst(e0, e1, v):
+        t = min(1.0, max(0.0, (v - e0) / (e1 - e0))); return t * t * (3 - 2 * t)
+    _ys = np.arange(H, dtype=np.float32)
+    # 1) the brows move down as a block (rows 430..510), nothing below them moves in this step
+    Db = BROW_DOWN * np.clip((_ys - 430) / 15, 0, 1) * np.clip((510 - _ys) / 8, 0, 1)
+    _mx, _my = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
+    im = cv2.remap(im, _mx, _my - Db[:, None], cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    # 2) only the crease line moves: in its band (rows 512 .. just above the eyeliner) each column is shifted down by
+    #    dc(x) and the vacated rows get the plain skin tone
+    _skin = np.median(im[512:528, 300:360].reshape(-1, 3), axis=0)
+    for x in range(int(CX) + 1):
+        ty = _top(x)
+        if ty is None or not (262 <= x <= 482): continue
+        dc = min(16.0, max(0.0, (ty - CREASE_GAP) - _CY0)) if x <= 440 else 16.0
+        dc *= _sst(262, 285, x) * (1 - _sst(440, 482, x))
+        if dc < 0.05: continue
+        y0, y1 = 512, int(ty - 2)
+        for xx in (x, int(round(2 * CX - x))):
+            if not (0 <= xx < W) or y1 <= y0: continue
+            seg = im[y0:y1, xx].copy()
+            src = np.arange(y0, y1, dtype=np.float32) - dc
+            lo = np.floor(src).astype(int); fr = (src - lo)[:, None]
+            ok = lo >= y0
+            lo_c = np.clip(lo, y0, y1 - 1); hi_c = np.clip(lo + 1, y0, y1 - 1)
+            moved = im[lo_c, xx] * (1 - fr) + im[hi_c, xx] * fr
+            seg[ok] = moved[ok]; seg[~ok] = _skin
+            im[y0:y1, xx] = seg
 # shorten the drawn eyeliner strokes beyond the eye corners like the 3D eyeliner (see layout.lash_corners)
 _mx, _my = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32))
 _src = _mx.copy()
