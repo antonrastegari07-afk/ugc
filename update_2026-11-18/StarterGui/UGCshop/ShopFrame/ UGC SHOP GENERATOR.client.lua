@@ -2222,6 +2222,21 @@ local function buildFilterUI()
 		end
 		return nil
 	end
+	-- objet porté par un avatar ? (accessoire, tête, corps, animation…) — sinon ce n'est pas un vrai type d'UGC
+	local function isWearable(typeId)
+		for _, e in ipairs(Enum.AssetType:GetEnumItems()) do
+			if e.Value == typeId then
+				local n = e.Name
+				return n:find("Accessory$") ~= nil or n:find("Animation$") ~= nil or n:find("Head") ~= nil
+					or n:find("Makeup$") ~= nil
+			end
+		end
+		return false
+	end
+	-- bundles → catégorie
+	local AssetService = game:GetService("AssetService")
+	local BUNDLE_TYPE = { DynamicHead = "Head", DynamicHeadAvatar = "Head", Shoes = "Shoes",
+		Animations = "Animation", BodyParts = "Body" }
 	-- catégories PRÉSENTES dans le shop, dans l'ordre ci-dessus (les nouvelles à la fin)
 	local function presentTypes()
 		local present, list, extra = {}, {}, {}
@@ -2281,16 +2296,41 @@ local function buildFilterUI()
 		if typesState ~= "idle" then return end
 		typesState = "loading"
 		runPool(UGC_CONFIG.Items, function(ugc)
+			local id, assetType, assetErr = ugc.AssetId, nil, nil
 			for try = 1, 3 do   -- Roblox répond parfois en erreur : on réessaie
-				local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, ugc.AssetId, Enum.InfoType.Asset)
-				if ok and type(info) == "table" then
-					SF.typeOf[ugc.AssetId] = typeNameOf(info.AssetTypeId)
-					return
-				end
+				local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id, Enum.InfoType.Asset)
+				if ok and type(info) == "table" then assetType = info.AssetTypeId ; break end
+				assetErr = info
 				if try < 3 then task.wait(1.5) end
 			end
+			-- objet d'avatar connu → sa catégorie
+			if assetType and (TYPE_NAME[assetType] or isWearable(assetType)) then
+				SF.typeOf[id] = typeNameOf(assetType)
+				return
+			end
+			-- 📦 sinon c'est peut-être un BUNDLE (ex. une tête dynamique vendue en bundle)
+			local okB, b = pcall(AssetService.GetBundleDetailsAsync, AssetService, id)
+			if okB and type(b) == "table" and b.BundleType then
+				SF.typeOf[id] = BUNDLE_TYPE[tostring(b.BundleType)] or "Bundle"
+			elseif assetType then
+				SF.typeOf[id] = typeNameOf(assetType)
+			end
+			-- 🔍 pour comprendre une catégorie bizarre : regarde l'Output (F9 en jeu)
+			print(string.format("[UGC filtre] %s (%s) → type Roblox %s%s → catégorie « %s »",
+				tostring(ugc.Name), tostring(id), tostring(assetType),
+				okB and type(b) == "table" and (" / bundle " .. tostring(b.BundleType)) or "",
+				tostring(SF.typeOf[id] or "AUCUNE (" .. tostring(assetErr) .. ")")))
 		end, function()
 			typesState = "done"
+			-- 🔍 résumé dans l'Output : combien d'UGC dans chaque catégorie
+			local count, parts = {}, {}
+			for _, ugc in ipairs(UGC_CONFIG.Items) do
+				local t = SF.typeOf[ugc.AssetId] or "AUCUNE"
+				count[t] = (count[t] or 0) + 1
+			end
+			for t, c in pairs(count) do table.insert(parts, t .. " " .. c) end
+			table.sort(parts)
+			print("[UGC filtre] catégories : " .. table.concat(parts, " · "))
 			if onTypesLoaded then onTypesLoaded() end
 		end)
 	end
