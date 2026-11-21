@@ -738,7 +738,7 @@ function SF.pass(ugc)
 		local o = SF.ownedMap[id]   -- nil = pas encore vérifié : caché le temps de la vérification
 		if not ((f.owned and o == true) or (f.notOwned and o == false)) then return false end
 	end
-	if next(f.types) and not f.types[SF.typeOf[id] or "Other"] then return false end
+	if next(f.types) and not f.types[SF.typeOf[id] or ""] then return false end
 	if f.new and not SF.isNew(ugc) then return false end
 	return true
 end
@@ -2189,15 +2189,52 @@ local function buildFilterUI()
 		return btn, lbl, slot, recolor
 	end
 
-	-- 👒 types d'accessoire Roblox → nom affiché
+	-- 👒 types Roblox → catégorie affichée dans TYPE (un mot). Plus de « Other » : chaque UGC
+	--    va dans SA catégorie, et le filtre ne montre QUE les catégories présentes dans ton shop.
+	--    Tu ajoutes un nouveau genre d'UGC ? Sa catégorie apparaît toute seule.
 	local TYPE_NAME = {
-		[8] = "Hat", [41] = "Hair", [42] = "Face", [43] = "Neck", [44] = "Shoulder",
+		[8] = "Hat", [41] = "Hair", [43] = "Neck", [44] = "Shoulder",
 		[45] = "Front", [46] = "Back", [47] = "Waist", [19] = "Gear",
+		[17] = "Head", [79] = "Head",                                   -- tête classique / dynamique
+		[18] = "Face", [42] = "Face", [76] = "Face", [77] = "Face",     -- visage, sourcils, cils
+		[88] = "Makeup", [89] = "Makeup", [90] = "Makeup",
+		[2] = "Clothing", [11] = "Clothing", [12] = "Clothing",
 		[64] = "Clothing", [65] = "Clothing", [66] = "Clothing", [67] = "Clothing",
 		[68] = "Clothing", [69] = "Clothing", [72] = "Clothing",
-		[70] = "Shoes", [71] = "Shoes", [76] = "Face", [77] = "Face",
+		[70] = "Shoes", [71] = "Shoes",
+		[27] = "Body", [28] = "Body", [29] = "Body", [30] = "Body", [31] = "Body",
+		[48] = "Animation", [50] = "Animation", [51] = "Animation", [52] = "Animation",
+		[53] = "Animation", [54] = "Animation", [55] = "Animation", [56] = "Animation",
+		[78] = "Animation", [61] = "Emote", [32] = "Bundle",
 	}
-	local TYPE_ORDER = { "Hat", "Hair", "Face", "Neck", "Shoulder", "Front", "Back", "Waist", "Clothing", "Shoes", "Gear", "Other" }
+	local TYPE_ORDER = { "Hat", "Hair", "Head", "Face", "Makeup", "Neck", "Shoulder", "Front", "Back", "Waist",
+		"Clothing", "Shoes", "Body", "Animation", "Emote", "Bundle", "Gear" }
+	-- type inconnu de cette liste (nouveauté Roblox) → son nom officiel, ex. « EarAccessory » → « Ear »
+	local function typeNameOf(typeId)
+		if type(typeId) ~= "number" then return nil end
+		if TYPE_NAME[typeId] then return TYPE_NAME[typeId] end
+		for _, e in ipairs(Enum.AssetType:GetEnumItems()) do
+			if e.Value == typeId then
+				local n = e.Name:gsub("Accessory$", ""):gsub("Animation$", "")
+				TYPE_NAME[typeId] = n ~= "" and n or e.Name
+				return TYPE_NAME[typeId]
+			end
+		end
+		return nil
+	end
+	-- catégories PRÉSENTES dans le shop, dans l'ordre ci-dessus (les nouvelles à la fin)
+	local function presentTypes()
+		local present, list, extra = {}, {}, {}
+		for _, ugc in ipairs(UGC_CONFIG.Items) do
+			local t = SF.typeOf[ugc.AssetId]
+			if t then present[t] = true end
+		end
+		for _, t in ipairs(TYPE_ORDER) do if present[t] then table.insert(list, t) ; present[t] = nil end end
+		for t in pairs(present) do table.insert(extra, t) end
+		table.sort(extra)
+		for _, t in ipairs(extra) do table.insert(list, t) end
+		return list
+	end
 	-- SHOW : 1re ligne = le stock (un seul), 2e ligne = New + possession (un seul des deux)
 	-- ⭐ les plus utiles en premier
 	-- ✏️ libellés COURTS (lisibles même sur petit écran)
@@ -2244,8 +2281,14 @@ local function buildFilterUI()
 		if typesState ~= "idle" then return end
 		typesState = "loading"
 		runPool(UGC_CONFIG.Items, function(ugc)
-			local info = MarketplaceService:GetProductInfo(ugc.AssetId, Enum.InfoType.Asset)
-			SF.typeOf[ugc.AssetId] = (type(info) == "table" and TYPE_NAME[info.AssetTypeId]) or "Other"
+			for try = 1, 3 do   -- Roblox répond parfois en erreur : on réessaie
+				local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, ugc.AssetId, Enum.InfoType.Asset)
+				if ok and type(info) == "table" then
+					SF.typeOf[ugc.AssetId] = typeNameOf(info.AssetTypeId)
+					return
+				end
+				if try < 3 then task.wait(1.5) end
+			end
 		end, function()
 			typesState = "done"
 			if onTypesLoaded then onTypesLoaded() end
@@ -2449,9 +2492,8 @@ local function buildFilterUI()
 		end)
 		-- TYPE : seulement si le shop contient au moins 2 types (plusieurs choix possibles)
 		if typesState == "done" then
-			local present, list = {}, {}
-			for _, ugc in ipairs(UGC_CONFIG.Items) do present[SF.typeOf[ugc.AssetId] or "Other"] = true end
-			for _, t in ipairs(TYPE_ORDER) do if present[t] then table.insert(list, { id = t, label = t }) end end
+			local list = {}
+			for _, t in ipairs(presentTypes()) do table.insert(list, { id = t, label = t }) end
 			if #list >= 2 then
 				title("TYPE")
 				grid(list, function(id) return draft.f.types[id] and "on" or "off" end,
@@ -2545,7 +2587,7 @@ local function buildFilterUI()
 			local key = x[1]
 			if SF.f[key] then chip(x[2] .. " X", OFF, function() SF.f[key] = false ; commit() end, nx()) end
 		end
-		for _, t in ipairs(TYPE_ORDER) do
+		for _, t in ipairs(presentTypes()) do
 			if SF.f.types[t] then chip(t .. " X", OFF, function() SF.f.types[t] = nil ; commit() end, nx()) end
 		end
 		if SF.sort ~= "default" and SORT_LABEL[SF.sort] then

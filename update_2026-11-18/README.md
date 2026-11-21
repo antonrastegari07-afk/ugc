@@ -1,25 +1,25 @@
-# Mise à jour du 18/11/2026 (v26) — installation + ce qui change
+# Mise à jour du 18/11/2026 (v27) — installation + ce qui change
 
 ## ⚡ INSTALLATION RAPIDE (environ 2 minutes)
 
-> Marche **par-dessus la v2 à v25** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
+> Marche **par-dessus la v2 à v26** que tu as déjà installée, et aussi sur un jeu jamais mis à jour.
 
 1. **Fais une copie de ton jeu** : *Fichier ▸ Enregistrer sous*.
-2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v25).
+2. Dans le Workspace, **supprime tout ancien dossier** `UPDATE_2026_11_18…` (v1 à v26).
 3. Clic droit sur **Workspace** ▸ **Insert from File…**, puis choisis
-   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v26.rbxmx`.
+   `INSTALLATION_RAPIDE/UPDATE_2026_11_18_v27.rbxmx`.
 4. Dans la barre de commande (*Affichage ▸ Barre de commande*), colle cette ligne et appuie sur Entrée :
    ```lua
-   require(workspace.UPDATE_2026_11_18_v26.INSTALL)()
+   require(workspace.UPDATE_2026_11_18_v27.INSTALL)()
    ```
 5. Dans l'Output :
-   - la 1re ligne doit être **« 🚀 Installateur v26… »** ;
+   - la 1re ligne doit être **« 🚀 Installateur v27… »** ;
    - puis **« ✅ INSTALLATION TERMINÉE : … scripts remplacés, … créés »**.
 
 **Ce que fait l'installateur :**
 - Chaque script est **échangé entier** : même nom, même place, même état activé/désactivé, mêmes attributs, et ses objets enfants suivent.
   (Il ne copie pas le code, car Studio refuse d'écrire plus de 200 000 caractères dans un script par programme.)
-- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v26`** (donc tes versions précédentes).
+- Les versions remplacées vont dans **`ServerStorage ▸ BACKUP_avant_maj_v27`** (donc tes versions précédentes).
   Les copies de secours précédentes ne sont pas touchées. Celle de la v2 (`BACKUP_avant_maj_2026_11_18`) contient les scripts d'**origine**.
 - Il crée les nouveaux scripts et retire `daily notification` (déplacé dans la copie de secours, pas détruit).
 - **Ctrl+Z annule toute l'installation d'un coup.** Rien n'est publié.
@@ -48,7 +48,18 @@ Remplacer = ouvrir le script, Ctrl+A, coller. Ne change ni le nom ni la place.
 
 ---
 
-## 🆕 NOUVEAU DANS LA v26
+## 🆕 NOUVEAU DANS LA v27
+- **Filtre TYPE du shop UGC : plus de « Other ».** Chaque UGC va dans **sa** catégorie, et le filtre montre **seulement les catégories qui existent dans ton shop**. Tu ajoutes un nouveau genre d'UGC ? Son bouton apparaît tout seul, rien à configurer.
+- **Catégories reconnues :**
+  - **Accessoires :** Hat, Hair, Neck, Shoulder, Front, Back, Waist.
+  - **Tête et visage :** **Head** (tête classique ET **dynamic head**), Face (visage, accessoire de visage, sourcils, cils), Makeup.
+  - **Vêtements :** Clothing (t-shirt, chemise, pantalon, veste, pull, short, robe), Shoes.
+  - **Corps et animations :** Body (parties du corps), Animation, Emote.
+  - **Autres :** Bundle, Gear.
+- **Type que Roblox ajouterait plus tard :** le bouton prend son nom officiel Roblox (ex. « EarAccessory » → « Ear ») et se place à la fin de la liste.
+- **Lecture des types plus fiable :** si Roblox répond en erreur pour un UGC, le script réessaie jusqu'à 3 fois au lieu de le ranger dans « Other ».
+
+## NOUVEAU DANS LA v26
 - **Le panneau du filtre UGC reprend EXACTEMENT sa taille d'avant** (celle de la v24), sur tous les appareils. L'agrandissement de la v25 est annulé.
 - **On garde la correction des mots coupés :** un mot rétrécit toujours assez pour tenir en entier, au lieu d'être coupé. Les marges invisibles autour du texte sont aussi un peu réduites, pour qu'il reste le plus gros possible dans le même bouton.
 
