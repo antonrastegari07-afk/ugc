@@ -530,8 +530,9 @@ def skin_y(x, z):
     return max(loc.y, sy)                # the deeper of the two (chords of the shell lie behind the base surface)
 LID_DOME = 0.004
 LID_COLS, LID_ROWS = 12, 7     # columns: one tucked beyond each corner, one right at the outline, 12 across
-LASH_T = 0.003 if FACE_STYLE == 'girl2' else 0.011   # eyeliner thickness in front of the face
-DRAWN_LASH = FACE_STYLE == 'girl2'   # the 3D eyeliner carries the drawing itself (front faces use the face texture)
+LASH_T = 0.002 if FACE_STYLE == 'girl2' else 0.011   # eyeliner thickness in front of the face
+DRAWN_LASH = FACE_STYLE == 'girl2'
+BLINK_MID = FACE_STYLE == 'girl2'   # the 3D eyeliner carries the drawing itself (front faces use the face texture)
 LASH_OVER = 0.0055        # eyeliner overhang below the opening's top rim
 def smoothstep(a, b, x):
     t = max(0.0, min(1.0, (x - a) / (b - a)))
@@ -548,7 +549,7 @@ def inside_d(s, x, z):
     return d if pip((x, z), EYES[s]) else -d
 lid_info = {}
 PULL = {}
-LID_D = 0.0065 if FACE_STYLE != 'boy' else float(os.environ.get('LID_D', 0.0025))   # how far behind the skin the lid slides back up
+LID_D = 0.0025 if FACE_STYLE == 'girl2' else 0.0065 if FACE_STYLE != 'boy' else float(os.environ.get('LID_D', 0.0025))   # how far behind the skin the lid slides back up
 for s in 'LR':
     x0, x1 = eye_xr(s)
     xc = (x0 + x1) / 2
@@ -958,6 +959,8 @@ for idx, p in enumerate(REST):
         pass                                             # black pupil ball: fixed
     elif side and idx in LID_IDX[side]:
         w[nm + 'UpperEyelid'] = 1.0
+    elif side and idx in LASH_IDX[side] and BLINK_MID:
+        w[nm + 'LashTip'] = 1.0
     elif side and idx in LASH_IDX[side]:
         wt = LASH_WT[idx]
         w[nm + 'UpperEyelid'] = 1.0 - wt
@@ -1171,6 +1174,27 @@ if MOUTH_K < 0.999:
             elif _tv[0] == 't' and len(_tv) == 2 and _bn == 'Jaw' and _pn.startswith('ChinRaiser'):
                 _pd[_bn] = T(_tv[1].x, _tv[1].y * MOUTH_K ** 0.35, _tv[1].z * MOUTH_K ** 0.35)   # gentler chin push
     print('mouth poses scaled sideways by', round(MOUTH_K, 3))
+if BLINK_MID:
+    # the eye closes IN THE MIDDLE: the skin lid still covers the whole opening, but the drawn eyeliner (its own bone,
+    # LashTip) only comes down to ~45 % of the eye height, and the lower lid (lower rim + lower lashes) comes up a little
+    LK, UPZ = {}, {}
+    for s_ in 'LR':
+        xs__ = [q[0] for q in EYES[s_]]; xc__ = (min(xs__) + max(xs__)) / 2
+        zt_, zb_ = vertical_span(EYES[s_], xc__)
+        travel = -lid_info[s_]['t'].z
+        zmeet = zb_ + 0.42 * (zt_ - zb_)
+        LK[s_] = max(0.2, min(1.0, (zt_ - zmeet) / travel + 0.04))
+        UPZ[s_] = 0.022
+    print('blink in the middle: eyeliner travel', {k: round(v, 3) for k, v in LK.items()})
+    for pn, pd in P.items():
+        for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
+            v_ = pd.get(nm_ + 'UpperEyelid')
+            if v_ is not None and len(v_) > 3 and v_[2] == 'lid':
+                f_ = v_[3]
+                pd[nm_ + 'LashTip'] = ('t', Vector(lid_info[s_]['t']) * (f_ * LK[s_] if f_ > 0 else f_))
+                if f_ >= 0.999:
+                    u_ = pd.get(nm_ + 'UnderEye')
+                    pd[nm_ + 'UnderEye'] = T(0, 0, UPZ[s_] + (u_[1].z if u_ else 0.0))
 ORDER = sorted(k for k in P if '_' not in k) + sorted(k for k in P if '_' in k)   # base poses A-Z, then combinations
 REQUIRED = ['LeftEyeClosed', 'RightEyeClosed', 'EyesLookDown', 'JawDrop', 'Pucker', 'LeftLipCornerPuller',
             'RightLipCornerPuller', 'ChinRaiser', 'ChinRaiserUpperLip', 'LeftCheekRaiser', 'RightCheekRaiser',

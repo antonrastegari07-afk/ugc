@@ -51,6 +51,17 @@ for x in range(int(x_lo), int(x_hi) + 1, step):
     te = top_edge(x) if ex0 < x < ex1 else None
     b_ = te if te is not None else ys.max() + 2.0
     top.append((float(x), float(t_))); bot.append((float(x), float(max(b_, t_ + 4))))
+# top edge = the UPPER CONVEX HULL of the lashes (+ margin): every spike tip is inside the band, straight between tips
+# (the band is transparent between the spikes, so the hull costs nothing visually and needs few columns)
+_pts = np.argwhere(comp)[:, ::-1].astype(np.float32)          # (x, y)
+_hull = cv2.convexHull(_pts).reshape(-1, 2)
+def hull_top(x):
+    ys = []
+    for i in range(len(_hull)):
+        (x1, y1), (x2, y2) = _hull[i], _hull[(i + 1) % len(_hull)]
+        if (x1 - x) * (x2 - x) <= 0 and x1 != x2: ys.append(y1 + (x - x1) * (y2 - y1) / (x2 - x1))
+    return min(ys) if ys else None
+top = [(float(x), float((hull_top(x) if hull_top(x) is not None else t) - 1.5)) for x, t in top]
 poly = [top[0]] + top[1:] + bot[::-1]
 # the eye opening, from the drawing: top edge = just under the drawn eyeliner ink, bottom edge = just above the drawn
 # lower lash line; the ends are the points where they meet (rounded inner corner, pointed outer corner)

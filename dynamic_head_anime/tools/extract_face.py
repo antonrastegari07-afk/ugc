@@ -180,9 +180,9 @@ for side in 'RL':
     _wz = np.maximum(_wz, np.clip(np.maximum(_e0 + 2 - _x, _x - _e1 - 2) / 6, 0, 1) * ((_x > _e0 - 90) & (_x < _e1 + 90)))
 lash_mask = (lash_mask * (1 - _wz[None, :]) + np.minimum(lash_mask, wing_mask) * _wz[None, :]).astype(np.uint8)
 ALPHA_FULL = alpha.copy()                              # (girl2: copied onto the 3D eyeliner before erasing)
-if FACE_STYLE == 'girl2':                              # erase only the ink of the liner / lashes, not the eyeshadow
-    lash_mask = np.minimum(lash_mask, cv2.dilate((ALPHA_FULL > 0.3).astype(np.uint8) * 255, np.ones((5, 5), np.uint8)))
+# (girl2: the whole band area is cleared on the skin, the grey eyeshadow haze of the drawing included)
 ERASE = cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
+BROW_UP = float(os.environ.get('BROW_UP', 7))
 alpha *= 1 - ERASE
 # outer wing: the drawn lower stroke and the 3D eyeliner meet at the tip with a thin wedge of skin between them; fill
 # that wedge with ink (closing of ink + eyeliner band + opening, only beyond the outer corners) -> one solid wing
@@ -231,6 +231,8 @@ face = np.zeros((fh, fw, 4), np.float32)
 face[..., :3] = INK if INKCOL is None else cv2.remap(INKCOL.astype(np.float32), mx, my, cv2.INTER_LINEAR, borderValue=0)
 face[..., 3] = a_s
 if SRCMAP is not None:
+    _bw = np.clip(np.minimum(my - 415, 492 - my) / 8, 0, 1) * (np.abs(mx - CX) > 40)
+    my = (my + BROW_UP * _bw).astype(np.float32)                  # brows slightly higher (more room above the lashes)
     _mult = cv2.GaussianBlur(head.astype(np.float32), (0, 0), 3) * cv2.GaussianBlur(_win, (0, 0), 6) * (1 - ERASE)
     _sx, _sy = src_coords(mx, my)
     face[..., 3] = cv2.remap(SRCMAP['a'], _sx, _sy, cv2.INTER_CUBIC, borderValue=0).clip(0, 1) * cv2.remap(_mult, mx, my, cv2.INTER_LINEAR, borderValue=0)
@@ -485,6 +487,8 @@ if FACE_STYLE == 'girl2':
         _qx, _qy = src_coords(sx_, sy_)
         a_c = cv2.remap(SRCMAP['a'], _qx, _qy, cv2.INTER_CUBIC, borderValue=0).clip(0, 1) * cv2.remap(cv2.GaussianBlur(head.astype(np.float32), (0, 0), 3), sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
         c_c = cv2.remap(SRCMAP['c'], _qx, _qy, cv2.INTER_LINEAR, borderValue=0)
+        _lum = c_c.mean(2)
+        a_c = a_c * (1 - np.clip((_lum - 70) / 40, 0, 1))            # keep the ink only: no grey haze behind the lashes
         e_c = cv2.remap(eye_mask.astype(np.float32) / 255, sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
         c_c = c_c * (1 - e_c[..., None]) + INK * e_c[..., None]; a_c = np.maximum(a_c, e_c)
         atlas[ry:ry + rh, rx:rx + rw, :3] = c_c; atlas[ry:ry + rh, rx:rx + rw, 3] = a_c * 255
