@@ -29,7 +29,7 @@ SOCKET_EXTRA = 0.15       # cutter goes this much deeper than the deepest cup po
 EYE_DC = float(os.environ.get('EYE_DC', 0.135))  # depth of the eyeball centre behind the face (at the iris centre)
 EYE_STYLE = os.environ.get('EYE_STYLE', 'sphere')   # 'sphere': inverted iris sphere + pupil ball; 'flat': the drawn eye
                                                     # (iris + pupil) on a flat disc glued to the back of the white hole
-FLAT_D = float(os.environ.get('FLAT_D', 0.085))      # flat style: depth of the back of the hole behind the face (iris centre)
+FLAT_D = float(os.environ.get('FLAT_D', 0.11))      # flat style: depth of the back of the hole behind the face (iris centre)
 IRIS_SPH_K = float(os.environ.get('IRIS_SPH_K', 1.0))   # iris sphere radius / drawn iris radius
 CAVE_SIDE = 0.035         # ... and sideways at the corners (the iris sphere never touches a side wall)
 CAVE_DOWN = 0.075         # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
@@ -453,16 +453,39 @@ def uv_sphere(C, R, seg, lats, inward, uvf, store):
         for j in range(len(rows) - 1):
             face((rows[j][k], rows[j + 1][k], rows[j + 1][k2], rows[j][k2]))
         face((rows[-1][k], bpole, rows[-1][k2]))
+FLAT_CONC = float(os.environ.get('FLAT_CONC', 0.03))   # flat style: the eye is a shallow bowl (centre this much deeper)
 def flat_disc(s, store):
-    """flat eye: the drawn iris WITH its pupil on an elliptic disc facing the front, glued to the back of the hole"""
-    xi, zi, rx, rz = IRIS[s]; C = EYE_C[s]; seg = 28
-    def P_(x, z): return (x, flat_plane_y(s, x), z)
-    rows = [[bm.verts.new(P_(xi + f * rx * math.cos(2 * math.pi * k / seg), zi + f * rz * math.sin(2 * math.pi * k / seg)))
-             for k in range(seg)] for f in (0.4, 0.75, 1.0)]
-    cen = bm.verts.new(P_(xi, zi))
+    """flat-style eye: ONE shallow bowl covering the whole back of the hole, carrying the drawn eye (white + iris + pupil):
+    the iris at its deepest point, the white all around curving forward; the whole bowl is turned towards the outside of
+    the face (FLAT_YAW)"""
+    xi, zi, rx_i, rz_i = IRIS[s]
+    cp = CAVE_POLY[s]
+    def reach(th):
+        """distance from the iris centre to the widened hole outline along direction th (+ a small margin)"""
+        dx, dz = math.cos(th), math.sin(th); best = 0.0
+        for i in range(len(cp)):
+            (x1, z1), (x2, z2) = cp[i], cp[(i + 1) % len(cp)]
+            ex, ez = x2 - x1, z2 - z1
+            den = dx * ez - dz * ex
+            if abs(den) < 1e-12: continue
+            t = ((x1 - xi) * ez - (z1 - zi) * ex) / den
+            u = ((x1 - xi) * dz - (z1 - zi) * dx) / den
+            if t > 0 and 0 <= u <= 1: best = max(best, t)
+        return best + 0.006
+    seg = 32
+    fs = (0.12, 0.3, 0.5, 0.7, 0.88, 1.0)
+    R_ = [reach(2 * math.pi * k / seg) for k in range(seg)]
+    def P_(x, z, f):
+        y = flat_plane_y(s, x) - FLAT_CONC * f * f
+        sy = surf_y(x, z)
+        if sy is not None: y = max(y, sy + 0.012)        # never in front of the skin (the face curves back at the temple)
+        return (x, y, z)
+    rows = [[bm.verts.new(P_(xi + f * R_[k] * math.cos(2 * math.pi * k / seg), zi + f * R_[k] * math.sin(2 * math.pi * k / seg), f))
+             for k in range(seg)] for f in fs]
+    cen = bm.verts.new(P_(xi, zi, 0.0))
     store += [cen] + [v for r in rows for v in r]
     def face(vs):
-        f = bm.faces.new(vs); f.smooth = False
+        f = bm.faces.new(vs); f.smooth = True
         f.normal_update()
         if f.normal.y > 0: f.normal_flip()
         for l in f.loops: l[uvl].uv = eye_tex_uv(s, l.vert.co.x, l.vert.co.z)

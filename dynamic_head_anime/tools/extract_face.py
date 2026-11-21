@@ -239,6 +239,18 @@ for side in 'RL':
     t8 = cv2.inpaint(t8, cv2.dilate(lens.astype(np.uint8), np.ones((5, 5), np.uint8)), 9, cv2.INPAINT_TELEA)
     hl_ = (iris_px.mean(2) > 140) & (rr < 1.0)
     t8 = np.where(hl_[..., None], np.clip(iris_px, 0, 255).astype(np.uint8), t8)
+    if os.environ.get('EYE_STYLE', 'sphere') == 'flat':
+        # flat eye: a paler grey iris (rings kept) and a pure black pupil, so the black hole in the centre stands out
+        IRIS_LIGHT = float(os.environ.get('IRIS_LIGHT', 0.5))      # 0 = as drawn, 1 = white
+        pup = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
+        inside = (rr < 1.0) & ~pup & ~hl_
+        f8 = t8.astype(np.float32)
+        f8[inside] = 255 - (255 - f8[inside]) * (1 - IRIS_LIGHT)
+        dark = pup & ~hl_ & (f8.mean(2) < 120)
+        f8[dark] = 0
+        soft = pup & ~hl_ & ~dark
+        f8[soft] = f8[soft] * 0.35
+        t8 = np.clip(f8, 0, 255).astype(np.uint8)
     atlas[ry:ry + rh, rx:rx + rw, :3] = t8
     atlas[ry:ry + rh, rx:rx + rw, 3] = 255
 
