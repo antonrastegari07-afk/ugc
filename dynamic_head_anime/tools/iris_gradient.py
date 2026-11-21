@@ -10,6 +10,7 @@ from layout import *
 SRC, DST = sys.argv[1], sys.argv[2]
 DK = float(sys.argv[3]) if len(sys.argv) > 3 else 0.35
 LT = float(sys.argv[4]) if len(sys.argv) > 4 else 0.55
+PW = float(sys.argv[5]) if len(sys.argv) > 5 else 1.15     # higher = the pale part starts lower
 img = np.array(Image.open(SRC).convert('RGBA')).astype(np.float32)
 for side in 'RL':
     x0, x1, z0, z1 = eye_tex_box(side); rx, ry, rw, rh = eye_rect(side)
@@ -26,7 +27,7 @@ for side in 'RL':
     t = np.clip((1 - b_) / 2, 0, 1)                     # 0 at the top of the iris -> 1 at the bottom
     t = t * t * (3 - 2 * t)                             # smooth, progressive
     out = blk * (1 - DK * (1 - t))[..., None]           # darker towards the top
-    out = out + (235 - out) * (LT * t ** 1.15)[..., None]   # lighter towards the bottom
+    out = out + (235 - out) * (LT * t ** PW)[..., None]     # lighter towards the bottom
     blk[iris] = out[iris]
     img[ry:ry + rh, rx:rx + rw, :3] = blk
 Image.fromarray(np.clip(img, 0, 255).astype(np.uint8), 'RGBA').save(DST)
