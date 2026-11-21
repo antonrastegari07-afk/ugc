@@ -52,5 +52,36 @@ for x in range(int(x_lo), int(x_hi) + 1, step):
     b_ = te if te is not None else ys.max() + 2.0
     top.append((float(x), float(t_))); bot.append((float(x), float(max(b_, t_ + 4))))
 poly = [top[0]] + top[1:] + bot[::-1]
-json.dump(dict(R=poly), open(DST, 'w'))
+# the eye opening, from the drawing: top edge = just under the drawn eyeliner ink, bottom edge = just above the drawn
+# lower lash line; the ends are the points where they meet (rounded inner corner, pointed outer corner)
+inkall = (g < 70)
+ys_top, ys_bot, xs_e = [], [], []
+for x in range(int(ex0) - 6, int(ex1) + 8):
+    c = comp[:, x]
+    ys = np.where(c[500:640])[0]
+    if len(ys) == 0: continue
+    yt = 500 + ys.max() + 1                                       # first row under the liner
+    col = inkall[yt + 2:700, x]
+    lower = np.where(col)[0]
+    # the lower lash line: the first ink row at least 6 px below, that continues for >= 2 rows
+    yb = None
+    for k in lower:
+        if k > 6 and col[k:k + 2].all(): yb = yt + 2 + k; break
+    if yb is None or yb - yt < 4: continue
+    xs_e.append(x); ys_top.append(yt + 0.5); ys_bot.append(yb - 0.5)
+xs_e = np.array(xs_e, float); ys_top = np.array(ys_top); ys_bot = np.array(ys_bot)
+ok = (ys_bot - ys_top) > 3
+xs_e, ys_top, ys_bot = xs_e[ok], ys_top[ok], ys_bot[ok]
+k = 7
+st = np.convolve(np.pad(ys_top, k // 2, mode='edge'), np.ones(k) / k, 'valid')
+sb = np.convolve(np.pad(ys_bot, k // 2, mode='edge'), np.ones(k) / k, 'valid')
+idx = np.linspace(0, len(xs_e) - 1, 16).round().astype(int)
+eye_top = [(float(xs_e[i]), float(st[i])) for i in idx]
+eye_bot = [(float(xs_e[i]), float(sb[i])) for i in idx[::-1][1:-1]]
+# rounded inner end: a short arc between the last top and bottom points
+xi_, ti_, bi_ = xs_e[-1], st[-1], sb[-1]
+arc = [(float(xi_ + 3.5 * np.sin(a)), float((ti_ + bi_) / 2 - (bi_ - ti_) / 2 * np.cos(a))) for a in np.linspace(0.5, 2.6, 4)]
+eye_poly = eye_top + arc + eye_bot
+json.dump(dict(R=poly, EYE=eye_poly), open(DST, 'w'))
+print('eye opening from the drawing: x', int(xs_e[0]), int(xs_e[-1]), 'top', round(float(st.min()), 1), 'bottom', round(float(sb.max()), 1))
 print('liner outline points', len(poly), 'x', int(x_lo), int(x_hi), 'top', int(min(p[1] for p in top)))

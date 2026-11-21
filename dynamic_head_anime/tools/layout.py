@@ -50,8 +50,15 @@ if FACE_STYLE == 'girl':
     PUPIL_AB = (0.40, 0.46)            # big soft round pupil
     BROW_PX = {'R': ((470, 503), (286, 496))}
 
-GIRL2_EYE = [(258, 606), (275, 588), (295, 572), (316, 558), (350, 557), (390, 557), (425, 559), (440, 566), (450, 585),
-             (458, 602), (458, 625), (455, 645), (420, 650), (380, 651), (340, 651), (305, 650), (285, 636), (270, 622)]
+GIRL2_EYE = [(252, 606), (258, 590), (267, 571), (280, 563), (295, 559), (318, 557), (340, 555.5), (370, 555.5),
+             (405, 555.5), (425, 558), (437, 565), (446, 578), (452, 590), (457, 602), (460, 614), (461, 627), (459, 639),
+             (454, 647), (440, 650), (405, 651), (360, 651), (320, 650), (292, 647), (272, 636), (259, 620)]
+# the source image (full resolution) and how it maps onto the reference frame (head silhouette -> IMG box)
+GIRL2_SRC = dict(path='face_ref2_src.png', sx0=152, sx1=1099, sy0=127, sy1=1073, dx0=175, dx1=889, dy0=170, dy1=880)
+def img2src(px, py):
+    g = GIRL2_SRC
+    return (g['sx0'] + (px - g['dx0']) * (g['sx1'] - g['sx0']) / (g['dx1'] - g['dx0']),
+            g['sy0'] + (py - g['dy0']) * (g['sy1'] - g['sy0']) / (g['dy1'] - g['dy0']))
 GIRL2_LASH = [(250, 585), (252, 566), (270, 549), (300, 539), (350, 535), (395, 536), (420, 541), (442, 553), (460, 574),
               (474, 598), (458, 601), (448, 585), (436, 566), (420, 559), (380, 557), (340, 557), (316, 558), (290, 578),
               (270, 596), (258, 606)]
@@ -97,7 +104,10 @@ if FACE_STYLE == 'girl2':
     _lj = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'in', 'girl2_lash.json')
     if _os.path.exists(_lj):                 # traced from the drawing (trace_liner.py): liner + lashes + wing
         import json as _json
-        LASH_PX['R'] = [tuple(p) for p in _json.load(open(_lj))['R']]
+        _jd = _json.load(open(_lj))
+        LASH_PX['R'] = [tuple(p) for p in _jd['R']]
+        if 'EYE' in _jd and _os.environ.get('GIRL2_EYE_TRACED', '0') == '1':
+            EYE_PX['R'] = [tuple(p) for p in _jd['EYE']]; EYE_PX['L'] = _mirror_poly(EYE_PX['R'])
 if MIRROR_EYES:
     LASH_PX['L'] = _mirror_poly(LASH_PX['R'])
 # the 3D eyeliner is shorter than the drawn one: the part beyond the eye opening (the wing / the inner tip) keeps only

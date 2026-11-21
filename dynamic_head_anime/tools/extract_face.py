@@ -118,7 +118,37 @@ if not COLOR_FACE:
     alpha *= _keep
 INK = np.array([14, 12, 15], np.float32)
 INKCOL = None
+SRCMAP = None
 if COLOR_FACE:
+    # exact separation on the FULL-RESOLUTION source: skin estimate S (smooth, features inpainted), then the minimal
+    # alpha that explains each pixel as colour C over S (C in 0..255) -> composited back over the same skin it gives the
+    # drawing exactly (blush intensity, white sparkles / hearts, thin brow tips all kept)
+    _src = cv2.cvtColor(cv2.imread(os.path.join(os.path.dirname(SRC), GIRL2_SRC['path'])), cv2.COLOR_BGR2RGB).astype(np.float32)
+    _gs = _src.mean(2)
+    # skin: the drawing's skin is one flat grey (+-4 of render lighting, which is NOT part of the drawing); the
+    # recolourable head supplies its own shading, so the skin reference is that flat grey
+    _hs, _ws = _gs.shape
+    _chroma = _src.max(2) - _src.min(2)
+    _sel = (_chroma <= 6) & (_gs > 120) & (_gs < 170)
+    _sel[:, :200] = False; _sel[:, -200:] = False
+    _Sc = np.median(_src[_sel], axis=0)
+    _Ss = np.broadcast_to(_Sc, _src.shape).astype(np.float32)
+    _d = _src - _Ss
+    _al = (np.clip(_d, 0, None) / np.maximum(255 - _Ss, 1)).max(2)          # lighter than the skin (white marks)
+    _ad = (np.clip(-_d, 0, None) / np.maximum(_Ss, 1)).max(2)              # darker / tinted (ink, blush)
+    def _ss(e0, e1, v): t = np.clip((v - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t)
+    _an = np.where(_al > _ad, _al * _ss(0.05, 0.12, _al), _ad * _ss(0.045, 0.09, _ad))   # render lighting (<~5%) dropped
+    _an = np.clip(_an, 0, 1)
+    _cs = np.clip(_Ss + _d / np.maximum(_an, 1e-3)[..., None], 0, 255)
+    # ink (dark, grey): fully opaque with its own colour (the liner's sheen streaks stay as drawn, no skin through it)
+    _ink = (1 - _ss(0.40, 0.62, _gs / max(float(_Sc.mean()), 1))) * (1 - _ss(10, 22, _src.max(2) - _src.min(2)))
+    _cs = _cs * (1 - _ink[..., None]) + _src * _ink[..., None]
+    _an = np.maximum(_an, _ink)
+    SRCMAP = dict(a=_an.astype(np.float32), c=_cs.astype(np.float32), img=_src)
+    def src_coords(px, py):
+        g_ = GIRL2_SRC
+        return ((g_['sx0'] + (px - g_['dx0']) * (g_['sx1'] - g_['sx0']) / (g_['dx1'] - g_['dx0'])).astype(np.float32),
+                (g_['sy0'] + (py - g_['dy0']) * (g_['sy1'] - g_['sy0']) / (g_['dy1'] - g_['dy0'])).astype(np.float32))
     # premultiplied separation against the skin estimate: works for black ink, pink blush and white sparkles alike
     _d = im - skin
     _a = np.clip(np.abs(_d).max(2) / 115.0, 0, 1)
@@ -150,7 +180,10 @@ for side in 'RL':
     _wz = np.maximum(_wz, np.clip(np.maximum(_e0 + 2 - _x, _x - _e1 - 2) / 6, 0, 1) * ((_x > _e0 - 90) & (_x < _e1 + 90)))
 lash_mask = (lash_mask * (1 - _wz[None, :]) + np.minimum(lash_mask, wing_mask) * _wz[None, :]).astype(np.uint8)
 ALPHA_FULL = alpha.copy()                              # (girl2: copied onto the 3D eyeliner before erasing)
-alpha *= 1 - cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
+if FACE_STYLE == 'girl2':                              # erase only the ink of the liner / lashes, not the eyeshadow
+    lash_mask = np.minimum(lash_mask, cv2.dilate((ALPHA_FULL > 0.3).astype(np.uint8) * 255, np.ones((5, 5), np.uint8)))
+ERASE = cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
+alpha *= 1 - ERASE
 # outer wing: the drawn lower stroke and the 3D eyeliner meet at the tip with a thin wedge of skin between them; fill
 # that wedge with ink (closing of ink + eyeliner band + opening, only beyond the outer corners) -> one solid wing
 _solid = np.maximum((alpha > 0.45).astype(np.uint8) * 255, 0)
@@ -197,6 +230,11 @@ em_s = cv2.remap(eye_mask.astype(np.float32) / 255, mx, my, cv2.INTER_LINEAR, bo
 face = np.zeros((fh, fw, 4), np.float32)
 face[..., :3] = INK if INKCOL is None else cv2.remap(INKCOL.astype(np.float32), mx, my, cv2.INTER_LINEAR, borderValue=0)
 face[..., 3] = a_s
+if SRCMAP is not None:
+    _mult = cv2.GaussianBlur(head.astype(np.float32), (0, 0), 3) * cv2.GaussianBlur(_win, (0, 0), 6) * (1 - ERASE)
+    _sx, _sy = src_coords(mx, my)
+    face[..., 3] = cv2.remap(SRCMAP['a'], _sx, _sy, cv2.INTER_CUBIC, borderValue=0).clip(0, 1) * cv2.remap(_mult, mx, my, cv2.INTER_LINEAR, borderValue=0)
+    face[..., :3] = cv2.remap(SRCMAP['c'], _sx, _sy, cv2.INTER_LINEAR, borderValue=0)
 # around/inside the openings keep the exact image pixels (no skin-coloured sliver at the rim)
 face[..., :3] = face[..., :3] * (1 - em_s[..., None]) + rgb_s * em_s[..., None]
 face[..., 3] = np.maximum(face[..., 3], em_s)
@@ -357,6 +395,33 @@ for side in 'RL':
     atlas[ry:ry + rh, rx:rx + rw, :3] = t8
     atlas[ry:ry + rh, rx:rx + rw, 3] = 255
 
+if SRCMAP is not None:
+    # the inside of the eyes = the drawing itself (every white dot, the shaded white, the iris as drawn), sampled at
+    # full resolution; the parts hidden under the skin / eyeliner are filled by extending the drawn eye outwards
+    _src = SRCMAP['img']
+    _om = np.zeros(_src.shape[:2], np.uint8)
+    for side in 'RL':
+        _ps = np.array([img2src(*p) for p in EYE_PX[side]], np.float32)
+        cv2.fillPoly(_om, [np.round(_ps * 8).astype(np.int32)], 255, cv2.LINE_AA, 3)
+    _om = cv2.erode((_om > 127).astype(np.uint8), np.ones((5, 5), np.uint8))
+    _y0, _y1, _x0, _x1 = 380, 900, 120, 1140
+    _crop = _src[_y0:_y1, _x0:_x1]
+    _sc = 0.5
+    _cs_ = cv2.resize(_crop, None, fx=_sc, fy=_sc, interpolation=cv2.INTER_AREA).astype(np.uint8)
+    _ms_ = cv2.resize(1 - _om[_y0:_y1, _x0:_x1], (_cs_.shape[1], _cs_.shape[0]), interpolation=cv2.INTER_NEAREST)
+    _fill = cv2.inpaint(_cs_, _ms_, 6, cv2.INPAINT_TELEA).astype(np.float32)
+    _fill = cv2.resize(_fill, (_x1 - _x0, _y1 - _y0), interpolation=cv2.INTER_CUBIC)
+    _inside = cv2.GaussianBlur(_om[_y0:_y1, _x0:_x1].astype(np.float32), (0, 0), 0.8)[..., None]
+    _eyeimg = np.array(_src, copy=True)
+    _eyeimg[_y0:_y1, _x0:_x1] = _crop * _inside + _fill * (1 - _inside)
+    for side in 'RL':
+        x0, x1, z0, z1 = eye_tex_box(side); rx, ry, rw, rh = eye_rect(side)
+        yy, xx = np.mgrid[0:rh, 0:rw]
+        xs_ = x0 + (xx - 1 + 0.5) / (rw - 2) * (x1 - x0); zs_ = z1 - (yy - 1 + 0.5) / (rh - 2) * (z1 - z0)
+        _qx, _qy = src_coords((CX + xs_ * SX), (CY - zs_ * SY))
+        atlas[ry:ry + rh, rx:rx + rw, :3] = cv2.remap(_eyeimg, _qx, _qy, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE).clip(0, 255)
+        atlas[ry:ry + rh, rx:rx + rw, 3] = 255
+
 # --- lids: skin (transparent) with the lash line along the closing edge
 for side in 'RL':
     rx, ry, rw, rh = LID_RECT[side]
@@ -389,8 +454,9 @@ if FACE_STYLE == 'girl2':
         x0, x1, y0, y1 = liner_box_px(side); rx, ry, rw, rh = LINER_RECT[side]; k = liner_scale(side)
         yy_, xx_ = np.mgrid[0:rh, 0:rw]
         sx_ = (x0 + (xx_ + 0.5) / k).astype(np.float32); sy_ = (y0 + (yy_ + 0.5) / k).astype(np.float32)
-        a_c = cv2.remap(ALPHA_FULL.astype(np.float32), sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
-        c_c = cv2.remap((INKCOL if INKCOL is not None else np.broadcast_to(INK, im.shape)).astype(np.float32), sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
+        _qx, _qy = src_coords(sx_, sy_)
+        a_c = cv2.remap(SRCMAP['a'], _qx, _qy, cv2.INTER_CUBIC, borderValue=0).clip(0, 1) * cv2.remap(cv2.GaussianBlur(head.astype(np.float32), (0, 0), 3), sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
+        c_c = cv2.remap(SRCMAP['c'], _qx, _qy, cv2.INTER_LINEAR, borderValue=0)
         e_c = cv2.remap(eye_mask.astype(np.float32) / 255, sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
         c_c = c_c * (1 - e_c[..., None]) + INK * e_c[..., None]; a_c = np.maximum(a_c, e_c)
         atlas[ry:ry + rh, rx:rx + rw, :3] = c_c; atlas[ry:ry + rh, rx:rx + rw, 3] = a_c * 255
@@ -423,6 +489,9 @@ cv2.imwrite(f'{OUT}/HeadTexture_Emissive.png', np.clip(emis, 0, 255).astype(np.u
 # roughness: 1 (no reflection) on everything opaque (eye interior, ink, eyeliner); skin 0.6
 a = out[..., 3].astype(np.float32) / 255
 rough = (0.6 * (1 - a) + 1.0 * a) * 255
+if FACE_STYLE == 'girl2':                              # the drawn 3D eyeliner: fully matte
+    for _r in LINER_RECT.values():
+        rough[_r[1]:_r[1] + _r[3], _r[0]:_r[0] + _r[2]] = 255
 cv2.imwrite(f'{OUT}/HeadTexture_Roughness.png', np.clip(rough, 0, 255).astype(np.uint8))
 # metalness: 0 everywhere except the PUPIL (white = metal): the 3D black ball (style 'sphere') or the drawn pupil oval
 # (style 'flat'); a black metal reflects (almost) nothing straight on -> the deepest black

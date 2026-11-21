@@ -530,7 +530,7 @@ def skin_y(x, z):
     return max(loc.y, sy)                # the deeper of the two (chords of the shell lie behind the base surface)
 LID_DOME = 0.004
 LID_COLS, LID_ROWS = 12, 7     # columns: one tucked beyond each corner, one right at the outline, 12 across
-LASH_T = 0.005 if FACE_STYLE == 'girl2' else 0.011   # eyeliner thickness in front of the face
+LASH_T = 0.003 if FACE_STYLE == 'girl2' else 0.011   # eyeliner thickness in front of the face
 DRAWN_LASH = FACE_STYLE == 'girl2'   # the 3D eyeliner carries the drawing itself (front faces use the face texture)
 LASH_OVER = 0.0055        # eyeliner overhang below the opening's top rim
 def smoothstep(a, b, x):
@@ -692,7 +692,7 @@ def resample(chain, n):
         u = (t - L[i - 1]) / max(L[i] - L[i - 1], 1e-9)
         out.append((chain[i - 1][0] + (chain[i][0] - chain[i - 1][0]) * u, chain[i - 1][1] + (chain[i][1] - chain[i - 1][1]) * u))
     return out
-LASH_COLS = 48 if DRAWN_LASH else 22
+LASH_COLS = 34 if DRAWN_LASH else 22
 for s in 'LR':
     poly = lash_poly_studs(s)
     i0 = min(range(len(poly)), key=lambda i: poly[i][0]); i1 = max(range(len(poly)), key=lambda i: poly[i][0])
@@ -725,13 +725,27 @@ for s in 'LR':
     T_ = [mk(*p) for p in top]; B_ = [mk(*p) for p in bot[1:-1]]
     B_ = [T_[0]] + B_ + [T_[-1]]                                   # tips shared
     for v in {v for pair in T_ + B_ for v in pair}: lash_verts[s].append(v)
-    for i in range(LASH_COLS):
-        vs = [T_[i][0], T_[i + 1][0], B_[i + 1][0], B_[i][0]]
-        vs = list(dict.fromkeys(vs))
-        f = bm.faces.new(vs); f.smooth = True
-        f.normal_update()
-        if f.normal.y > 0: f.normal_flip()
-        for l in f.loops: l[uvl].uv = liner_uv(s, l.vert.co.x, l.vert.co.z) if DRAWN_LASH else LASH_UV
+    # front: rows between the top and bottom chains, each point projected on the head surface (the band follows the
+    # curve of the head at the eye corners instead of cutting across it)
+    NR = 3 if DRAWN_LASH else 1
+    rows_ = [[v[0] for v in T_]]
+    for r_ in range(1, NR):
+        t_ = r_ / NR; row = []
+        for i in range(LASH_COLS + 1):
+            if i in (0, LASH_COLS): row.append(T_[i][0]); continue
+            x_ = top[i][0] + (bot[i][0] - top[i][0]) * t_; z_ = top[i][1] + (bot[i][1] - top[i][1]) * t_
+            fv, bv = mk(x_, z_); bm.verts.remove(bv); row.append(fv); lash_verts[s].append(fv)
+        rows_.append(row)
+    rows_.append([v[0] for v in B_])
+    for r_ in range(NR):
+        for i in range(LASH_COLS):
+            vs = [rows_[r_][i], rows_[r_][i + 1], rows_[r_ + 1][i + 1], rows_[r_ + 1][i]]
+            vs = list(dict.fromkeys(vs))
+            if len(vs) < 3: continue
+            f = bm.faces.new(vs); f.smooth = True
+            f.normal_update()
+            if f.normal.y > 0: f.normal_flip()
+            for l in f.loops: l[uvl].uv = liner_uv(s, l.vert.co.x, l.vert.co.z) if DRAWN_LASH else LASH_UV
     loop = T_ + B_[-2:0:-1]                                        # outline (front, back pairs)
     # outward direction of each outline edge from the outline's winding (the hooked inner end is concave: a
     # "away from the centroid" test flipped some underside faces inwards -> invisible in Roblox, white showed through)
@@ -744,8 +758,11 @@ for s in 'LR':
         ex_, ez_ = fb.co.x - fa.co.x, fb.co.z - fa.co.z
         out_ = (ez_, -ex_) if area2 > 0 else (-ez_, ex_)            # right-hand normal of a CCW outline points out
         if f.normal.x * out_[0] + f.normal.z * out_[1] < 0: f.normal_flip()
-        side_uv = LASH_SIDE_UV if (not DRAWN_LASH or f.normal.z < -0.3) else rect_center_uv(LASH_CLEAR_RECT)   # drawn: skin-coloured edges
-        for l in f.loops: l[uvl].uv = side_uv
+        if DRAWN_LASH:            # drawn: bottom edge = the liner's own (black) edge, other edges skin-coloured
+            for l in f.loops:
+                l[uvl].uv = liner_uv(s, l.vert.co.x, l.vert.co.z) if f.normal.z < -0.3 else rect_center_uv(LASH_CLEAR_RECT)
+        else:
+            for l in f.loops: l[uvl].uv = LASH_SIDE_UV
 bm.normal_update()
 if False:
     # the drawing of the eyeliner now lives on the 3D eyeliner: the skin under it is plain skin (when the eye closes
