@@ -46,7 +46,11 @@ etex.image.colorspace_settings.name = 'Non-Color'
 em = nt.nodes.new('ShaderNodeEmission'); em.inputs['Strength'].default_value = 1.0
 nt.links.new(tex.outputs['Color'], em.inputs['Color'])
 lit = nt.nodes.new('ShaderNodeMixShader')
-nt.links.new(etex.outputs['Color'], lit.inputs[0]); nt.links.new(bsdf.outputs[0], lit.inputs[1]); nt.links.new(em.outputs[0], lit.inputs[2])
+if os.environ.get('NOEMIS'):      # like Roblox with a plain TextureID / no emissive mask: everything lit
+    lit.inputs[0].default_value = 0.0
+else:
+    nt.links.new(etex.outputs['Color'], lit.inputs[0])
+nt.links.new(bsdf.outputs[0], lit.inputs[1]); nt.links.new(em.outputs[0], lit.inputs[2])
 geo = nt.nodes.new('ShaderNodeNewGeometry'); tr = nt.nodes.new('ShaderNodeBsdfTransparent')
 ms = nt.nodes.new('ShaderNodeMixShader')
 nt.links.new(geo.outputs['Backfacing'], ms.inputs[0])

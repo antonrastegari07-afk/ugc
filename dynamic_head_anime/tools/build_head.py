@@ -40,9 +40,14 @@ if EYE_STYLE == 'flat':
     # flat eyes: the floor of the hole stays level with the opening (no hollow going down), the hole is shallower and
     # its white back wall sits right behind the drawn eye
     CAVE_DOWN = 0.0
-    CAVE_D1 = 0.045
-DISH_FWD = float(os.environ.get('DISH_FWD', 0.028))   # flat style: the drawn eye is slightly concave (edges forward):
-                                                      # seen from the side it still faces you (no thin bar)
+    CAVE_D1 = 0.03
+FLAT_YAW = math.radians(float(os.environ.get('FLAT_YAW', 25)))   # flat style: the drawn eye and the white wall behind it
+                                                      # are ONE flat plane turned towards the outside of the face (diagonal
+                                                      # seen from above): seen from the side you still see the iris
+def flat_plane_y(s, x):
+    """depth (y) of the flat eye plane at x: deeper towards the outer corner"""
+    xi = IRIS_C[s][0]; out = 1.0 if xi > 0 else -1.0
+    return EYE_C[s].y + math.tan(FLAT_YAW) * (x - xi) * out
 LOOK_X, LOOK_Z = 0.035, 0.02
 MOUTH_HALF_GAP = 0.0026
 MOUTH_DEPTH = 0.10
@@ -222,9 +227,13 @@ for s in 'LR':
         # behind the skin both at the rim AND where the widened outline lands (the cheek recedes under the eye)
         y = max(surf_y(x, z) + d, (surf_y(x, z2) or -9) + max(d, 0.03) if d > CAVE_D0 else -9)
         return (x, y, z2)
-    for d in (CAVE_D0, 0.03, CAVE_D1):
+    for d in ((CAVE_D0, 0.018, CAVE_D1) if EYE_STYLE == 'flat' else (CAVE_D0, 0.03, CAVE_D1)):
         rings.append([ring_pt(x, z, d) for x, z in EYES[s]])
-    rings.append([(rings[-1][i][0], max(yb, rings[-1][i][1] + (0.005 if EYE_STYLE == 'flat' else 0.05)), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
+    if EYE_STYLE == 'flat':                                     # the white back wall = the eye plane, 4 mm behind it
+        rings.append([(rings[-1][i][0], max(flat_plane_y(s, rings[-1][i][0]) + 0.004, rings[-1][i][1] + 0.004),
+                       z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
+    else:
+        rings.append([(rings[-1][i][0], max(yb, rings[-1][i][1] + 0.05), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
     vr = [[bc.verts.new(p) for p in r] for r in rings]
     n = len(EYES[s])
     bc.faces.new(vr[0]); bc.faces.new(vr[-1][::-1])
@@ -447,9 +456,10 @@ def uv_sphere(C, R, seg, lats, inward, uvf, store):
 def flat_disc(s, store):
     """flat eye: the drawn iris WITH its pupil on an elliptic disc facing the front, glued to the back of the hole"""
     xi, zi, rx, rz = IRIS[s]; C = EYE_C[s]; seg = 28
-    rows = [[bm.verts.new((xi + f * rx * math.cos(2 * math.pi * k / seg), C.y - DISH_FWD * f * f, zi + f * rz * math.sin(2 * math.pi * k / seg)))
-             for k in range(seg)] for f in (0.25, 0.5, 0.75, 1.0)]
-    cen = bm.verts.new((xi, C.y, zi))
+    def P_(x, z): return (x, flat_plane_y(s, x), z)
+    rows = [[bm.verts.new(P_(xi + f * rx * math.cos(2 * math.pi * k / seg), zi + f * rz * math.sin(2 * math.pi * k / seg)))
+             for k in range(seg)] for f in (0.4, 0.75, 1.0)]
+    cen = bm.verts.new(P_(xi, zi))
     store += [cen] + [v for r in rows for v in r]
     def face(vs):
         f = bm.faces.new(vs); f.smooth = False
@@ -1300,6 +1310,11 @@ for poly in me.polygons:
             w = barycentric_transform(loc, a, b, c, Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)))
             n_rest = (na * w.x + nb * w.y + nc * w.z).normalized()
             newn.append((R3 @ n_rest).normalized()); nset += 1
+        elif EYE_STYLE == 'flat' and ((vi < SHELL_N and SOCK[vi] in ('L', 'R') and not skin_loop(li))
+                                      or any(vi in CUP_IDX[s_] for s_ in 'LR')):
+            # inside of the hole (walls, back wall, drawn eye): normals facing the front -> one even tone, no facets,
+            # even with a plain TextureID (no emissive)
+            newn.append((R3 @ Vector((0, -1, 0))).normalized()); nset += 1
         elif vi < SHELL_N and vi not in lid_or_inner and skin_loop(li) and SOCK[vi] is None:
             pm = Minv @ me.vertices[vi].co
             loc, _, fi, _ = TB.find_nearest(pm)
