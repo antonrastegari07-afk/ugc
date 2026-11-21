@@ -241,11 +241,15 @@ for side in 'RL':
     t8 = np.where(hl_[..., None], np.clip(iris_px, 0, 255).astype(np.uint8), t8)
     if os.environ.get('EYE_STYLE', 'sphere') == 'flat':
         # flat eye: a paler grey iris (rings kept) and a pure black pupil, so the black hole in the centre stands out
-        IRIS_LIGHT = float(os.environ.get('IRIS_LIGHT', 0.5))      # 0 = as drawn, 1 = white
+        IRIS_LIGHT = float(os.environ.get('IRIS_LIGHT', 0.6))      # 0 = as drawn; how much paler the bottom gets
         pup = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
         inside = (rr < 1.0) & ~pup & ~hl_
         f8 = t8.astype(np.float32)
-        f8[inside] = 255 - (255 - f8[inside]) * (1 - IRIS_LIGHT)
+        # vertical gradient: the top of the iris stays close to the drawing (dark, under the lid), the bottom gets paler;
+        # the drawn rings keep their contrast (a blend towards white, not a flat grey)
+        tb = np.clip((1 - b_) / 2, 0, 1)                         # 0 at the top of the iris, 1 at the bottom
+        amt = (IRIS_LIGHT * (0.15 + 0.85 * tb ** 1.3))[..., None] * np.ones((1, 1, 3), np.float32)
+        f8[inside] = f8[inside] * (1 - amt[inside]) + 235 * amt[inside]
         dark = pup & ~hl_ & (f8.mean(2) < 120)
         f8[dark] = 0
         soft = pup & ~hl_ & ~dark
