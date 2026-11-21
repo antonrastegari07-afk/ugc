@@ -180,6 +180,7 @@ def first_hits(co, s, dirs):
             loc, nrm, idx, dist = bvh.ray_cast(org, -d)
             c = CAT[idx] if idx is not None else 'none'
             cnt[c] = cnt.get(c, 0) + 1
+            if os.environ.get('LEAKDBG') and c == 'wall' and globals().get('_CLOSED'): print('   leak', s, dn, round(x, 3), round(z, 3))
         res[dn] = cnt
     return res
 
@@ -265,6 +266,7 @@ print(('ok ' if not vis and not rest_poke else '!! ') + f'rest: parked lid visib
 if vis or rest_poke: problems.append('rest')
 
 # closed eyes cover the whole opening
+_CLOSED = True
 for nm, s in (('LeftEyeClosed', 'L'), ('RightEyeClosed', 'R')):
     apply({nm: 1.0})
     co = deformed()
@@ -323,6 +325,7 @@ for w in cases:
             flips += 1; where[c] = where.get(c, 0) + 1
         elif c == 'skin' and n0 is not None and n1 is not None and n0.dot(n1) < math.cos(math.radians(35)):
             flips += 1; where['skin crease'] = where.get('skin crease', 0) + 1     # a skin triangle folding
+            if os.environ.get('CREASEDBG'): print('   crease at', tuple(round(c, 3) for c in (sum((co[i] for i in t), Vector()) / 3)), round(math.degrees(math.acos(max(-1, min(1, n0.dot(n1))))), 1))
     stretch = 0
     for a, b in edges:
         l0 = (rest[a] - rest[b]).length; l1 = (co[a] - co[b]).length

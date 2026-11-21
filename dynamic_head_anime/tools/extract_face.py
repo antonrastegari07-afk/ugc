@@ -20,7 +20,7 @@ if MIRROR_EYES:                        # the left eye + brow = mirror image of t
 # the gap grew towards the nose); the brows come down a little to fill the space.  A smooth vertical displacement field,
 # zero on and below the eyeliner (the 3D band and the eyes don't move); symmetric for both eyes.
 CREASE_GAP, BROW_DOWN = 13.0, float(os.environ.get("BROW_DOWN", 9.0))
-if os.environ.get('CREASE_FOLLOW', '1') == '1':
+if os.environ.get('CREASE_FOLLOW', '1') == '1' and FACE_STYLE != 'girl':   # boy drawing fixes only
     _poly = LASH_PX['R']
     def _top(x):
         ys = []
@@ -151,6 +151,7 @@ for side in 'RL':
     else: x0_, x1_ = int(_e1 - 0.25 * (_e1 - _e0)), int(_l1) + 2
     _zone[max(y0_, 0):y1_, max(x0_, 0):x1_] = 1.0
 _fill = ((_cls > 0) & (_sup == 0) & (lash_mask < 64)).astype(np.float32) * _zone   # never back over the 3D band
+if FACE_STYLE == 'girl': _fill[:] = 0                  # (boy drawing fix: would merge the girl's lash flicks)
 _fill = cv2.GaussianBlur(_fill, (0, 0), 0.8)
 alpha = np.maximum(alpha, _fill)
 print('wing gap filled px', int((_fill > 0.5).sum()))
@@ -163,7 +164,7 @@ for side in 'RL':
     else: xa_, xb_ = int(_e0) - 34, int(_e0) - 1
     _kill[int(_top) - 2:int(_top) + 44, max(xa_, 0):xb_] = 1.0
 _kill = cv2.GaussianBlur(_kill, (0, 0), 1.5)
-alpha *= 1 - _kill
+if FACE_STYLE != 'girl': alpha *= 1 - _kill
 
 # --- FACE block of the atlas: sample the image through the stud mapping
 fx, fy, fw, fh = FACE_RECT
@@ -233,6 +234,20 @@ for side in 'RL':
     atlas[ryr:ryr + rh, rxr:rxr + rw, :3] = col
     atlas[ryr:ryr + rh, rxr:rxr + rw, 3] = 255
     IRIS_COL[side] = col.copy()
+np.savez(os.path.join(OUT, 'iris_col.npz'), **IRIS_COL)
+if os.environ.get('IRIS_SRC'):
+    # the iris drawing comes from another face (the boy's, saved by its own run): its slit pupil and its drawn
+    # highlight are painted out (this face draws its own round pupil and highlights)
+    _src = np.load(os.environ['IRIS_SRC'])
+    for side in 'RL':
+        c0 = _src[side].astype(np.float32); ih_, iw_ = c0.shape[:2]
+        yy, xx = np.mgrid[0:ih_, 0:iw_]
+        a0 = (xx + 0.5) / iw_ * 2 - 1; b0 = 1 - (yy + 0.5) / ih_ * 2
+        kill = (((a0 / 0.27) ** 2 + (b0 / 0.76) ** 2) <= 1.0) | (c0.mean(2) > 135)
+        kill = cv2.dilate(kill.astype(np.uint8), np.ones((5, 5), np.uint8))
+        c1 = cv2.inpaint(np.clip(c0, 0, 255).astype(np.uint8), kill, 9, cv2.INPAINT_TELEA).astype(np.float32)
+        rxr, ryr, rw, rh = iris_rect(side)
+        IRIS_COL[side] = cv2.resize(c1, (rw, rh), interpolation=cv2.INTER_CUBIC)
 
 # sclera: exact pixels where visible, row-profile colour elsewhere (behind the iris / outside the opening)
 keep = (inside > 0) & (iris_d == 0)
@@ -290,7 +305,7 @@ for side in 'RL':
     ia = np.clip((1.0 - rr) / 0.03, 0, 1)[..., None]                     # soft 1-texel edge
     tex = tex * (1 - ia) + iris_px * ia
     # remove the drawn pupil (the dark vertical lens in the middle), keep the highlight
-    lens = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
+    lens = ((a_ / PUPIL_AB[0]) ** 2 + (b_ / PUPIL_AB[1]) ** 2) <= 1.0
     if os.environ.get('EYE_STYLE', 'sphere') == 'flat':          # flat eye: the drawn pupil stays (no pupil ball)
         lens[:] = False
     t8 = np.clip(tex, 0, 255).astype(np.uint8)
@@ -300,7 +315,7 @@ for side in 'RL':
     if os.environ.get('EYE_STYLE', 'sphere') == 'flat':
         # flat eye: a paler grey iris (rings kept) and a pure black pupil, so the black hole in the centre stands out
         IRIS_LIGHT = float(os.environ.get('IRIS_LIGHT', 0.6))      # 0 = as drawn; how much paler the bottom gets
-        pup = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
+        pup = ((a_ / PUPIL_AB[0]) ** 2 + (b_ / PUPIL_AB[1]) ** 2) <= 1.0
         inside = (rr < 1.0) & ~pup & ~hl_
         f8 = t8.astype(np.float32)
         # vertical gradient: the top of the iris stays close to the drawing (dark, under the lid), the bottom gets paler;
@@ -385,7 +400,7 @@ if os.environ.get('EYE_STYLE', 'sphere') == 'flat':
         yy, xx = np.mgrid[0:rh, 0:rw]
         xs_ = x0 + (xx - 1 + 0.5) / (rw - 2) * (x1 - x0); zs_ = z1 - (yy - 1 + 0.5) / (rh - 2) * (z1 - z0)
         xi, zi, irx, irz = iris_studs(side)
-        lens = (((xs_ - xi) / irx / 0.24) ** 2 + ((zs_ - zi) / irz / 0.70) ** 2) <= 1.0
+        lens = (((xs_ - xi) / irx / PUPIL_AB[0]) ** 2 + ((zs_ - zi) / irz / PUPIL_AB[1]) ** 2) <= 1.0
         lens &= atlas[ry:ry + rh, rx:rx + rw, :3].mean(2) < 140          # not the white highlight
         _metal_pupil_only[ry:ry + rh, rx:rx + rw][lens] = 255
     cv2.imwrite(f'{OUT}/HeadTexture_Metalness_PupilleSeule.png', _metal_pupil_only)

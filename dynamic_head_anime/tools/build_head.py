@@ -562,7 +562,7 @@ for s in 'LR':
         """lower edge of the closed lid: the lower rim, but kept low in the corners (where the almond outline rises)
         so that the lid never uncovers a corner of the opening while it slides; the extra part stays under the skin"""
         line = bq0 + (bq1 - bq0) * (x - xq0) / (xq1 - xq0)
-        return min(span_c(s, x)[1], line) - 0.001
+        return min(span_c(s, x)[1], line) - (0.004 if FACE_STYLE == 'girl' else 0.001)
     def lift(dz, f):           # rest (parked) = closed + lift(dz, 1)
         return Vector((0.0, LID_D * f, dz * f))
     def real_y(x, z):
@@ -577,7 +577,7 @@ for s in 'LR':
     def closed_pt(x, t, dz):
         tp, bt = span_c(s, x)
         r_ = round(t * LID_ROWS)                                        # row 0 above the top rim, row 1 right at it, then down
-        z = (tp + 0.005) if r_ == 0 else (tp - 0.001) + (lid_bottom(x) - (tp - 0.001)) * (r_ - 1) / (LID_ROWS - 1)
+        z = (tp + (0.010 if FACE_STYLE == 'girl' else 0.005)) if r_ == 0 else (tp - 0.001) + (lid_bottom(x) - (tp - 0.001)) * (r_ - 1) / (LID_ROWS - 1)
         sy = surf_y(x, z)
         # tucked under the skin only if the point is never over the opening during the slide
         sd = max(inside_d(s, x, z + dz * f / 10) for f in range(11))
@@ -594,7 +594,7 @@ for s in 'LR':
         c.y += need
         PULL[(s, round(x, 3), round(z, 3))] = (inside_d(s, x, z), z - bt, need)
         return c
-    xa, xb = x0 - 0.008, x1 + 0.008
+    xa, xb = (x0 - 0.02, x1 + 0.02) if FACE_STYLE == 'girl' else (x0 - 0.008, x1 + 0.008)
     lid_xs = [xa] + [x0 + 0.0015 + (x1 - x0 - 0.003) * (0.5 - 0.5 * math.cos(math.pi * k / (LID_COLS - 2))) for k in range(LID_COLS - 1)] + [xb]   # dense in the corners
     def parked_margin(grid, dz):
         """worst clearance of the parked lid: behind the skin where there is skin, under the eyeliner overhang where
@@ -867,7 +867,8 @@ assert tris <= 4000, 'over the 4000 triangle DynamicHead budget'
 
 # ---------------------------------------------------------------- face joints (positions in mask studs)
 def img_s(px, py): return img2stud(px, py)
-BROWS = {'R': (img_s(490, 497), img_s(240, 468)), 'L': (img_s(575, 500), img_s(845, 466))}   # (inner, outer)
+BROWS = {'R': (img_s(*BROW_PX['R'][0]), img_s(*BROW_PX['R'][1])),
+         'L': (img_s(2 * CX - BROW_PX['R'][0][0], BROW_PX['R'][0][1]), img_s(2 * CX - BROW_PX['R'][1][0], BROW_PX['R'][1][1]))}   # (inner, outer)
 mL, mR = (MX1, mouth_z(MX1)), (MX0, mouth_z(MX0))
 def front(x, z, back=0.0): return (x, surf_y(x, z) + back, z)
 def eye_c(s):
@@ -1114,6 +1115,16 @@ P['LipsTogether'] = {'LeftLowerLip': T(0, -0.002, 0.004), 'RightLowerLip': T(0, 
 P['Pucker'] = {'LeftLipCorner': T(-0.022, -0.012, 0.002), 'RightLipCorner': T(0.022, -0.012, 0.002),
                'LeftUpperLip': T(-0.006, -0.012, -0.002), 'RightUpperLip': T(0.006, -0.012, -0.002),
                'LeftLowerLip': T(-0.006, -0.012, 0.003), 'RightLowerLip': T(0.006, -0.012, 0.003)}
+# a narrower mouth (girl face): sideways lip moves scale with the mouth width (the boy mouth is the reference)
+MOUTH_K = min(1.0, (MX1 - MX0) / 0.163)
+if MOUTH_K < 0.999:
+    for _pn, _pd in P.items():
+        for _bn, _tv in list(_pd.items()):
+            if _tv[0] == 't' and len(_tv) == 2 and any(k_ in _bn for k_ in ('LipCorner', 'UpperLip', 'LowerLip')):
+                _pd[_bn] = T(_tv[1].x * MOUTH_K, _tv[1].y * MOUTH_K ** 0.5, _tv[1].z * MOUTH_K ** 0.75)
+            elif _tv[0] == 't' and len(_tv) == 2 and _bn == 'Jaw' and _pn.startswith('ChinRaiser'):
+                _pd[_bn] = T(_tv[1].x, _tv[1].y * MOUTH_K ** 0.35, _tv[1].z * MOUTH_K ** 0.35)   # gentler chin push
+    print('mouth poses scaled sideways by', round(MOUTH_K, 3))
 ORDER = sorted(k for k in P if '_' not in k) + sorted(k for k in P if '_' in k)   # base poses A-Z, then combinations
 REQUIRED = ['LeftEyeClosed', 'RightEyeClosed', 'EyesLookDown', 'JawDrop', 'Pucker', 'LeftLipCornerPuller',
             'RightLipCornerPuller', 'ChinRaiser', 'ChinRaiserUpperLip', 'LeftCheekRaiser', 'RightCheekRaiser',

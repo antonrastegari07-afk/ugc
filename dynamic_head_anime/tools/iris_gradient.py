@@ -21,7 +21,7 @@ for side in 'RL':
     rr = np.sqrt(a_ ** 2 + b_ ** 2)
     blk = img[ry:ry + rh, rx:rx + rw, :3]
     lum = blk.mean(2)
-    pup = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
+    pup = ((a_ / PUPIL_AB[0]) ** 2 + (b_ / PUPIL_AB[1]) ** 2) <= 1.0
     hl = (lum > 150) & (rr < 0.6)
     iris = (rr < 1.0) & ~pup & ~hl
     t = np.clip((1 - b_) / 2, 0, 1)                     # 0 at the top of the iris -> 1 at the bottom

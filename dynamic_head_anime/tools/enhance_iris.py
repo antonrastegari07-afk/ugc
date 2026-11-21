@@ -25,7 +25,7 @@ for side in 'RL':
     a_ = (xs_ - xi) / irx; b_ = (zs_ - zi) / irz
     rr = np.sqrt(a_ ** 2 + b_ ** 2)
     th = np.arctan2(b_, a_)
-    dl = np.sqrt((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2)                 # pupil lens distance (1 = its edge)
+    dl = np.sqrt((a_ / PUPIL_AB[0]) ** 2 + (b_ / PUPIL_AB[1]) ** 2)                 # pupil lens distance (1 = its edge)
     blk = img[ry:ry + rh, rx:rx + rw, :3].copy()
     lum = blk.mean(2)
     hl = (lum > 150) & (rr < 0.6) & (dl > 0.2)                       # the drawn highlight (kept crisp)

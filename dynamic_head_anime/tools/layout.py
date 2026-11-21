@@ -24,6 +24,30 @@ EYE_PX = {
 IRIS_PX = {'R': (389.5, 556.0), 'L': (680.5, 556.0)}   # round iris centres (image px); top part hidden under the lid
 IRIS_R_PX = {'R': (59.5, 58.0), 'L': (58.5, 57.0)}      # radii (image px) -> ~0.102 stud circle
 
+# --- face style: 'boy' (the traced drawing, default) or 'girl' (a generated face built on the same model)
+import os as _os, math as _m
+FACE_STYLE = _os.environ.get('FACE_STYLE', 'boy')
+PUPIL_AB = (0.24, 0.70)                # drawn pupil: a vertical slit (fraction of the iris radii)
+BROW_PX = {'R': ((490, 497), (240, 468))}   # (inner, outer) brow ends, image px
+GIRL = dict(ox=268, oy=582, ix=446, iy=590, top=50, bot=42, irx=362, iry=590, irr=(47, 52))
+def girl_eye_chains(n=14):
+    """girl right eye (screen left): (top chain outer->inner, bottom chain inner->outer) in image px"""
+    g = GIRL; top = []; bot = []
+    for k in range(n + 1):
+        u = -1 + 2 * k / n
+        x = g['ox'] + (g['ix'] - g['ox']) * (u + 1) / 2
+        base = g['oy'] + (g['iy'] - g['oy']) * (u + 1) / 2
+        ib = ((u + 1) / 2) ** 4 * 8.0                      # blunt inner corner: a short vertical edge (no thin point)
+        top.append((x, base - g['top'] * max(0.0, 1 - abs(u) ** 2.4) ** 0.6 * (1 - 0.12 * u) - ib))
+        bot.append((x, base + g['bot'] * max(0.0, 1 - abs(u) ** 2.2) ** 0.7 + ib))
+    return top, bot[::-1][:-1]
+if FACE_STYLE == 'girl':
+    _t, _b = girl_eye_chains()
+    EYE_PX['R'] = _t + _b
+    IRIS_PX['R'] = (GIRL['irx'], GIRL['iry']); IRIS_R_PX['R'] = GIRL['irr']
+    PUPIL_AB = (0.36, 0.42)            # round pupil
+    BROW_PX = {'R': ((474, 487), (282, 474))}
+
 # SYMMETRIC EYES: the character's RIGHT eye + brow (screen left) is the reference; the left one is its mirror image
 # about the face centre (CX), both in the drawing (extract_face mirrors the image band MIRROR_ROWS) and in all the
 # traced shapes below
@@ -43,11 +67,24 @@ LASH_PX = {
        (785, 534.5), (820, 534), (850, 533.5), (872.5, 533), (845, 545), (812, 561), (800, 559), (770, 558.5),
        (740, 558.5), (710, 559), (680, 559), (650, 559), (636, 561), (628, 566), (623, 572), (605, 575)],
 }
+def girl_lash_poly():
+    """thick rounded girl eyeliner: the eye's top chain, offset upwards (thin at the inner end, thick at the outer end)
+    with a lifted wing past the outer corner"""
+    top, _ = girl_eye_chains()
+    up = []
+    for i, (x, y) in enumerate(top):
+        u = -1 + 2 * i / (len(top) - 1)                    # -1 outer .. 1 inner
+        th = 6 + 13 * (1 - (u + 1) / 2) ** 0.8             # 19 px at the outer end -> 6 px at the inner end
+        up.append((x, y - th))
+    wing = [(236, 548), (250, 560)]
+    return [wing[0]] + up + [(top[-1][0] + 6, top[-1][1] + 1)] + top[::-1] + [wing[1]]
+if FACE_STYLE == 'girl':
+    LASH_PX['R'] = girl_lash_poly()
 if MIRROR_EYES:
     LASH_PX['L'] = _mirror_poly(LASH_PX['R'])
 # the 3D eyeliner is shorter than the drawn one: the part beyond the eye opening (the wing / the inner tip) keeps only
 # LASH_K of its length.  The texture still erases the WHOLE drawn eyeliner (LASH_PX_FULL), so nothing is left painted.
-LASH_K = 0.5
+LASH_K = 1.0 if FACE_STYLE == 'girl' else 0.5
 LASH_PX_FULL = LASH_PX
 def _shorten(poly, eye):
     ex0, ex1 = min(p[0] for p in eye), max(p[0] for p in eye)

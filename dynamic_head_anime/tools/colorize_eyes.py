@@ -35,7 +35,7 @@ def make(color, dark_sclera):
         (rx, ry, rw, rh), a_, b_, rr = masks(side)
         blk = img[ry:ry + rh, rx:rx + rw, :3]
         lum = blk.mean(2) / 255.0
-        pup = ((a_ / 0.24) ** 2 + (b_ / 0.70) ** 2) <= 1.0
+        pup = ((a_ / PUPIL_AB[0]) ** 2 + (b_ / PUPIL_AB[1]) ** 2) <= 1.0
         hl = (lum > 0.62) & (rr < 1.0) & ~(rr > 0.97)        # the drawn white highlight inside the iris
         hl &= ((a_ / 0.45) ** 2 + (b_ / 0.45) ** 2) <= 1.0
         iris = (rr < 1.0) & ~pup & ~hl
