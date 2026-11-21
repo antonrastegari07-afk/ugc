@@ -29,13 +29,20 @@ SOCKET_EXTRA = 0.15       # cutter goes this much deeper than the deepest cup po
 EYE_DC = float(os.environ.get('EYE_DC', 0.135))  # depth of the eyeball centre behind the face (at the iris centre)
 EYE_STYLE = os.environ.get('EYE_STYLE', 'sphere')   # 'sphere': inverted iris sphere + pupil ball; 'flat': the drawn eye
                                                     # (iris + pupil) on a flat disc glued to the back of the white hole
-FLAT_D = float(os.environ.get('FLAT_D', 0.12))      # flat style: depth of the back of the hole behind the face (iris centre)
+FLAT_D = float(os.environ.get('FLAT_D', 0.085))      # flat style: depth of the back of the hole behind the face (iris centre)
 IRIS_SPH_K = float(os.environ.get('IRIS_SPH_K', 1.0))   # iris sphere radius / drawn iris radius
 CAVE_SIDE = 0.035         # ... and sideways at the corners (the iris sphere never touches a side wall)
 CAVE_DOWN = 0.075         # the socket also widens downwards behind the lower rim (the iris ball is seen whole from above)
 CAVE_H = 0.105            # the socket widens UPWARDS inside the head (a cave larger than its entrance): seen from
                           # below, the whole round iris and the white around it are visible (no flat white ceiling)
 CAVE_D0, CAVE_D1 = 0.004, 0.065  # depth where the widening starts / is complete (the rim keeps the opening's shape)
+if EYE_STYLE == 'flat':
+    # flat eyes: the floor of the hole stays level with the opening (no hollow going down), the hole is shallower and
+    # its white back wall sits right behind the drawn eye
+    CAVE_DOWN = 0.0
+    CAVE_D1 = 0.045
+DISH_FWD = float(os.environ.get('DISH_FWD', 0.028))   # flat style: the drawn eye is slightly concave (edges forward):
+                                                      # seen from the side it still faces you (no thin bar)
 LOOK_X, LOOK_Z = 0.035, 0.02
 MOUTH_HALF_GAP = 0.0026
 MOUTH_DEPTH = 0.10
@@ -202,7 +209,7 @@ for s in 'LR':
     xi, zi = IRIS_C[s]
     yb = EYE_C[s].y + EYE_R[s] + 0.06                          # behind the back of the iris sphere
     if EYE_STYLE == 'flat':
-        yb = EYE_C[s].y + 0.003                                  # flat back wall, the iris disc lies just in front of it
+        yb = EYE_C[s].y + 0.004                                  # flat back wall, right behind the drawn eye
     eye_back[s] = yb
     # loft: straight through the skin, then widening upwards behind it
     rings = [[(x, -1.5, z) for x, z in EYES[s]]]
@@ -217,7 +224,7 @@ for s in 'LR':
         return (x, y, z2)
     for d in (CAVE_D0, 0.03, CAVE_D1):
         rings.append([ring_pt(x, z, d) for x, z in EYES[s]])
-    rings.append([(rings[-1][i][0], max(yb, rings[-1][i][1] + 0.05), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
+    rings.append([(rings[-1][i][0], max(yb, rings[-1][i][1] + (0.005 if EYE_STYLE == 'flat' else 0.05)), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
     vr = [[bc.verts.new(p) for p in r] for r in rings]
     n = len(EYES[s])
     bc.faces.new(vr[0]); bc.faces.new(vr[-1][::-1])
@@ -440,8 +447,8 @@ def uv_sphere(C, R, seg, lats, inward, uvf, store):
 def flat_disc(s, store):
     """flat eye: the drawn iris WITH its pupil on an elliptic disc facing the front, glued to the back of the hole"""
     xi, zi, rx, rz = IRIS[s]; C = EYE_C[s]; seg = 28
-    rows = [[bm.verts.new((xi + f * rx * math.cos(2 * math.pi * k / seg), C.y, zi + f * rz * math.sin(2 * math.pi * k / seg)))
-             for k in range(seg)] for f in (0.4, 0.75, 1.0)]
+    rows = [[bm.verts.new((xi + f * rx * math.cos(2 * math.pi * k / seg), C.y - DISH_FWD * f * f, zi + f * rz * math.sin(2 * math.pi * k / seg)))
+             for k in range(seg)] for f in (0.25, 0.5, 0.75, 1.0)]
     cen = bm.verts.new((xi, C.y, zi))
     store += [cen] + [v for r in rows for v in r]
     def face(vs):

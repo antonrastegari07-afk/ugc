@@ -297,6 +297,12 @@ cv2.imwrite(f'{OUT}/HeadTexture_Roughness.png', np.clip(rough, 0, 255).astype(np
 # (style 'flat'); a black metal reflects (almost) nothing straight on -> the deepest black
 _metal = np.zeros((ATLAS, ATLAS), np.uint8)
 if os.environ.get('EYE_STYLE', 'sphere') == 'flat':
+    # flat style: the WHOLE eye (drawn eye + the white hole walls) is white = metal
+    for side in 'RL':
+        rx, ry, rw, rh = eye_rect(side); _metal[ry:ry + rh, rx:rx + rw] = 255
+    for rect in (WALL_UP_RECT, WALL_LO_RECT):
+        x, y, w, h = rect; _metal[y:y + h, x:x + w] = 255
+    _metal_pupil_only = np.zeros_like(_metal)
     for side in 'RL':
         x0, x1, z0, z1 = eye_tex_box(side); rx, ry, rw, rh = eye_rect(side)
         yy, xx = np.mgrid[0:rh, 0:rw]
@@ -304,7 +310,8 @@ if os.environ.get('EYE_STYLE', 'sphere') == 'flat':
         xi, zi, irx, irz = iris_studs(side)
         lens = (((xs_ - xi) / irx / 0.24) ** 2 + ((zs_ - zi) / irz / 0.70) ** 2) <= 1.0
         lens &= atlas[ry:ry + rh, rx:rx + rw, :3].mean(2) < 140          # not the white highlight
-        _metal[ry:ry + rh, rx:rx + rw][lens] = 255
+        _metal_pupil_only[ry:ry + rh, rx:rx + rw][lens] = 255
+    cv2.imwrite(f'{OUT}/HeadTexture_Metalness_PupilleSeule.png', _metal_pupil_only)
 else:
     x, y, w, h = BALL_RECT; _metal[y:y + h, x:x + w] = 255
 cv2.imwrite(f'{OUT}/HeadTexture_Metalness.png', _metal)
