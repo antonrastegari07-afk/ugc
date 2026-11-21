@@ -19,7 +19,7 @@ if MIRROR_EYES:                        # the left eye + brow = mirror image of t
 # the eyelid crease line (between the brow and the eyeliner) follows the curve of the top of the eye (it was almost flat:
 # the gap grew towards the nose); the brows come down a little to fill the space.  A smooth vertical displacement field,
 # zero on and below the eyeliner (the 3D band and the eyes don't move); symmetric for both eyes.
-CREASE_GAP, BROW_DOWN = 13.0, 6.0
+CREASE_GAP, BROW_DOWN = 13.0, float(os.environ.get("BROW_DOWN", 9.0))
 if os.environ.get('CREASE_FOLLOW', '1') == '1':
     _poly = LASH_PX['R']
     def _top(x):
