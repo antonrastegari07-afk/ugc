@@ -1114,13 +1114,7 @@ for idx, p in enumerate(REST):
     elif side and idx in LID_IDX[side]:
         w[nm + 'UpperEyelid'] = 1.0
     elif side and idx in LASH_IDX[side] and BLINK_MID:
-        # the middle of the eyeliner comes down fully, its ends (wing, inner tip) less: like a real lid, the closed
-        # eyeliner stays joined to the lower lash line at the corners
-        _x0, _x1 = eye_xr(side); _xm, _hw = (_x0 + _x1) / 2, (_x1 - _x0) / 2
-        _u = abs(REST[idx].x - _xm) / _hw
-        _t = max(0.0, min(1.0, (_u - 0.55) / 0.75))
-        w[nm + 'LashTip'] = 1.0 - 0.6 * _t * _t * (3 - 2 * _t)
-        w['DynamicHead'] = 1.0 - w[nm + 'LashTip']
+        w[nm + 'LashTip'] = 1.0                 # rigid: the eyeliner keeps exactly its drawn shape when blinking
     elif side and idx in LASH_IDX[side]:
         wt = LASH_WT[idx]
         w[nm + 'UpperEyelid'] = 1.0 - wt

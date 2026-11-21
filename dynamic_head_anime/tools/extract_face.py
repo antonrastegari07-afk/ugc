@@ -216,6 +216,7 @@ if FACE_STYLE == 'girl2':
         for side in 'RL':
             cv2.fillPoly(_silm, [np.round(np.array(LASH_SIL_PX[side]) * 8).astype(np.int32)], 255, cv2.LINE_8, 3)
         _sild = cv2.dilate(_silm, np.ones((3, 3), np.uint8))
+        lash_mask = np.maximum(lash_mask, _sild)              # everything on the 3D eyeliner is off the skin
         _other = ((_gi < 60) & (_sild == 0)).astype(np.uint8)        # truly dark strokes only (not the grey haze)
         _no, _lo, _so, _ = cv2.connectedComponentsWithStats(_other, connectivity=8)
         _other = np.isin(_lo, [i for i in range(1, _no) if _so[i, 4] >= 25]).astype(np.uint8)   # no specks

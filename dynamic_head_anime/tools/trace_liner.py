@@ -97,6 +97,13 @@ eye_poly = eye_top + arc + eye_bot
 # = the liner ink (with its anti-aliased edge, the separate crease line excluded) + a thin strip just inside the
 # opening's top edge (the overhang that hides the rim of the hole)
 sil = comp.copy()                                   # dark ink only (g < 95): no grey haze between the lashes
+# the lower branch of the outer corner's "<" (the short spike under the wing) goes on the eyeliner too: both ends of
+# the corner move together when blinking (no gap between them); the line down the outer edge of the eye stays skin
+_ink3 = (g < 95)                                     # (the rim line itself too, even where it touches the white)
+_zone = (xx < ox + int(os.environ.get('CORNER_DX', 8))) & (yy >= oy - 6) & (yy < oy + int(os.environ.get('CORNER_DY', 24))) & (xx > ox - 70)
+_n4, _lab4 = cv2.connectedComponents((_ink3 & (_zone | comp)).astype(np.uint8), connectivity=8)
+_kc = set(np.unique(_lab4[comp])) - {0}
+sil |= np.isin(_lab4, list(_kc)) & _zone
 OV = float(os.environ.get('SIL_OV', 3.5))
 for x in range(int(ex0) + 1, int(ex1)):
     t = top_edge(x)
@@ -104,7 +111,7 @@ for x in range(int(ex0) + 1, int(ex1)):
         sil[int(t + OV) + 1:, x] = False             # (the thin liner along the inner edge stays on the skin)
         sil[int(t) - 1:int(t + OV) + 1, x] = True
 _yc = top_edge(ex1 - 10) + OV                       # the thin line down the inner edge of the eye: skin, not eyeliner
-sil[int(_yc) + 1:, int(ex1) - 4:int(ex1) + 11] = False
+sil[int(_yc) + 1:, int(ex1) - 14:int(ex1) - 1] = False     # (only that thin line: the lashes' inner point stays whole)
 sil = cv2.morphologyEx(sil.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
 SS_ = 4
 big = cv2.resize(sil * 255, (W * SS_, H * SS_), interpolation=cv2.INTER_LINEAR)
