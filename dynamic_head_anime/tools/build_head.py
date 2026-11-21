@@ -40,6 +40,7 @@ if EYE_STYLE == 'flat':
     # flat eyes: the floor of the hole stays level with the opening (no hollow going down), the hole is shallower and
     # its white back wall sits right behind the drawn eye
     CAVE_DOWN = 0.0
+    if FACE_STYLE == 'girl2': CAVE_SIDE = 0.0         # the outer corner is close to the side of the head
     CAVE_D1 = 0.03
 FLAT_YAW = math.radians(float(os.environ.get('FLAT_YAW', 25)))   # flat style: the drawn eye and the white wall behind it
                                                       # are ONE flat plane turned towards the outside of the face (diagonal
@@ -112,6 +113,8 @@ def cave_raise(s, x, z):
     if sp is None: return 0.0
     u = (x - (x0 + x1) / 2) / ((x1 - x0) / 2)
     shape = max(0.0, 1 - (0.9 * u) ** 4) ** 0.5
+    if FACE_STYLE == 'girl2':                    # no widening at the corners (the head curves away there)
+        shape = max(0.0, 1 - abs(u) ** 2.5) ** 0.8
     return CAVE_H * shape if z >= (sp[0] + sp[1]) / 2 else -CAVE_DOWN * shape
 def cave_frac(d):
     t = max(0.0, min(1.0, (d - CAVE_D0) / (CAVE_D1 - CAVE_D0)))
@@ -208,6 +211,16 @@ def add_prism(b, pts, y0, y1):
         j = (i + 1) % n
         b.faces.new((vf[i], vf[j], vb[j], vb[i]))
 
+def side_ok(x, y, z, margin=0.015):
+    """is (x, y, z) at least `margin` inside the head towards the side (outwards in x)?"""
+    out = 1.0 if x > 0 else -1.0
+    loc, n, i, d = BVH.ray_cast(Vector((x, y, z)), Vector((out, 0, 0)))
+    return loc is None or d >= margin
+def side_fix(x, y, z, front_y, margin=0.015):
+    """move (x, y, z) forwards (towards the face) until it is `margin` inside the side of the head"""
+    while not side_ok(x, y, z, margin) and y > front_y:
+        y -= 0.003
+    return y
 eye_back = {}
 bc = bmesh.new()
 for s in 'LR':
@@ -232,6 +245,9 @@ for s in 'LR':
     if EYE_STYLE == 'flat':                                     # the white back wall = the eye plane, 4 mm behind it
         rings.append([(rings[-1][i][0], max(flat_plane_y(s, rings[-1][i][0]) + 0.004, rings[-1][i][1] + 0.004),
                        z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
+        # never deeper than the side of the head next to it (the face curves back at the temple: a deep back wall at the
+        # outer corner would come out through the side of the head)
+        rings = [rings[0]] + [[(x_, side_fix(x_, y_, z_, (surf_y(x_, z_) or y_) + 0.006), z_) for x_, y_, z_ in r_] for r_ in rings[1:]]
     else:
         rings.append([(rings[-1][i][0], max(yb, rings[-1][i][1] + 0.05), z + cave_raise(s, x, z)) for i, (x, z) in enumerate(EYES[s])])
     vr = [[bc.verts.new(p) for p in r] for r in rings]
@@ -292,8 +308,13 @@ for f in bm.faces:
         # behind the surface, but it is a wall: one of its vertices is inside the socket and it hugs the outline
         vs_ = [socket_of(v.co) for v in f.verts]
         for s_ in 'LR':
-            if s_ in vs_ and poly_dist((c.x, c.z), EYES[s_]) < 0.003 and abs(f.normal.y) < 0.9:
+            if s_ in vs_ and poly_dist((c.x, c.z), EYES[s_]) < 0.003 and abs(f.normal.y) < 0.9 \
+                    and all(pip((v.co.x, v.co.z), EYES[s_]) or poly_dist((v.co.x, v.co.z), EYES[s_]) < 0.004 for v in f.verts):
+                # (a face reaching out of the opening is skin, even where the head curves away at the outer corner)
                 sk = s_
+    if sk in ('L', 'R') and f.normal.y < -0.3 and any(not pip((v.co.x, v.co.z), EYES[sk])
+                                                       and poly_dist((v.co.x, v.co.z), EYES[sk]) > 0.006 for v in f.verts):
+        sk = None                     # a front-facing face reaching out of the opening is skin (outer corner, curved head)
     if sk in ('L', 'R'):
         rect = WALL_LO_RECT                                       # plain deep white everywhere in the socket (no shading band)
         for l in f.loops:
@@ -479,6 +500,7 @@ def flat_disc(s, store):
         y = flat_plane_y(s, x) - FLAT_CONC * f * f
         sy = surf_y(x, z)
         if sy is not None: y = max(y, sy + 0.012)        # never in front of the skin (the face curves back at the temple)
+        y = side_fix(x, y, z, (sy if sy is not None else y) + 0.008, 0.021)   # nor through the side of the head
         return (x, y, z)
     rows = [[bm.verts.new(P_(xi + f * R_[k] * math.cos(2 * math.pi * k / seg), zi + f * R_[k] * math.sin(2 * math.pi * k / seg), f))
              for k in range(seg)] for f in fs]
@@ -693,8 +715,105 @@ def resample(chain, n):
         u = (t - L[i - 1]) / max(L[i] - L[i - 1], 1e-9)
         out.append((chain[i - 1][0] + (chain[i][0] - chain[i - 1][0]) * u, chain[i - 1][1] + (chain[i][1] - chain[i - 1][1]) * u))
     return out
-LASH_COLS = 14 if DRAWN_LASH else 22
+LASH_COLS = 12 if DRAWN_LASH else 22
+def build_sil_band(s):
+    """the 3D eyeliner cut EXACTLY to the drawn eyeliner + lashes (outline traced from the drawing): no transparent slab
+    between the spikes (in Roblox it showed as a grey skin-coloured plate).  Conforming Delaunay of the outline +
+    an inner grid, every point projected on the head (it follows the curve of the head), pushed just in front of it."""
+    from scipy.spatial import Delaunay
+    sil = [img2stud(*p) for p in LASH_SIL_PX[s]]
+    if sum(sil[i][0] * sil[(i + 1) % len(sil)][1] - sil[(i + 1) % len(sil)][0] * sil[i][1] for i in range(len(sil))) < 0:
+        sil = sil[::-1]                                              # counter-clockwise (x right, z up)
+    SEG = float(os.environ.get('SIL_SEG', 0.03))
+    bnd = []
+    for i in range(len(sil)):
+        a, b = sil[i], sil[(i + 1) % len(sil)]
+        n_ = max(1, math.ceil(math.dist(a, b) / SEG))
+        for k in range(n_): bnd.append((a[0] + (b[0] - a[0]) * k / n_, a[1] + (b[1] - a[1]) * k / n_))
+    GRID = float(os.environ.get('SIL_GRID', 0.026))
+    xs_ = [p[0] for p in bnd]; zs_ = [p[1] for p in bnd]
+    inn = []
+    gx = min(xs_) + GRID / 2
+    while gx < max(xs_):
+        gz = min(zs_) + GRID / 2
+        while gz < max(zs_):
+            if pip((gx, gz), bnd) and poly_dist((gx, gz), bnd) > 0.55 * GRID: inn.append((gx, gz))
+            gz += GRID
+        gx += GRID
+    for _it in range(12):                                            # conforming: split outline edges Delaunay misses
+        pts = bnd + inn
+        tri = Delaunay(np.array(pts))
+        edges = set()
+        for t in tri.simplices:
+            for i in range(3): edges.add((min(t[i], t[(i + 1) % 3]), max(t[i], t[(i + 1) % 3])))
+        nb = len(bnd); miss = [i for i in range(nb) if (min(i, (i + 1) % nb), max(i, (i + 1) % nb)) not in edges]
+        if not miss: break
+        for i in sorted(miss, reverse=True):
+            a, b = bnd[i], bnd[(i + 1) % nb]
+            bnd.insert(i + 1, ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2))
+    print('   eyeliner outline', s, 'points', len(bnd), 'inner', len(inn), 'missing edges left', len(miss))
+    pts = bnd + inn; nb = len(bnd)
+    tris = []
+    for t in tri.simplices:
+        P_ = [pts[i] for i in t]
+        c_ = (sum(p[0] for p in P_) / 3, sum(p[1] for p in P_) / 3)
+        if pip(c_, bnd): tris.append(t)
+    def proj(x, z):
+        loc, nrm, _, _ = BVH.ray_cast(Vector((x, -3.0, z)), Vector((0, 1, 0)))
+        if loc is None: loc, nrm, _, _ = BVH.find_nearest(Vector((x, -0.6, z)))
+        return loc, nrm
+    FV, BV = [], {}
+    for i, (x, z) in enumerate(pts):
+        loc, nrm = proj(x, z)
+        FV.append(bm.verts.new(loc + nrm * LASH_T))
+    # the underside (bottom edges: seen from below, they close the gap to the skin / the rim of the hole)
+    side_e = []
+    for i in range(nb):
+        a, b = bnd[i], bnd[(i + 1) % nb]
+        ex_, ez_ = b[0] - a[0], b[1] - a[1]; L_ = math.hypot(ex_, ez_) or 1e-9
+        out_ = (ez_ / L_, -ex_ / L_)                                  # outward normal of a CCW outline
+        if out_[1] < -0.5 and eye_xr(s)[0] - 0.01 < (a[0] + b[0]) / 2 < eye_xr(s)[1] + 0.01 and pip(((a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 0.004), EYES[s]):
+            side_e.append((i, (i + 1) % nb))                          # (only over the opening: the rim of the hole)
+    for i, j in side_e:
+        for k in (i, j):
+            if k not in BV:
+                loc, nrm = proj(*bnd[k]); BV[k] = bm.verts.new(loc - nrm * 0.004)
+    lash_verts[s].extend(FV); lash_verts[s].extend(BV.values())
+    front = []
+    for t in tris:
+        f = bm.faces.new([FV[i] for i in t]); f.smooth = True; f.normal_update()
+        if f.normal.y > 0: f.normal_flip()
+        for l in f.loops: l[uvl].uv = liner_uv(s, l.vert.co.x, l.vert.co.z)
+        front.append(f)
+    for i, j in side_e:
+        f = bm.faces.new((FV[i], BV[i], BV[j], FV[j])); f.smooth = True; f.normal_update()
+        if f.normal.z > 0: f.normal_flip()
+        for l in f.loops: l[uvl].uv = rect_center_uv(LASH_RECT)
+    # in front of the skin everywhere (the triangles are flat, the head is curved): push forward along -y only
+    SK = {}
+    def sky(x, z):
+        k_ = (round(x, 5), round(z, 5))
+        if k_ not in SK:
+            h_ = BVH.ray_cast(Vector((x, -3.0, z)), Vector((0, 1, 0)))[0]
+            SK[k_] = h_.y if h_ is not None else None
+        return SK[k_]
+    for _it in range(6):
+        push = {}
+        for f in front:
+            a_, b_, c_ = [v.co for v in f.verts]; need = 0.0
+            for u_ in range(6):
+                for w_ in range(6 - u_):
+                    q_ = a_ + (b_ - a_) * (u_ / 5) + (c_ - a_) * (w_ / 5)
+                    sy_ = sky(q_.x, q_.z)
+                    if sy_ is not None: need = max(need, q_.y - (sy_ - 0.0015))
+            if need > 1e-6:
+                for v_ in f.verts: push[v_] = max(push.get(v_, 0.0), need)
+        if not push: break
+        for v_, d_ in push.items(): v_.co.y -= d_
+    print('   eyeliner', s, 'front triangles', len(front), 'underside quads', len(side_e))
 for s in 'LR':
+    if DRAWN_LASH and LASH_SIL_PX:
+        build_sil_band(s); continue
     poly = lash_poly_studs(s)
     i0 = min(range(len(poly)), key=lambda i: poly[i][0]); i1 = max(range(len(poly)), key=lambda i: poly[i][0])
     n = len(poly)
@@ -712,7 +831,9 @@ for s in 'LR':
     xl, xr = poly[i0][0], poly[i1][0]
     xsl = [xl + (xr - xl) * (0.5 - 0.5 * math.cos(math.pi * k / LASH_COLS)) for k in range(LASH_COLS + 1)]
     if DRAWN_LASH:                 # also a column at every point of the eye's outline (steep corners followed exactly)
-        _ex = sorted({round(p_[0], 5) for p_ in EYES[s] if xl + 1e-4 < p_[0] < xr - 1e-4})
+        _e0, _e1 = eye_xr(s)
+        _ex = sorted({round(p_[0], 5) for p_ in EYES[s] if xl + 1e-4 < p_[0] < xr - 1e-4
+                      and (p_[0] < _e0 + 0.035 or p_[0] > _e1 - 0.035)})    # the corners, where the outline is steep
         _m = sorted(set([round(v, 5) for v in xsl]) | set(_ex))
         xsl = [_m[0]]
         for v in _m[1:]:
@@ -757,6 +878,35 @@ for s in 'LR':
             f.normal_update()
             if f.normal.y > 0: f.normal_flip()
             for l in f.loops: l[uvl].uv = liner_uv(s, l.vert.co.x, l.vert.co.z) if DRAWN_LASH else LASH_UV
+    if DRAWN_LASH:
+        # the band is flat between its columns while the head is curved (strongly at the outer corner): the skin poked
+        # through the middle of some quads (a thin light line / a cut lash tip).  Push the front vertices forward (-y,
+        # so x/z and the drawn texture stay exactly in place) until every point of every quad is in front of the skin.
+        _SK = {}
+        def _skin_y(x, z):
+            k_ = (round(x, 5), round(z, 5))
+            if k_ not in _SK:
+                h_ = BVH.ray_cast(Vector((x, -3.0, z)), Vector((0, 1, 0)))[0]
+                _SK[k_] = h_.y if h_ is not None else None
+            return _SK[k_]
+        _NS = 6
+        for _it in range(6):
+            push = {}
+            for r_ in range(NR):
+                for i in range(NCOL):
+                    q = [rows_[r_][i], rows_[r_][i + 1], rows_[r_ + 1][i + 1], rows_[r_ + 1][i]]
+                    need = 0.0
+                    for a_ in range(_NS + 1):
+                        for b_ in range(_NS + 1):
+                            u_, w_ = a_ / _NS, b_ / _NS
+                            p_ = (q[0].co * (1 - u_) + q[1].co * u_) * (1 - w_) + (q[3].co * (1 - u_) + q[2].co * u_) * w_
+                            sy_ = _skin_y(p_.x, p_.z)
+                            if sy_ is not None: need = max(need, p_.y - (sy_ - 0.0015))
+                    if need > 1e-6:
+                        for v_ in q: push[v_] = max(push.get(v_, 0.0), need)
+            if not push: break
+            for v_, d_ in push.items(): v_.co.y -= d_
+            print('   lash band pushed in front of the skin', s, 'pass', _it, len(push), 'verts, max', round(max(push.values()), 4))
     loop = T_ + B_[-2:0:-1]                                        # outline (front, back pairs)
     # outward direction of each outline edge from the outline's winding (the hooked inner end is concave: a
     # "away from the centroid" test flipped some underside faces inwards -> invisible in Roblox, white showed through)
@@ -764,7 +914,7 @@ for s in 'LR':
     area2 = sum(p2[i][0] * p2[(i + 1) % len(p2)][1] - p2[(i + 1) % len(p2)][0] * p2[i][1] for i in range(len(p2)))
     for i in range(len(loop)):
         (fa, ba), (fb, bb) = loop[i], loop[(i + 1) % len(loop)]
-        f = bm.faces.new((fa, ba, bb, fb)); f.smooth = False
+        f = bm.faces.new((fa, ba, bb, fb)); f.smooth = bool(DRAWN_LASH)   # (drawn: shaded like the skin, no light edge)
         f.normal_update()
         ex_, ez_ = fb.co.x - fa.co.x, fb.co.z - fa.co.z
         out_ = (ez_, -ex_) if area2 > 0 else (-ez_, ex_)            # right-hand normal of a CCW outline points out
@@ -904,6 +1054,10 @@ for s in 'LR':
 REST = [v.co.copy() for v in bm.verts]
 REST_ = REST
 SOCK = [socket_of(v.co) if v.index < SHELL_N else None for v in bm.verts]
+# the visible (front) triangles of each 3D eyeliner, for the blink clearance below
+BAND_TRIS = {s_: [tuple(v.index for v in f.verts) for f in bm.faces
+                  if all(v.index in LASH_IDX[s_] and (surf_y(v.co.x, v.co.z) or 9) - v.co.y > 0.0005 for v in f.verts)]
+             for s_ in 'LR'}
 bm.free()
 tris = sum(len(p.vertices) - 2 for p in head.data.polygons)
 print('triangles', tris, 'verts', len(head.data.vertices))
@@ -960,7 +1114,13 @@ for idx, p in enumerate(REST):
     elif side and idx in LID_IDX[side]:
         w[nm + 'UpperEyelid'] = 1.0
     elif side and idx in LASH_IDX[side] and BLINK_MID:
-        w[nm + 'LashTip'] = 1.0
+        # the middle of the eyeliner comes down fully, its ends (wing, inner tip) less: like a real lid, the closed
+        # eyeliner stays joined to the lower lash line at the corners
+        _x0, _x1 = eye_xr(side); _xm, _hw = (_x0 + _x1) / 2, (_x1 - _x0) / 2
+        _u = abs(REST[idx].x - _xm) / _hw
+        _t = max(0.0, min(1.0, (_u - 0.55) / 0.75))
+        w[nm + 'LashTip'] = 1.0 - 0.6 * _t * _t * (3 - 2 * _t)
+        w['DynamicHead'] = 1.0 - w[nm + 'LashTip']
     elif side and idx in LASH_IDX[side]:
         wt = LASH_WT[idx]
         w[nm + 'UpperEyelid'] = 1.0 - wt
@@ -1022,10 +1182,12 @@ for idx, p in enumerate(REST):
                 w[nms + 'UpperEyelid'] = 0.08 * above * inx * frontish     # skin above the eye follows the lid a little
                 # lower lid / cheek
                 below = smoothstep(zbot - 0.06, zbot - 0.005, z) * smoothstep(zbot + 0.012, zbot, z)
+                if BLINK_MID:           # the lower lid (rim + lower lashes) rises to meet the eyeliner: wide soft falloff
+                    below = smoothstep(zbot - 0.14, zbot - 0.004, z) ** 1.2 * smoothstep(zbot + 0.012, zbot, z) / 0.9
                 # ... fading out towards the eye corners, where the top and bottom rims meet (else the corner rim
                 # vertex moves while its neighbour just above does not -> a folded sliver)
                 corner = smoothstep(0.0, 0.04, min(x - min(xs_), max(xs_) - x))
-                w[nms + 'UnderEye'] = 0.9 * below * inx * frontish * (0.15 + 0.85 * corner)
+                w[nms + 'UnderEye'] = 0.9 * below * inx * frontish * ((0.7 + 0.3 * corner) if BLINK_MID else (0.15 + 0.85 * corner))
                 ck = gauss((x, z), (ex, zbot - 0.07), 0.07) * smoothstep(zbot + 0.005, zbot - 0.03, z) * frontish * 0.7
                 w[nms + 'Cheek'] = ck if ck > 0.06 else 0.0
                 # brows
@@ -1094,6 +1256,24 @@ if BLINK_MID:
             if rest_ > 0.001: w_['DynamicHead'] = rest_
             weights[i] = w_; n_lw += 1
     print('lower socket wall vertices following the lower lid:', n_lw)
+    # a wall vertex must never rise MORE than the rim right in front of it (inner corner: the wall behind a weakly
+    # weighted rim vertex rose past it -> a small white wall face showed in front of the closed eye from the side)
+    n_cap = 0
+    for i in range(SHELL_N):
+        s_ = SOCK[i]
+        if s_ not in ('L', 'R'): continue
+        nm_ = ('Left' if s_ == 'L' else 'Right') + 'UnderEye'
+        wu = weights[i].get(nm_, 0.0)
+        if wu <= 0.01: continue
+        co_, k, d_ = _kd.find(Vector((REST[i].x, 0.0, REST[i].z)))
+        cap = weights[_rim[k]].get(nm_, 0.0)
+        if wu > cap + 1e-4:
+            w_ = dict(weights[i]); w_[nm_] = cap
+            rest_ = 1 - sum(v_ for k_, v_ in w_.items() if k_ != 'DynamicHead')
+            w_['DynamicHead'] = rest_
+            if cap <= 0.0: w_.pop(nm_)
+            weights[i] = w_; n_cap += 1
+    print('socket wall vertices capped to the rim in front:', n_cap)
 
 # ---------------------------------------------------------------- FACS poses (in mask studs; rigid transforms)
 def T(*d): return ('t', Vector(d))
@@ -1207,16 +1387,33 @@ if BLINK_MID:
         xs__ = [q[0] for q in EYES[s_]]; xc__ = (min(xs__) + max(xs__)) / 2
         zt_, zb_ = vertical_span(EYES[s_], xc__)
         travel = -lid_info[s_]['t'].z
-        zmeet = zb_ + 0.42 * (zt_ - zb_)
-        LK[s_] = max(0.2, min(1.0, (zt_ - zmeet) / travel + 0.04))
-        UPZ[s_] = 0.012
-    print('blink in the middle: eyeliner travel', {k: round(v, 3) for k, v in LK.items()})
+        zmeet = zb_ + 0.40 * (zt_ - zb_)
+        LK[s_] = max(0.2, min(1.0, (zt_ - zmeet) / travel + 0.03))
+        UPZ[s_] = zmeet - zb_ - 0.006                    # the lower lash line comes up just under the eyeliner
+    print('blink in the middle: eyeliner travel', {k: round(v, 3) for k, v in LK.items()}, 'lower lid up', {k: round(v, 3) for k, v in UPZ.items()})
+    # the eyeliner slides straight down but the face below the eye is further forward (cheek, nose side): the skin
+    # covered parts of the closed eyeliner (only its spike tips were left showing).  Bring it forward by what it needs
+    # (closed skin level = the surface, the lower lid risen by UPZ), measured on a grid of points of every visible
+    # triangle at the closed position.
+    FWD = {}
+    for s_ in 'LR':
+        tt_ = Vector(lid_info[s_]['t']) * LK[s_]; need_ = 0.0
+        for tri_ in BAND_TRIS[s_]:
+            a_, b_, c_ = (REST[i] + tt_ for i in tri_)
+            for u_ in range(5):
+                for w_ in range(5 - u_):
+                    q_ = a_ + (b_ - a_) * (u_ / 4) + (c_ - a_) * (w_ / 4)
+                    ys_ = [y_ for y_ in (surf_y(q_.x, q_.z), surf_y(q_.x, q_.z - UPZ[s_])) if y_ is not None]
+                    if ys_: need_ = max(need_, q_.y - (min(ys_) - 0.0015))
+        FWD[s_] = need_
+    print('closed eyeliner brought forward by', {k: round(v, 4) for k, v in FWD.items()})
     for pn, pd in P.items():
         for s_, nm_ in (('L', 'Left'), ('R', 'Right')):
             v_ = pd.get(nm_ + 'UpperEyelid')
             if v_ is not None and len(v_) > 3 and v_[2] == 'lid':
                 f_ = v_[3]
-                pd[nm_ + 'LashTip'] = ('t', Vector(lid_info[s_]['t']) * (f_ * LK[s_] if f_ > 0 else f_))
+                pd[nm_ + 'LashTip'] = ('t', Vector(lid_info[s_]['t']) * (f_ * LK[s_] if f_ > 0 else f_)
+                                       - Vector((0, FWD[s_] * max(f_, 0.0), 0)))
                 if f_ >= 0.999:
                     u_ = pd.get(nm_ + 'UnderEye')
                     pd[nm_ + 'UnderEye'] = T(0, 0, UPZ[s_] + (u_[1].z if u_ else 0.0))
@@ -1441,7 +1638,10 @@ for poly in me.polygons:
             pr = Minv @ me.vertices[vi].co                         # rest position (mask studs)
             # the lid only slides (no rotation): its normal is the skin normal where it lies when closed
             pc = Lf['R_close'] @ pr
-            loc, _, fi, _ = TB.find_nearest(pc)
+            # projected from the front (the nearest point snapped onto the side of the nose at the inner corner ->
+            # a wrongly lit speck on the closed lid)
+            loc, _, fi, _ = TB.ray_cast(Vector((pc.x, pc.y - 1.0, pc.z)), Vector((0, 1, 0)))
+            if loc is None: loc, _, fi, _ = TB.find_nearest(pc)
             f = tri_base.faces[fi]
             a, b, c = [x.co for x in f.verts]
             na, nb, nc = [x.normal for x in f.verts]

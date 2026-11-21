@@ -117,6 +117,7 @@ _keep = cv2.GaussianBlur(_keep, (0, 0), 4)
 if not COLOR_FACE:
     alpha *= _keep
 INK = np.array([14, 12, 15], np.float32)
+LASH_BLACK = np.array([6, 5, 7], np.float32)
 INKCOL = None
 SRCMAP = None
 if COLOR_FACE:
@@ -154,6 +155,9 @@ if COLOR_FACE:
     _a = np.clip(np.abs(_d).max(2) / 115.0, 0, 1)
     _a[_a < 0.05] = 0
     _win = np.zeros((H, W), np.float32); _win[380:800, 228:836] = 1.0       # the face only (not the lit head edges)
+    if FACE_STYLE == 'girl2':      # the eye rows reach further out: the eyeliner wings / outer corner points must not fade
+        _lx = min(p[0] for p in LASH_PX['R'])
+        _win[540:640, int(_lx) - 4:int(2 * CX - _lx) + 5] = 1.0
     _a = np.clip((_a - 0.05) / 0.95, 0, 1) * cv2.GaussianBlur(head.astype(np.float32), (0, 0), 3) * cv2.GaussianBlur(_win, (0, 0), 6)
     INKCOL = np.clip(skin + _d / np.maximum(_a, 0.05)[..., None], 0, 255)
     INKCOL = np.where((g < 60)[..., None], INK, INKCOL)
@@ -179,6 +183,45 @@ for side in 'RL':
     _x = np.arange(W, dtype=np.float32)
     _wz = np.maximum(_wz, np.clip(np.maximum(_e0 + 2 - _x, _x - _e1 - 2) / 6, 0, 1) * ((_x > _e0 - 90) & (_x < _e1 + 90)))
 lash_mask = (lash_mask * (1 - _wz[None, :]) + np.minimum(lash_mask, wing_mask) * _wz[None, :]).astype(np.uint8)
+CREASE_KEEP = np.zeros((H, W), np.float32)
+if FACE_STYLE == 'girl2':
+    # strokes that are NOT part of the eyeliner (the thin eyelid crease line above the inner half) but that the band's
+    # outline crosses: keep them whole on the skin and off the 3D eyeliner (else half of the line went down with the
+    # eyeliner when blinking and the other half stayed: loose dark fragments on the closed eye)
+    _gi = im.mean(2) if im.ndim == 3 else im
+    _ink = (_gi < 110).astype(np.uint8)
+    _n, _lab, _st, _ = cv2.connectedComponentsWithStats(_ink, connectivity=8)
+    for side in 'RL':
+        _pm = np.zeros((H, W), np.uint8)
+        cv2.fillPoly(_pm, [np.round(np.array(LASH_PX[side]) * 8).astype(np.int32)], 255, cv2.LINE_8, 3)
+        _ids = [i for i in set(np.unique(_lab[(_pm > 0) & (_ink > 0)])) - {0}]
+        if not _ids: continue
+        _big = max(_ids, key=lambda i: _st[i, 4])
+        for i in _ids:
+            if i != _big and _st[i, 4] >= 30:
+                CREASE_KEEP = np.maximum(CREASE_KEEP, (_lab == i).astype(np.float32))
+        _liner = cv2.dilate((_lab == _big).astype(np.uint8), np.ones((3, 3), np.uint8))
+        CREASE_KEEP *= 1 - _liner
+    CREASE_KEEP = cv2.dilate(CREASE_KEEP, np.ones((7, 7), np.uint8))
+    print('crease strokes kept on the skin px', int((CREASE_KEEP > 0).sum()))
+    # the faint lash strokes just past the band's outline (inner end): on the skin they stayed behind as loose marks
+    # when the eyeliner comes down; erase the ink within a few px around the band (the crease excepted)
+    _near = cv2.dilate(lash_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (int(os.environ.get('LASH_NEAR', 11)),) * 2))
+    _faint = ((_gi < 165) & (_near > 0)).astype(np.uint8) * 255
+    lash_mask = np.maximum(lash_mask, cv2.dilate(_faint, np.ones((3, 3), np.uint8)))
+    if LASH_SIL_PX:
+        # the 3D eyeliner is cut to the drawn silhouette: every dark stroke NOT on it (lower arm of the outer corner,
+        # the thin line down the inner edge) stays on the skin
+        _silm = np.zeros((H, W), np.uint8)
+        for side in 'RL':
+            cv2.fillPoly(_silm, [np.round(np.array(LASH_SIL_PX[side]) * 8).astype(np.int32)], 255, cv2.LINE_8, 3)
+        _sild = cv2.dilate(_silm, np.ones((3, 3), np.uint8))
+        _other = ((_gi < 60) & (_sild == 0)).astype(np.uint8)        # truly dark strokes only (not the grey haze)
+        _no, _lo, _so, _ = cv2.connectedComponentsWithStats(_other, connectivity=8)
+        _other = np.isin(_lo, [i for i in range(1, _no) if _so[i, 4] >= 25]).astype(np.uint8)   # no specks
+        _other = cv2.dilate(_other, np.ones((5, 5), np.uint8)) * (_sild == 0)
+        CREASE_KEEP = np.maximum(CREASE_KEEP, _other.astype(np.float32))
+    lash_mask = (lash_mask * (1 - CREASE_KEEP)).astype(np.uint8)
 ALPHA_FULL = alpha.copy()                              # (girl2: copied onto the 3D eyeliner before erasing)
 # (girl2: the whole band area is cleared on the skin, the grey eyeshadow haze of the drawing included)
 ERASE = cv2.GaussianBlur(lash_mask.astype(np.float32) / 255, (0, 0), 1.0)
@@ -466,7 +509,7 @@ for rect, tone in (((WALL_UP_RECT, (238, 238, 241)), (WALL_LO_RECT, (238, 238, 2
                    ((WALL_UP_RECT, (236, 236, 238)), (WALL_LO_RECT, (222, 222, 225)))):
     x, y, w, h = rect; atlas[y:y + h, x:x + w, :3] = tone; atlas[y:y + h, x:x + w, 3] = 255
 x, y, w, h = MOUTH_RECT; atlas[y:y + h, x:x + w] = (46, 20, 24, 255)
-x, y, w, h = LASH_RECT; atlas[y:y + h, x:x + w] = (16, 14, 17, 255)
+x, y, w, h = LASH_RECT; atlas[y:y + h, x:x + w] = (6, 5, 7, 255) if FACE_STYLE == 'girl2' else (16, 14, 17, 255)
 x, y, w, h = LASH_SIDE_RECT; atlas[y:y + h, x:x + w] = (52, 50, 55, 255)
 x, y, w, h = CLEAR_RECT; atlas[y:y + h, x:x + w] = (0, 0, 0, 0)
 # iris ball: one plain colour = the median of the drawn iris (highlights excluded)
@@ -492,8 +535,17 @@ if FACE_STYLE == 'girl2':
         _lum = c_c.mean(2)
         a_c = a_c * (1 - np.clip((_lum - 70) / 40, 0, 1))            # keep the ink only: no grey haze behind the lashes
         a_c = np.clip((a_c - 0.35) / 0.3, 0, 1)                      # (the haze is ink at low opacity: dropped too)
-        e_c = cv2.remap(eye_mask.astype(np.float32) / 255, sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
-        c_c = c_c * (1 - e_c[..., None]) + INK * e_c[..., None]; a_c = np.maximum(a_c, e_c)
+        a_c *= 1 - cv2.remap(cv2.GaussianBlur(CREASE_KEEP, (0, 0), 0.7), sx_, sy_, cv2.INTER_LINEAR, borderValue=0)   # crease: on the skin only
+        # (the eye mask dilated a few px for the colour: its anti-aliased rim mixed the drawn white into the ink
+        #  -> a thin light dotted line along the bottom of the eyeliner)
+        _ed = cv2.dilate(eye_mask, np.ones((7, 7), np.uint8)).astype(np.float32) / 255
+        e_c = cv2.remap(_ed, sx_, sy_, cv2.INTER_LINEAR, borderValue=0)
+        _ex0, _ex1 = min(p_[0] for p_ in EYE_PX[side]), max(p_[0] for p_ in EYE_PX[side])
+        # (at the corners the undilated mask: the band must not get thicker there)
+        e_c = np.where((sx_ > _ex0 + 4) & (sx_ < _ex1 - 4), e_c, cv2.remap(eye_mask.astype(np.float32) / 255, sx_, sy_, cv2.INTER_LINEAR, borderValue=0))
+        _lit = (c_c.mean(2) > 60) & (e_c > 0.01)       # no drawn eye white left on the eyeliner (white speck at the inner tip)
+        c_c = np.where(_lit[..., None], INK, c_c * (1 - e_c[..., None]) + INK * e_c[..., None]); a_c = np.maximum(a_c, e_c)
+        c_c[:] = LASH_BLACK                                           # the lashes: solid black, nothing grey
         atlas[ry:ry + rh, rx:rx + rw, :3] = c_c; atlas[ry:ry + rh, rx:rx + rw, 3] = a_c * 255
     out = np.clip(atlas, 0, 255).astype(np.uint8)
 cv2.imwrite(f'{OUT}/HeadTexture.png', cv2.cvtColor(out, cv2.COLOR_RGBA2BGRA))
@@ -525,8 +577,9 @@ cv2.imwrite(f'{OUT}/HeadTexture_Emissive.png', np.clip(emis, 0, 255).astype(np.u
 a = out[..., 3].astype(np.float32) / 255
 rough = (0.6 * (1 - a) + 1.0 * a) * 255
 if FACE_STYLE == 'girl2':                              # the drawn 3D eyeliner: fully matte
-    for _r in LINER_RECT.values():
-        rough[_r[1]:_r[1] + _r[3], _r[0]:_r[0] + _r[2]] = 255
+    for _r in LINER_RECT.values():   # (only the ink: its transparent part must reflect like the skin behind it, or the
+        _sl = (slice(_r[1], _r[1] + _r[3]), slice(_r[0], _r[0] + _r[2]))      # band's outline showed as a lighter patch)
+        rough[_sl] = np.where(a[_sl] > 0.25, 255, rough[_sl])
 cv2.imwrite(f'{OUT}/HeadTexture_Roughness.png', np.clip(rough, 0, 255).astype(np.uint8))
 # metalness: 0 everywhere except the PUPIL (white = metal): the 3D black ball (style 'sphere') or the drawn pupil oval
 # (style 'flat'); a black metal reflects (almost) nothing straight on -> the deepest black

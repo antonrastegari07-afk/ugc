@@ -50,9 +50,11 @@ if FACE_STYLE == 'girl':
     PUPIL_AB = (0.40, 0.46)            # big soft round pupil
     BROW_PX = {'R': ((470, 503), (286, 496))}
 
-GIRL2_EYE = [(252, 606), (258, 590), (267, 571), (280, 563), (295, 559), (318, 557), (340, 555.5), (370, 555.5),
-             (405, 555.5), (425, 558), (437, 565), (446, 578), (452, 590), (457, 602), (460, 614), (461, 627), (459, 639),
-             (454, 647), (440, 650), (405, 651), (360, 651), (320, 650), (292, 647), (272, 636), (259, 620)]
+GIRL2_EYE = [(250, 580), (254, 576), (259, 573), (265, 570), (272, 567), (280, 564), (290, 561), (300, 558.5),
+             (318, 557), (340, 555.5), (370, 555.5), (405, 555.5), (425, 558), (437, 565), (446, 578), (452, 590),
+             (457, 602), (460, 614), (461, 627), (459, 639), (454, 647), (440, 650), (405, 651), (360, 651), (320, 650),
+             (305, 649.5), (292, 648), (285, 645), (279, 642), (275, 639), (269, 633), (264, 627), (260, 620),
+             (258, 615), (256, 607), (254, 598), (252, 589)]   # outer corner = the drawn white's edge, measured per row
 # the source image (full resolution) and how it maps onto the reference frame (head silhouette -> IMG box)
 GIRL2_SRC = dict(path='face_ref2_src.png', sx0=152, sx1=1099, sy0=127, sy1=1073, dx0=175, dx1=889, dy0=170, dy1=880)
 def img2src(px, py):
@@ -99,6 +101,7 @@ def girl_lash_poly():
     return [wing[0]] + up + [(top[-1][0] + 6, top[-1][1] + 1)] + top[::-1] + [wing[1]]
 if FACE_STYLE == 'girl':
     LASH_PX['R'] = girl_lash_poly()
+LASH_SIL_PX = None
 if FACE_STYLE == 'girl2':
     LASH_PX['R'] = GIRL2_LASH
     _lj = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'in', 'girl2_lash.json')
@@ -106,6 +109,9 @@ if FACE_STYLE == 'girl2':
         import json as _json
         _jd = _json.load(open(_lj))
         LASH_PX['R'] = [tuple(p) for p in _jd['R']]
+        if 'SIL' in _jd:                     # exact outline of the drawn eyeliner + lashes (the 3D eyeliner's shape)
+            LASH_SIL_PX = {'R': [tuple(p) for p in _jd['SIL']]}
+            LASH_SIL_PX['L'] = _mirror_poly(LASH_SIL_PX['R'])
         if 'EYE' in _jd and _os.environ.get('GIRL2_EYE_TRACED', '0') == '1':
             EYE_PX['R'] = [tuple(p) for p in _jd['EYE']]; EYE_PX['L'] = _mirror_poly(EYE_PX['R'])
 if MIRROR_EYES:
@@ -206,7 +212,8 @@ EYE_RECT_K = 0.74 if FACE_STYLE == 'girl2' else 1.0      # girl2: eye texture a 
 LINER_RECT = {'R': (4, 888, 470, 134), 'L': (480, 888, 470, 134)}
 def liner_box_px(side):
     xs = [p[0] for p in LASH_PX[side]]; ys = [p[1] for p in LASH_PX[side]]
-    return min(xs) - 5, max(xs) + 5, min(ys) - 5, max(ys) + 12
+    return min(xs) - 10, max(xs) + 10, min(ys) - 14, max(ys) + 12   # (wide transparent margins: no mipmap bleed of the
+                                                                   #  white block above onto the band's top edge)
 def liner_scale(side):
     x0, x1, y0, y1 = liner_box_px(side); rx, ry, rw, rh = LINER_RECT[side]
     return min(rw / (x1 - x0), rh / (y1 - y0))

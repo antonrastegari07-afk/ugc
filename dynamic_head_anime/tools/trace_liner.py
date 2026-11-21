@@ -93,6 +93,28 @@ eye_bot = [(float(xs_e[i]), float(sb[i])) for i in idx[::-1][1:-1]]
 xi_, ti_, bi_ = xs_e[-1], st[-1], sb[-1]
 arc = [(float(xi_ + 3.5 * np.sin(a)), float((ti_ + bi_) / 2 - (bi_ - ti_) / 2 * np.cos(a))) for a in np.linspace(0.5, 2.6, 4)]
 eye_poly = eye_top + arc + eye_bot
-json.dump(dict(R=poly, EYE=eye_poly), open(DST, 'w'))
+# the exact silhouette of the eyeliner + lashes (the 3D eyeliner is cut to it: no transparent slab between the spikes)
+# = the liner ink (with its anti-aliased edge, the separate crease line excluded) + a thin strip just inside the
+# opening's top edge (the overhang that hides the rim of the hole)
+sil = comp.copy()                                   # dark ink only (g < 95): no grey haze between the lashes
+OV = float(os.environ.get('SIL_OV', 3.5))
+for x in range(int(ex0) + 1, int(ex1)):
+    t = top_edge(x)
+    if t is not None:
+        sil[int(t + OV) + 1:, x] = False             # (the thin liner along the inner edge stays on the skin)
+        sil[int(t) - 1:int(t + OV) + 1, x] = True
+_yc = top_edge(ex1 - 10) + OV                       # the thin line down the inner edge of the eye: skin, not eyeliner
+sil[int(_yc) + 1:, int(ex1) - 4:int(ex1) + 11] = False
+sil = cv2.morphologyEx(sil.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+SS_ = 4
+big = cv2.resize(sil * 255, (W * SS_, H * SS_), interpolation=cv2.INTER_LINEAR)
+big = cv2.GaussianBlur(big, (0, 0), 2.0)
+big = cv2.dilate((big > 100).astype(np.uint8), np.ones((3, 3), np.uint8))   # ~0.3 px margin around the ink
+cs, _ = cv2.findContours(big, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+c = max(cs, key=cv2.contourArea)
+c = cv2.approxPolyDP(c, float(os.environ.get('SIL_EPS', 0.9)) * SS_, True).reshape(-1, 2).astype(np.float64) / SS_
+SIL = [(float(x), float(y)) for x, y in c]
+print('silhouette points', len(SIL), 'other pieces', len(cs) - 1, 'areas', sorted(int(cv2.contourArea(k) / SS_ ** 2) for k in cs)[-4:])
+json.dump(dict(R=poly, EYE=eye_poly, SIL=SIL), open(DST, 'w'))
 print('eye opening from the drawing: x', int(xs_e[0]), int(xs_e[-1]), 'top', round(float(st.min()), 1), 'bottom', round(float(sb.max()), 1))
 print('liner outline points', len(poly), 'x', int(x_lo), int(x_hi), 'top', int(min(p[1] for p in top)))

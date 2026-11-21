@@ -265,6 +265,7 @@ for s in 'LR':
         if cnt.get('lid'):
             vis[f'{s}:{dn}'] = cnt['lid']
 rest_poke = [i for i in lid_v if in_front_of_skin(co[i])]
+if rest_poke and os.environ.get("POKEDBG"): print("POKE", [tuple(round(t, 3) for t in co[i]) for i in rest_poke])
 print(('ok ' if not vis and not rest_poke else '!! ') + f'rest: parked lid visible from {vis or "nowhere"}, lid in front of skin: {len(rest_poke)}')
 if vis or rest_poke: problems.append('rest')
 
